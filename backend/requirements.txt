@@ -1,0 +1,11 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pydantic-settings==2.7.0
+python-dotenv==1.0.1
+httpx==0.28.1
+openai==1.59.6
+pinecone==5.4.2
+langfuse==2.57.0
+mcp==1.2.0
+pytest==8.3.4
