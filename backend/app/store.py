@@ -116,10 +116,17 @@ def get_mandate(mandate_id: str) -> Optional[Mandate]:
 
 
 def get_active_mandate(user_id: str, agent_id: str) -> Optional[Mandate]:
+    """Returns the mandate currently governing this agent.
+
+    Prefers an ACTIVE mandate; if none is active it still returns the most
+    recent one so the caller can distinguish "revoked" from "never existed".
+    Collapsing those two into one answer would tell the shopper to create a
+    mandate they already have, and would lose the revocation audit trail.
+    """
     with _conn() as cx:
         r = cx.execute(
-            "SELECT * FROM mandates WHERE user_id=? AND agent_id=? AND active=1 "
-            "ORDER BY updated_at DESC LIMIT 1",
+            "SELECT * FROM mandates WHERE user_id=? AND agent_id=? "
+            "ORDER BY active DESC, created_at DESC, updated_at DESC LIMIT 1",
             (user_id, agent_id),
         ).fetchone()
     return _row_to_mandate(r) if r else None
