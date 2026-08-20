@@ -1,0 +1,487 @@
+[
+  {
+    "sku": "SKU-PAS-001",
+    "name": "Durum Wheat Penne 500g",
+    "category": "pantry",
+    "price_paise": 9900,
+    "tags": [
+      "pasta",
+      "italian",
+      "dinner",
+      "staple"
+    ],
+    "description": "Bronze-die penne, holds sauce well."
+  },
+  {
+    "sku": "SKU-PAS-002",
+    "name": "Spaghetti No.5 500g",
+    "category": "pantry",
+    "price_paise": 8900,
+    "tags": [
+      "pasta",
+      "italian",
+      "dinner",
+      "staple"
+    ],
+    "description": "Classic spaghetti for weeknight dinners."
+  },
+  {
+    "sku": "SKU-SAU-001",
+    "name": "San Marzano Tomato Passata 700g",
+    "category": "pantry",
+    "price_paise": 24900,
+    "tags": [
+      "tomato",
+      "pasta",
+      "sauce",
+      "italian",
+      "dinner"
+    ],
+    "description": "Sweet, low-acid passata for red sauce."
+  },
+  {
+    "sku": "SKU-SAU-002",
+    "name": "Basil Pesto 190g",
+    "category": "pantry",
+    "price_paise": 34900,
+    "tags": [
+      "pesto",
+      "pasta",
+      "italian",
+      "sauce",
+      "dinner"
+    ],
+    "description": "Genovese-style basil pesto."
+  },
+  {
+    "sku": "SKU-CHE-001",
+    "name": "Parmigiano Reggiano 200g",
+    "category": "dairy",
+    "price_paise": 89900,
+    "tags": [
+      "cheese",
+      "italian",
+      "pasta",
+      "premium",
+      "dinner"
+    ],
+    "description": "24-month aged, premium hard cheese."
+  },
+  {
+    "sku": "SKU-CHE-002",
+    "name": "Mozzarella Block 200g",
+    "category": "dairy",
+    "price_paise": 21900,
+    "tags": [
+      "cheese",
+      "italian",
+      "pizza",
+      "dinner"
+    ],
+    "description": "Semi-soft mozzarella for melting."
+  },
+  {
+    "sku": "SKU-CHE-003",
+    "name": "Processed Cheese Slices 200g",
+    "category": "dairy",
+    "price_paise": 13500,
+    "tags": [
+      "cheese",
+      "sandwich",
+      "breakfast"
+    ],
+    "description": "Everyday cheese slices."
+  },
+  {
+    "sku": "SKU-VEG-001",
+    "name": "Roma Tomatoes 1kg",
+    "category": "produce",
+    "price_paise": 6900,
+    "tags": [
+      "tomato",
+      "vegetable",
+      "pasta",
+      "dinner",
+      "fresh"
+    ],
+    "description": "Firm plum tomatoes."
+  },
+  {
+    "sku": "SKU-VEG-002",
+    "name": "Yellow Onions 1kg",
+    "category": "produce",
+    "price_paise": 4500,
+    "tags": [
+      "vegetable",
+      "staple",
+      "fresh",
+      "dinner"
+    ],
+    "description": "Everyday cooking onions."
+  },
+  {
+    "sku": "SKU-VEG-003",
+    "name": "Garlic 250g",
+    "category": "produce",
+    "price_paise": 5500,
+    "tags": [
+      "vegetable",
+      "staple",
+      "fresh",
+      "italian",
+      "dinner"
+    ],
+    "description": "Fresh whole garlic bulbs."
+  },
+  {
+    "sku": "SKU-VEG-004",
+    "name": "Fresh Basil 50g",
+    "category": "produce",
+    "price_paise": 7900,
+    "tags": [
+      "herb",
+      "italian",
+      "pasta",
+      "fresh",
+      "dinner"
+    ],
+    "description": "Aromatic basil leaves."
+  },
+  {
+    "sku": "SKU-VEG-005",
+    "name": "Baby Spinach 250g",
+    "category": "produce",
+    "price_paise": 8900,
+    "tags": [
+      "vegetable",
+      "salad",
+      "fresh",
+      "healthy"
+    ],
+    "description": "Washed baby spinach."
+  },
+  {
+    "sku": "SKU-OIL-001",
+    "name": "Extra Virgin Olive Oil 500ml",
+    "category": "pantry",
+    "price_paise": 64900,
+    "tags": [
+      "oil",
+      "italian",
+      "cooking",
+      "staple"
+    ],
+    "description": "Cold-pressed EVOO."
+  },
+  {
+    "sku": "SKU-OIL-002",
+    "name": "Sunflower Oil 1L",
+    "category": "pantry",
+    "price_paise": 19900,
+    "tags": [
+      "oil",
+      "cooking",
+      "staple"
+    ],
+    "description": "Refined sunflower cooking oil."
+  },
+  {
+    "sku": "SKU-STA-001",
+    "name": "Basmati Rice 5kg",
+    "category": "pantry",
+    "price_paise": 64900,
+    "tags": [
+      "rice",
+      "staple",
+      "indian",
+      "bulk"
+    ],
+    "description": "Aged long-grain basmati."
+  },
+  {
+    "sku": "SKU-STA-002",
+    "name": "Whole Wheat Atta 5kg",
+    "category": "pantry",
+    "price_paise": 29900,
+    "tags": [
+      "flour",
+      "staple",
+      "indian",
+      "bulk"
+    ],
+    "description": "Chakki-fresh atta."
+  },
+  {
+    "sku": "SKU-STA-003",
+    "name": "Toor Dal 1kg",
+    "category": "pantry",
+    "price_paise": 17900,
+    "tags": [
+      "dal",
+      "staple",
+      "indian",
+      "protein"
+    ],
+    "description": "Split pigeon peas."
+  },
+  {
+    "sku": "SKU-DAI-001",
+    "name": "Toned Milk 1L",
+    "category": "dairy",
+    "price_paise": 6600,
+    "tags": [
+      "milk",
+      "dairy",
+      "breakfast",
+      "staple"
+    ],
+    "description": "Homogenised toned milk."
+  },
+  {
+    "sku": "SKU-DAI-002",
+    "name": "Greek Yoghurt 400g",
+    "category": "dairy",
+    "price_paise": 14900,
+    "tags": [
+      "yoghurt",
+      "dairy",
+      "breakfast",
+      "healthy"
+    ],
+    "description": "Thick, high-protein yoghurt."
+  },
+  {
+    "sku": "SKU-DAI-003",
+    "name": "Salted Butter 500g",
+    "category": "dairy",
+    "price_paise": 29900,
+    "tags": [
+      "butter",
+      "dairy",
+      "baking",
+      "breakfast"
+    ],
+    "description": "Creamery salted butter."
+  },
+  {
+    "sku": "SKU-DAI-004",
+    "name": "Free-Range Eggs (12)",
+    "category": "dairy",
+    "price_paise": 13900,
+    "tags": [
+      "eggs",
+      "protein",
+      "breakfast"
+    ],
+    "description": "Dozen free-range eggs."
+  },
+  {
+    "sku": "SKU-BAK-001",
+    "name": "Sourdough Loaf 400g",
+    "category": "bakery",
+    "price_paise": 19900,
+    "tags": [
+      "bread",
+      "bakery",
+      "breakfast"
+    ],
+    "description": "Naturally leavened sourdough."
+  },
+  {
+    "sku": "SKU-BAK-002",
+    "name": "Multigrain Bread 400g",
+    "category": "bakery",
+    "price_paise": 6500,
+    "tags": [
+      "bread",
+      "bakery",
+      "breakfast",
+      "healthy"
+    ],
+    "description": "Sliced multigrain sandwich bread."
+  },
+  {
+    "sku": "SKU-BEV-001",
+    "name": "Arabica Coffee Beans 250g",
+    "category": "beverages",
+    "price_paise": 54900,
+    "tags": [
+      "coffee",
+      "beverage",
+      "breakfast",
+      "premium"
+    ],
+    "description": "Single-origin arabica, whole bean."
+  },
+  {
+    "sku": "SKU-BEV-002",
+    "name": "Assam Tea 250g",
+    "category": "beverages",
+    "price_paise": 21900,
+    "tags": [
+      "tea",
+      "beverage",
+      "breakfast"
+    ],
+    "description": "Strong CTC Assam tea."
+  },
+  {
+    "sku": "SKU-BEV-003",
+    "name": "Orange Juice 1L",
+    "category": "beverages",
+    "price_paise": 15900,
+    "tags": [
+      "juice",
+      "beverage",
+      "breakfast"
+    ],
+    "description": "Not-from-concentrate orange juice."
+  },
+  {
+    "sku": "SKU-SNK-001",
+    "name": "Dark Chocolate 70% 100g",
+    "category": "snacks",
+    "price_paise": 29900,
+    "tags": [
+      "chocolate",
+      "snack",
+      "dessert",
+      "premium"
+    ],
+    "description": "Single-origin dark chocolate."
+  },
+  {
+    "sku": "SKU-SNK-002",
+    "name": "Salted Potato Chips 150g",
+    "category": "snacks",
+    "price_paise": 6000,
+    "tags": [
+      "chips",
+      "snack"
+    ],
+    "description": "Kettle-cooked salted chips."
+  },
+  {
+    "sku": "SKU-SNK-003",
+    "name": "Roasted Almonds 500g",
+    "category": "snacks",
+    "price_paise": 64900,
+    "tags": [
+      "nuts",
+      "snack",
+      "healthy",
+      "premium"
+    ],
+    "description": "Dry-roasted California almonds."
+  },
+  {
+    "sku": "SKU-HOU-001",
+    "name": "Dishwash Liquid 750ml",
+    "category": "household",
+    "price_paise": 18900,
+    "tags": [
+      "cleaning",
+      "household",
+      "staple"
+    ],
+    "description": "Lemon dishwashing liquid."
+  },
+  {
+    "sku": "SKU-HOU-002",
+    "name": "Laundry Detergent 2kg",
+    "category": "household",
+    "price_paise": 44900,
+    "tags": [
+      "cleaning",
+      "household",
+      "laundry"
+    ],
+    "description": "Front-load detergent powder."
+  },
+  {
+    "sku": "SKU-HOU-003",
+    "name": "Kitchen Paper Towels (4)",
+    "category": "household",
+    "price_paise": 23900,
+    "tags": [
+      "household",
+      "cleaning",
+      "paper"
+    ],
+    "description": "Two-ply absorbent towels."
+  },
+  {
+    "sku": "SKU-PER-001",
+    "name": "Shampoo 340ml",
+    "category": "personal_care",
+    "price_paise": 39900,
+    "tags": [
+      "haircare",
+      "personal",
+      "bath"
+    ],
+    "description": "Anti-hairfall shampoo."
+  },
+  {
+    "sku": "SKU-PER-002",
+    "name": "Toothpaste 200g",
+    "category": "personal_care",
+    "price_paise": 14900,
+    "tags": [
+      "oral",
+      "personal",
+      "bath"
+    ],
+    "description": "Fluoride toothpaste."
+  },
+  {
+    "sku": "SKU-ELE-001",
+    "name": "Wireless Earbuds",
+    "category": "electronics",
+    "price_paise": 549900,
+    "tags": [
+      "audio",
+      "electronics",
+      "premium",
+      "gadget"
+    ],
+    "description": "ANC true-wireless earbuds."
+  },
+  {
+    "sku": "SKU-ELE-002",
+    "name": "65W USB-C Charger",
+    "category": "electronics",
+    "price_paise": 199900,
+    "tags": [
+      "charger",
+      "electronics",
+      "gadget"
+    ],
+    "description": "GaN fast charger."
+  },
+  {
+    "sku": "SKU-ELE-003",
+    "name": "Smart LED Bulb",
+    "category": "electronics",
+    "price_paise": 89900,
+    "tags": [
+      "lighting",
+      "electronics",
+      "smart-home",
+      "gadget"
+    ],
+    "description": "Wi-Fi colour LED bulb."
+  },
+  {
+    "sku": "SKU-GFT-001",
+    "name": "Gift Card ₹5000",
+    "category": "gift_cards",
+    "price_paise": 500000,
+    "tags": [
+      "giftcard",
+      "gift",
+      "high-risk"
+    ],
+    "description": "Digital gift card — high fraud-risk category."
+  }
+]
