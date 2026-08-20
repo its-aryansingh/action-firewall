@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.db
+
+# Node
+node_modules/
+.next/
+out/
+
+# Env — never commit Razorpay keys
+.env
+.env.local
+!.env.example
+!.env.local.example
+
+# Misc
+.DS_Store
+.pytest_cache/
