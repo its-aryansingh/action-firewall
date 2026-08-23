@@ -149,8 +149,6 @@ def test_committed_key_replays_stored_result(mandate):
 # ---------------------------------------------------------------------------
 # End-to-end: two agent turns checking out at the same instant
 # ---------------------------------------------------------------------------
-# End-to-end: two agent turns checking out at the same instant
-# ---------------------------------------------------------------------------
 def test_two_concurrent_checkouts_cannot_both_settle(mandate):
     """The real shape of the attack: one mandate, two sessions, same moment."""
     from app.agent import handle_turn, reset_session
@@ -173,3 +171,21 @@ def test_two_concurrent_checkouts_cannot_both_settle(mandate):
     assert store.spent_in_window(mandate.id, mandate.window) <= CAP_PAISE
 
 
+def test_same_session_retry_is_idempotent_end_to_end(mandate):
+    """A re-sent checkout inside one session must not charge twice."""
+    from app.agent import handle_turn, reset_session
+    from app.models import ChatRequest
+
+    sid = "retry_session"
+    handle_turn(ChatRequest(session_id=sid, message="add the parmigiano reggiano"))
+    first = handle_turn(ChatRequest(session_id=sid, message="checkout please"))
+    ref = first.tools[0].result.get("id")
+
+    # Client never saw the response and re-sends the same basket + key.
+    handle_turn(ChatRequest(session_id=sid, message="add the parmigiano reggiano"))
+    second = handle_turn(ChatRequest(session_id=sid, message="checkout please"))
+    reset_session(sid)
+
+    assert second.tools[0].result.get("replayed") is True
+    assert second.tools[0].result.get("id") == ref
+    assert store.spent_in_window(mandate.id, mandate.window) == 89_900

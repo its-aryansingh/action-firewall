@@ -45,7 +45,7 @@ def main() -> None:
     say("Add the Parmigiano Reggiano and the olive oil, then check out")
 
     print("\n--- ACT 3: graceful recovery within the mandate ---")
-    say("Remove the parmigiano and the olive oil")
+    say("Remove the parmigiano")
     say("Checkout please")
 
     print("\n--- ACT 4: revocation latency ---")
