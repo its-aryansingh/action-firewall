@@ -12,9 +12,11 @@ say). Money is gated by `mandate.verify_for_agent`, which is deterministic
 and unit-tested. An LLM that hallucinates cannot spend money here.
 """
 from __future__ import annotations
+import hashlib
 import json
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Any
 
 from . import catalog, store
@@ -111,20 +113,37 @@ def _llm_plan(message: str, retrieved: list[dict], cart: Cart,
         return None
 
 
+@lru_cache
+def _name_word_df() -> dict[str, int]:
+    """How many catalog products use each word in their name."""
+    df: dict[str, int] = {}
+    for p in catalog.load_catalog():
+        for w in set(re.findall(r"[a-z]+", p["name"].lower())):
+            if len(w) > 2:
+                df[w] = df.get(w, 0) + 1
+    return df
+
+
 def _mentioned_skus(message: str) -> list[str]:
     """Resolve explicit product mentions ("add the parmigiano") to SKUs.
-    Matches on distinctive words in the product name, longest name first so
-    'tomato passata' wins over 'tomatoes'."""
+
+    A product matches only if the shopper used at least one word UNIQUE to it.
+    Matching on shared words alone is what made "the olive oil" also pull in
+    Sunflower Oil: both contain "oil", but only one contains "olive". Requiring
+    a discriminating word is the difference between an agent that knows what it
+    is buying and one that is guessing.
+    """
     low = message.lower()
+    df = _name_word_df()
     hits: list[str] = []
-    products = sorted(catalog.load_catalog(), key=lambda p: -len(p["name"]))
-    for p in products:
+    for p in sorted(catalog.load_catalog(), key=lambda p: -len(p["name"])):
         words = [w for w in re.findall(r"[a-z]+", p["name"].lower()) if len(w) > 2]
-        if not words:
-            continue
         matched = [w for w in words if w in low]
-        need = 1 if len(words) <= 2 else 2
-        if len(matched) >= need and p["sku"] not in hits:
+        if not matched:
+            continue
+        if min(df[w] for w in matched) > 1:
+            continue        # only generic words matched — not a real reference
+        if p["sku"] not in hits:
             hits.append(p["sku"])
     return hits
 
@@ -174,6 +193,18 @@ def _heuristic_plan(message: str, retrieved: list[dict], cart: Cart) -> dict:
     if intent == "checkout" and (added or removed):
         reply += " Taking it to checkout."
     return {"reply": reply, "cart_ops": ops, "intent": intent}
+
+
+def cart_idempotency_key(mandate_id: str, mandate_version: int, cart: Cart) -> str:
+    """Stable identity for one logical purchase.
+
+    Same mandate, same version, same basket -> same key, so a retry reserves
+    the headroom once and replays the original Razorpay reference instead of
+    charging twice.
+    """
+    basket = sorted((l.sku, l.qty, l.unit_price_paise) for l in cart.lines)
+    raw = json.dumps([mandate_id, mandate_version, basket], separators=(",", ":"))
+    return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
 
 def _apply_ops(cart: Cart, ops: list[dict]) -> Cart:
@@ -267,6 +298,54 @@ def handle_turn(req: ChatRequest) -> ChatResponse:
     if intent == "checkout" and proposed.lines:
         client = get_client()
 
+        # Phase 1 of two-phase settlement: claim the headroom atomically BEFORE
+        # touching Razorpay. `decision` above is advisory — it can go stale in
+        # the microseconds before the tool call. This reservation cannot.
+        idem = cart_idempotency_key(decision.mandate_id or "",
+                                    decision.mandate_version or 0, proposed)
+        with trace.span("reserve_headroom", input={"idempotency_key": idem}) as sp:
+            reservation = store.reserve_headroom(
+                decision.mandate_id, proposed.total_paise, idem)
+            sp["output"] = reservation.model_dump(mode="json")
+            sp["level"] = "DEFAULT" if reservation.granted else "WARNING"
+            sp["status_message"] = reservation.reason
+
+        if not reservation.granted:
+            # Lost a race, or the mandate changed under us mid-turn.
+            store.log_event(event="RESERVATION_DENIED", session_id=req.session_id,
+                            mandate_id=decision.mandate_id,
+                            mandate_version=decision.mandate_version,
+                            code=reservation.reason,
+                            cart_total_paise=proposed.total_paise,
+                            payload={"headroom_paise": reservation.headroom_paise})
+            tools.append(ToolInvocation(name="create_payment_link",
+                                        args={"amount": proposed.total_paise},
+                                        blocked=True))
+            reply = (f"Another purchase under this mandate settled while I was working, "
+                     f"so {rupees(proposed.total_paise)} no longer fits — "
+                     f"{rupees(reservation.headroom_paise)} is left. Nothing was charged.")
+            trace.end(output=reply)
+            sess.history += [{"role": "user", "content": req.message},
+                             {"role": "assistant", "content": reply}]
+            return ChatResponse(session_id=req.session_id, reply=reply, cart=sess.cart,
+                                decision=decision, tools=tools, trace_url=trace.url)
+
+        if reservation.replayed and reservation.razorpay_ref:
+            # This exact basket already settled. Do not charge again.
+            reply = (f"This order already went through — reusing payment reference "
+                     f"{reservation.razorpay_ref} rather than charging you twice.")
+            tools.append(ToolInvocation(name="create_payment_link",
+                                        args={"idempotency_key": idem},
+                                        result={"id": reservation.razorpay_ref,
+                                                "replayed": True}))
+            trace.event(name="idempotent_replay", metadata={"ref": reservation.razorpay_ref})
+            sess.cart = Cart()
+            trace.end(output=reply)
+            sess.history += [{"role": "user", "content": req.message},
+                             {"role": "assistant", "content": reply}]
+            return ChatResponse(session_id=req.session_id, reply=reply, cart=sess.cart,
+                                decision=decision, tools=tools, trace_url=trace.url)
+
         with trace.span("mcp_tool_call", input={"tool": "create_payment_link"}) as sp:
             args = {
                 "amount": proposed.total_paise,
@@ -274,8 +353,11 @@ def handle_turn(req: ChatRequest) -> ChatResponse:
                 "description": f"Agentic cart ({len(proposed.lines)} items) "
                                f"under mandate {decision.mandate_id}",
                 "accept_partial": False,
+                "reference_id": idem,
                 "notes": {"mandate_id": decision.mandate_id or "",
                           "mandate_version": str(decision.mandate_version),
+                          "reservation_id": reservation.id or "",
+                          "idempotency_key": idem,
                           "agent_id": req.agent_id, "session_id": req.session_id},
             }
             try:
@@ -285,9 +367,11 @@ def handle_turn(req: ChatRequest) -> ChatResponse:
                                             result=payload if isinstance(payload, dict) else
                                             {"text": str(payload)}))
                 sp["output"] = payload
-                store.record_spend(decision.mandate_id, proposed.total_paise,
-                                   razorpay_ref=(payload or {}).get("id")
-                                   if isinstance(payload, dict) else None)
+                # Phase 2: money moved, so the hold becomes permanent.
+                store.commit_reservation(
+                    reservation.id,
+                    razorpay_ref=(payload or {}).get("id")
+                    if isinstance(payload, dict) else None)
                 store.log_event(event="MCP_TOOL_CALL", session_id=req.session_id,
                                 mandate_id=decision.mandate_id,
                                 mandate_version=decision.mandate_version,
@@ -300,9 +384,13 @@ def handle_turn(req: ChatRequest) -> ChatResponse:
                          + (f": {link}" if link else "."))
                 sess.cart = Cart()
             except MandateViolation as exc:
+                store.release_reservation(reservation.id)
                 sp["level"] = "ERROR"; sp["status_message"] = str(exc)
                 reply = decision.human_message
             except Exception as exc:  # network / Razorpay error
+                # Nothing settled, so give the headroom straight back rather
+                # than letting a failed call eat the customer's budget.
+                store.release_reservation(reservation.id)
                 sp["level"] = "ERROR"; sp["status_message"] = str(exc)
                 store.log_event(event="MCP_TOOL_ERROR", session_id=req.session_id,
                                 mandate_id=decision.mandate_id, payload={"error": str(exc)})
