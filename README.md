@@ -48,8 +48,8 @@ Shopper (Next.js chat)
 ```
 
 The LLM produces a **proposal**. It never decides whether money may move.
-`app/mandate.py:verify()` is a pure function with no I/O, and it is the only path to a
-money tool — `mcp_client.call_tool()` raises `MandateViolation` if handed a denied
+`app/mandate.py:verify()` is a pure function with no I/O, and no money tool is
+reachable without a headroom reservation — `mcp_client.call_tool()` raises `MandateViolation` if handed a denied
 decision, so even a caller that ignores the gate cannot spend. Defence in depth.
 
 ## Repository layout
@@ -65,7 +65,7 @@ backend/
     observability.py   Langfuse spans / scores
     models.py          domain models — all money in integer paise
     main.py            FastAPI routes
-  tests/             22 tests, the money-gate boundary cases first
+  tests/             32 tests — money-gate boundaries, then the concurrency race
   scripts/demo.py    headless dress rehearsal of the live demo
 frontend/
   app/page.tsx           AI buyer chat, with the mandate verdict on every turn
@@ -95,7 +95,7 @@ npm run dev                                          # http://localhost:3000
 cd backend && python scripts/demo.py
 
 # 4. Prove the gate
-cd backend && pytest -q                              # 22 passed
+cd backend && pytest -q                              # 32 passed
 ```
 
 ### Going live
@@ -120,6 +120,34 @@ For an AI coding assistant to reach the same server, the equivalent config is:
     "mcp-remote", "https://mcp.razorpay.com/mcp",
     "--header", "Authorization: Basic <base64 token>" ] } } }
 ```
+
+## Two-phase settlement
+
+`mandate_check → mcp_tool_call` is a check-then-act sequence, and check-then-act is
+the largest single vulnerability class catalogued in the agentic-commerce literature.
+Two turns running at once both read the same headroom and both spend it.
+
+`tests/test_concurrency.py::test_naive_check_then_act_overspends` reproduces exactly
+that against the unguarded path — eight threads through a barrier settle ₹2,400
+against a ₹1,000 cap. The fix is a reservation:
+
+```
+reserve_headroom()   BEGIN IMMEDIATE; re-read consumption; write the hold; COMMIT
+      ↓              a live reservation counts against the cap while in flight
+create_payment_link  Razorpay
+      ↓
+commit_reservation() success — the hold becomes permanent
+release_reservation() failure — the headroom goes straight back
+```
+
+Reservations carry a TTL, so a crashed turn cannot hold a mandate hostage, and an
+idempotency key, so a retry claims the same hold rather than a second one. The key is
+scoped to the session: two shoppers buying the same basket are two purchases, one
+shopper re-sending the same basket is a retry. Clients that can generate a real key
+may pass one on `ChatRequest.idempotency_key`.
+
+The idempotency check runs **before** the mandate gate. A retry of an already-settled
+purchase would otherwise be blocked by the cap that its own spend now fills.
 
 ## The mandate model
 
@@ -159,6 +187,11 @@ Exposed at `GET /metrics` and rendered on `/audit`:
   drops the priciest lines until the cart fits the remaining headroom, then re-verifies.
 - **The audit log is append-only and written before the tool call**, so a blocked attempt
   is as durable as a successful one.
+- **A revoked mandate is reported as revoked, not as absent.** Collapsing the two tells
+  the shopper to create a mandate they already have and loses the revocation record.
+- **A product mention resolves only on a word unique to that product.** "The olive oil"
+  must not also buy sunflower oil; every mis-resolved SKU is money moved against the
+  wrong basket.
 
 ## Track 01 requirements → where they are met
 
