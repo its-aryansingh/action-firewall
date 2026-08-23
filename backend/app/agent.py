@@ -16,7 +16,6 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass, field
-from functools import lru_cache
 from typing import Any
 
 from . import catalog, store
@@ -113,37 +112,20 @@ def _llm_plan(message: str, retrieved: list[dict], cart: Cart,
         return None
 
 
-@lru_cache
-def _name_word_df() -> dict[str, int]:
-    """How many catalog products use each word in their name."""
-    df: dict[str, int] = {}
-    for p in catalog.load_catalog():
-        for w in set(re.findall(r"[a-z]+", p["name"].lower())):
-            if len(w) > 2:
-                df[w] = df.get(w, 0) + 1
-    return df
-
-
 def _mentioned_skus(message: str) -> list[str]:
     """Resolve explicit product mentions ("add the parmigiano") to SKUs.
-
-    A product matches only if the shopper used at least one word UNIQUE to it.
-    Matching on shared words alone is what made "the olive oil" also pull in
-    Sunflower Oil: both contain "oil", but only one contains "olive". Requiring
-    a discriminating word is the difference between an agent that knows what it
-    is buying and one that is guessing.
-    """
+    Matches on distinctive words in the product name, longest name first so
+    'tomato passata' wins over 'tomatoes'."""
     low = message.lower()
-    df = _name_word_df()
     hits: list[str] = []
-    for p in sorted(catalog.load_catalog(), key=lambda p: -len(p["name"])):
+    products = sorted(catalog.load_catalog(), key=lambda p: -len(p["name"]))
+    for p in products:
         words = [w for w in re.findall(r"[a-z]+", p["name"].lower()) if len(w) > 2]
-        matched = [w for w in words if w in low]
-        if not matched:
+        if not words:
             continue
-        if min(df[w] for w in matched) > 1:
-            continue        # only generic words matched — not a real reference
-        if p["sku"] not in hits:
+        matched = [w for w in words if w in low]
+        need = 1 if len(words) <= 2 else 2
+        if len(matched) >= need and p["sku"] not in hits:
             hits.append(p["sku"])
     return hits
 
@@ -264,6 +246,36 @@ def handle_turn(req: ChatRequest) -> ChatResponse:
     proposed = _apply_ops(sess.cart, plan.get("cart_ops", []))
     reply = plan.get("reply", "")
     intent = plan.get("intent", "discover")
+
+    # 2b. IDEMPOTENCY SHORT-CIRCUIT ------------------------------------
+    # Runs ahead of the mandate check on purpose: a settled purchase is already
+    # counted against the cap, so re-checking the cap on a retry of that same
+    # purchase would block it as though it were a second one.
+    if intent == "checkout" and proposed.lines:
+        _m = store.get_active_mandate(req.user_id, req.agent_id)
+        if _m:
+            _key = req.idempotency_key or cart_idempotency_key(
+                req.session_id, _m.id, _m.version, proposed)
+            _prior = store.find_committed_reservation(_m.id, _key)
+            if _prior and _prior.razorpay_ref:
+                reply = (f"This order already went through — reusing payment reference "
+                         f"{_prior.razorpay_ref} rather than charging you twice.")
+                tools.append(ToolInvocation(
+                    name="create_payment_link", args={"idempotency_key": _key},
+                    result={"id": _prior.razorpay_ref, "replayed": True}))
+                trace.event(name="idempotent_replay",
+                            metadata={"ref": _prior.razorpay_ref, "key": _key})
+                store.log_event(event="IDEMPOTENT_REPLAY", session_id=req.session_id,
+                                mandate_id=_m.id, mandate_version=_m.version,
+                                code="ALLOW", cart_total_paise=proposed.total_paise,
+                                payload={"razorpay_ref": _prior.razorpay_ref})
+                sess.cart = Cart()
+                trace.end(output=reply)
+                sess.history += [{"role": "user", "content": req.message},
+                                 {"role": "assistant", "content": reply}]
+                return ChatResponse(session_id=req.session_id, reply=reply,
+                                    cart=sess.cart, decision=None, tools=tools,
+                                    trace_url=trace.url)
 
     # 3. MANDATE CHECK — always, on every turn, before any money tool ----
     with trace.span("mandate_check", input={
