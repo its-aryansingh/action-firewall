@@ -16,6 +16,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Any
 
 from . import catalog, store
@@ -112,20 +113,37 @@ def _llm_plan(message: str, retrieved: list[dict], cart: Cart,
         return None
 
 
+@lru_cache
+def _name_word_df() -> dict[str, int]:
+    """How many catalog products use each word in their name."""
+    df: dict[str, int] = {}
+    for p in catalog.load_catalog():
+        for w in set(re.findall(r"[a-z]+", p["name"].lower())):
+            if len(w) > 2:
+                df[w] = df.get(w, 0) + 1
+    return df
+
+
 def _mentioned_skus(message: str) -> list[str]:
     """Resolve explicit product mentions ("add the parmigiano") to SKUs.
-    Matches on distinctive words in the product name, longest name first so
-    'tomato passata' wins over 'tomatoes'."""
+
+    A product matches only if the shopper used at least one word UNIQUE to it.
+    Matching on shared words alone is what made "the olive oil" also pull in
+    Sunflower Oil: both contain "oil", but only one contains "olive". Requiring
+    a discriminating word is the difference between an agent that knows what it
+    is buying and one that is guessing.
+    """
     low = message.lower()
+    df = _name_word_df()
     hits: list[str] = []
-    products = sorted(catalog.load_catalog(), key=lambda p: -len(p["name"]))
-    for p in products:
+    for p in sorted(catalog.load_catalog(), key=lambda p: -len(p["name"])):
         words = [w for w in re.findall(r"[a-z]+", p["name"].lower()) if len(w) > 2]
-        if not words:
-            continue
         matched = [w for w in words if w in low]
-        need = 1 if len(words) <= 2 else 2
-        if len(matched) >= need and p["sku"] not in hits:
+        if not matched:
+            continue
+        if min(df[w] for w in matched) > 1:
+            continue        # only generic words matched — not a real reference
+        if p["sku"] not in hits:
             hits.append(p["sku"])
     return hits
 
