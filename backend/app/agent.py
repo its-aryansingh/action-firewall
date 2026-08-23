@@ -195,15 +195,23 @@ def _heuristic_plan(message: str, retrieved: list[dict], cart: Cart) -> dict:
     return {"reply": reply, "cart_ops": ops, "intent": intent}
 
 
-def cart_idempotency_key(mandate_id: str, mandate_version: int, cart: Cart) -> str:
-    """Stable identity for one logical purchase.
+def cart_idempotency_key(session_id: str, mandate_id: str, mandate_version: int,
+                         cart: Cart) -> str:
+    """Stable identity for one logical purchase attempt.
 
-    Same mandate, same version, same basket -> same key, so a retry reserves
-    the headroom once and replays the original Razorpay reference instead of
-    charging twice.
+    Scoped to the SESSION as well as the basket. An earlier version keyed on
+    (mandate, version, basket) alone, and a concurrency test caught it: two
+    different shoppers buying the same item under one mandate produced the same
+    key, so the second was silently handed the first one's payment link. Two
+    identical baskets in two sessions are two purchases; the same basket
+    re-submitted inside one session is a retry.
+
+    Callers who can supply a real client-generated key should do so via
+    ChatRequest.idempotency_key — this is only the fallback.
     """
     basket = sorted((l.sku, l.qty, l.unit_price_paise) for l in cart.lines)
-    raw = json.dumps([mandate_id, mandate_version, basket], separators=(",", ":"))
+    raw = json.dumps([session_id, mandate_id, mandate_version, basket],
+                     separators=(",", ":"))
     return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
 
@@ -301,8 +309,9 @@ def handle_turn(req: ChatRequest) -> ChatResponse:
         # Phase 1 of two-phase settlement: claim the headroom atomically BEFORE
         # touching Razorpay. `decision` above is advisory — it can go stale in
         # the microseconds before the tool call. This reservation cannot.
-        idem = cart_idempotency_key(decision.mandate_id or "",
-                                    decision.mandate_version or 0, proposed)
+        idem = req.idempotency_key or cart_idempotency_key(
+            req.session_id, decision.mandate_id or "",
+            decision.mandate_version or 0, proposed)
         with trace.span("reserve_headroom", input={"idempotency_key": idem}) as sp:
             reservation = store.reserve_headroom(
                 decision.mandate_id, proposed.total_paise, idem)

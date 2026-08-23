@@ -102,6 +102,11 @@ class ChatRequest(BaseModel):
     user_id: str = "user_demo"
     agent_id: str = "agent_groceries"
     message: str
+    # Stripe-style: the client may pin the identity of a purchase attempt so a
+    # dropped response can be safely re-sent. If omitted we derive one that is
+    # scoped to this session, because two shoppers buying the same basket are
+    # two purchases, not one retry.
+    idempotency_key: Optional[str] = None
 
 
 class ToolInvocation(BaseModel):

@@ -145,3 +145,31 @@ def test_committed_key_replays_stored_result(mandate):
     assert again.razorpay_ref == "plink_abc123"
     assert store.spent_in_window(mandate.id, mandate.window) == LINE_PAISE
 
+
+# ---------------------------------------------------------------------------
+# End-to-end: two agent turns checking out at the same instant
+# ---------------------------------------------------------------------------
+# End-to-end: two agent turns checking out at the same instant
+# ---------------------------------------------------------------------------
+def test_two_concurrent_checkouts_cannot_both_settle(mandate):
+    """The real shape of the attack: one mandate, two sessions, same moment."""
+    from app.agent import handle_turn, reset_session
+    from app.models import ChatRequest
+
+    # ₹899 parmigiano twice = ₹1,798 against a ₹1,000 cap. Exactly one may win.
+    def buy(i):
+        sid = f"race_{i}"
+        handle_turn(ChatRequest(session_id=sid, message="add the parmigiano reggiano"))
+        r = handle_turn(ChatRequest(session_id=sid, message="checkout please"))
+        reset_session(sid)
+        return r
+
+    results = _run(buy, n=2)
+    settled = [r for r in results
+               if not isinstance(r, Exception)
+               and any(t.name == "create_payment_link" and not t.blocked for t in r.tools)]
+
+    assert len(settled) == 1, f"expected exactly one settlement, got {len(settled)}"
+    assert store.spent_in_window(mandate.id, mandate.window) <= CAP_PAISE
+
+
