@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI-Native Agentic Checkout with UAP Mandate Verification</title>
+<style>
+  :root{
+    --ink:#0B1020; --panel:#151E3A; --edge:#26325A; --blue:#3395FF;
+    --green:#22C55E; --red:#F43F5E; --amber:#FBBF24; --muted:#8FA0C4; --white:#fff;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;background:var(--ink);color:var(--white);
+    font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;overflow:hidden}
+  .stage{position:fixed;inset:0;display:grid;place-items:center}
+  .slide{
+    position:absolute;width:min(96vw,calc(96vh*16/9));aspect-ratio:16/9;
+    padding:4.2% 5.2%;opacity:0;pointer-events:none;transform:translateY(14px);
+    transition:opacity .28s ease, transform .28s ease;
+    display:flex;flex-direction:column;
+  }
+  .slide.on{opacity:1;pointer-events:auto;transform:none}
+  .slide{font-size:clamp(10px, min(1.23vw, 2.18vh), 22px)}
+
+  .kicker{color:var(--blue);font-size:.78em;font-weight:700;letter-spacing:.18em;
+    text-transform:uppercase;margin-bottom:.5em}
+  h1{font-family:Georgia,'Cambria',serif;font-size:2.55em;line-height:1.12;font-weight:700}
+  h2{font-family:Georgia,'Cambria',serif;font-size:2.2em;line-height:1.15;margin-bottom:.35em}
+  .sub{color:var(--muted);font-size:1em;line-height:1.5;max-width:62em;margin-bottom:1.9em}
+  .grid{display:grid;gap:1.1em}
+  .c3{grid-template-columns:repeat(3,1fr)}
+  .c4{grid-template-columns:repeat(4,1fr)}
+  .c2{grid-template-columns:repeat(2,1fr)}
+  .split{grid-template-columns:1.25fr 1fr}
+  .card{background:var(--panel);border:1px solid var(--edge);border-radius:.9em;padding:1.25em}
+  .card.gate{background:rgba(34,197,94,.07);border-color:var(--green)}
+  .card.dim{background:#0F1830}
+  .card.tint{background:#1A2547}
+  .card h3{font-size:1.12em;margin-bottom:.5em}
+  .card p{color:var(--muted);font-size:.86em;line-height:1.55}
+  code,.mono{font-family:'SF Mono',Menlo,Consolas,'Courier New',monospace}
+  .pill{display:inline-flex;align-items:center;gap:.6em;border:1px solid var(--green);
+    background:var(--panel);border-radius:999px;padding:.5em 1em;font-size:.8em;
+    color:var(--green);font-family:'SF Mono',Menlo,Consolas,monospace}
+  .pill.bad{border-color:var(--red);color:var(--red)}
+  .pill .dot{width:.55em;height:.55em;border-radius:50%;background:currentColor}
+  .row{display:flex;gap:1em;flex-wrap:wrap;align-items:center}
+  .num{width:2em;height:2em;border-radius:50%;display:grid;place-items:center;
+    font-weight:700;font-size:.85em;border:1px solid currentColor}
+  .stat{font-family:Georgia,serif;font-size:3.2em;font-weight:700;line-height:1}
+  .muted{color:var(--muted)} .green{color:var(--green)} .red{color:var(--red)}
+  .blue{color:var(--blue)} .amber{color:var(--amber)}
+  .spans{display:flex;flex-direction:column;gap:.55em}
+  .span{border:1px solid var(--blue);border-radius:.6em;padding:.75em 1em;
+    display:flex;justify-content:space-between;gap:1em;background:var(--panel);font-size:.85em}
+  .span.blocked{border-color:var(--red)}
+  .span.ghost{border-style:dashed;border-color:var(--edge);background:transparent;color:var(--edge)}
+  .fill{flex:1}
+  .foot{margin-top:auto;padding-top:1.2em}
+  pre{font-size:.78em;line-height:1.75;white-space:pre-wrap}
+  .glow{position:absolute;border-radius:50%;filter:blur(40px);opacity:.22;z-index:-1}
+  nav{position:fixed;bottom:1.1rem;right:1.4rem;display:flex;gap:.6rem;align-items:center;
+    color:var(--muted);font-size:.8rem;z-index:10}
+  nav button{background:var(--panel);border:1px solid var(--edge);color:var(--muted);
+    border-radius:.5rem;padding:.3rem .7rem;cursor:pointer;font-size:.85rem}
+  nav button:hover{border-color:var(--blue);color:#fff}
+  .bar{position:fixed;top:0;left:0;height:2px;background:var(--blue);transition:width .28s}
+</style>
+</head>
+<body>
+<div class="bar" id="bar"></div>
+<div class="stage" id="stage">
+
+<!-- 1 -->
+<section class="slide">
+  <div class="glow" style="width:38%;aspect-ratio:1;background:var(--blue);right:-6%;top:-22%"></div>
+  <div class="glow" style="width:26%;aspect-ratio:1;background:var(--green);right:-4%;bottom:-18%"></div>
+  <div style="margin-top:6%">
+    <div class="kicker">Razorpay AI Buildathon 2026 · Track 01</div>
+    <h1>AI-Native Agentic Checkout<br><span class="blue">with UAP Mandate Verification</span></h1>
+    <p class="sub" style="font-style:italic;font-size:1.15em;margin-top:.7em">
+      Agentic commerce is an authorization problem — not a checkout problem.</p>
+    <div class="row" style="margin-bottom:1.6em">
+      <span class="pill"><span class="dot"></span>MANDATE_CHECK → ALLOW &nbsp; ₹486 / ₹1,000</span>
+      <span class="pill bad"><span class="dot"></span>MANDATE_CHECK → BLOCK &nbsp; ₹2,233 / ₹1,000</span>
+    </div>
+    <p class="muted" style="font-size:.9em;max-width:52em">A merchant made transactable by an AI buyer
+      end-to-end — with every money action bounded, gated, and auditable.</p>
+    <p class="mono muted" style="font-size:.78em;margin-top:1.4em">
+      Razorpay Remote MCP · Pinecone RAG · Langfuse · NPCI UAP simulation</p>
+  </div>
+</section>
+
+<!-- 2 -->
+<section class="slide">
+  <div class="kicker">The problem</div>
+  <h2>Everyone is building a faster button.</h2>
+  <p class="sub">The instinct is to treat agentic payments as a checkout problem. The moment an agent
+    holds a payment instrument, it stops being one.</p>
+  <div class="grid c3">
+    <div class="card"><div class="row" style="margin-bottom:.7em">
+      <span class="num red">1</span><h3>Merchant</h3></div>
+      <p>Unbounded chargeback liability. An AI buyer that overspends is a dispute the merchant loses.</p></div>
+    <div class="card"><div class="row" style="margin-bottom:.7em">
+      <span class="num amber">2</span><h3>Consumer</h3></div>
+      <p>Runaway-spend fear. Nobody hands an autonomous agent an uncapped payment instrument.</p></div>
+    <div class="card"><div class="row" style="margin-bottom:.7em">
+      <span class="num blue">3</span><h3>Regulator</h3></div>
+      <p>NPCI is building the Unified Agent Protocol precisely because delegation needs a standard.</p></div>
+  </div>
+  <div class="card tint foot">
+    <h3 style="font-family:Georgia,serif;font-size:1.35em">What is missing is not a checkout. It is an
+      authorization layer that is deterministic, auditable and revocable.</h3>
+    <p style="margin-top:.4em">Track 01 asks for money actions that are “bounded and gated”. That phrase
+      is the whole product.</p>
+  </div>
+</section>
+
+<!-- 3 -->
+<section class="slide">
+  <div class="kicker">Architecture</div>
+  <h2>One agent. Four stages. One gate.</h2>
+  <p class="sub">A single well-instrumented agent — Razorpay's own FTX26 position — with the
+    authorization verdict sitting between the plan and the money.</p>
+  <div class="grid c4">
+    <div class="card"><div class="mono blue" style="font-size:.8em">1</div>
+      <h3 class="mono">retrieve_catalog</h3><p>Pinecone RAG over the merchant's SKU catalog.</p></div>
+    <div class="card"><div class="mono blue" style="font-size:.8em">2</div>
+      <h3 class="mono">plan_cart</h3><p>The LLM proposes SKUs and quantity. It never sets a price.</p></div>
+    <div class="card gate"><div class="mono green" style="font-size:.8em">3</div>
+      <h3 class="mono green">mandate_check</h3><p>Pure, deterministic, unit-tested. <strong>The gate.</strong></p></div>
+    <div class="card"><div class="mono muted" style="font-size:.8em">4</div>
+      <h3 class="mono">mcp_tool_call</h3><p>Razorpay Remote MCP — reached only if ALLOWED.</p></div>
+  </div>
+  <div class="grid c2 foot">
+    <div class="card"><h3>The LLM proposes. It never decides.</h3>
+      <p><code>verify()</code> is a pure function with no I/O. A model that hallucinates a price cannot
+        move money: the SKU would not exist and the total is computed server-side in integer paise.</p></div>
+    <div class="card"><h3>Defence in depth</h3>
+      <p><code>call_tool()</code> raises <code>MandateViolation</code> if handed a denied decision — so
+        even a caller that ignores the gate cannot spend. There is no second code path to money.</p></div>
+  </div>
+</section>
+
+<!-- 4 -->
+<section class="slide">
+  <div class="kicker">The differentiator</div>
+  <h2>The UAP Mandate Verification Layer</h2>
+  <p class="sub">Simulating NPCI's Unified Agent Protocol on the UPI Circle delegation pattern:
+    a capped, revocable authority granted to a secondary payer — here, an agent.</p>
+  <div class="grid split">
+    <div class="card">
+      <h3>Controls enforced on every turn</h3>
+      <table style="width:100%;border-collapse:collapse;margin-top:.8em;font-size:.85em">
+        <tr><td style="padding:.42em 0">● Window ceiling</td><td class="mono blue">cap_paise</td><td class="muted">₹1,000 / week</td></tr>
+        <tr><td style="padding:.42em 0">● Per-transaction ceiling</td><td class="mono blue">per_txn_cap_paise</td><td class="muted">optional</td></tr>
+        <tr><td style="padding:.42em 0">● Category allow / block</td><td class="mono blue">blocked_categories</td><td class="muted">gift_cards</td></tr>
+        <tr><td style="padding:.42em 0">● Instant revocation</td><td class="mono blue">active</td><td class="muted">binds next turn</td></tr>
+        <tr><td style="padding:.42em 0">● Rolling spend</td><td class="mono blue">spend_ledger</td><td class="muted">cap − spent</td></tr>
+      </table>
+    </div>
+    <div class="card dim">
+      <div class="mono muted" style="font-size:.8em;margin-bottom:.6em">mandate.py</div>
+<pre class="mono">headroom = cap_paise - already_spent
+<span class="white">if total &gt; headroom:</span>
+<span class="muted">    return MandateDecision(</span>
+<span class="red">        allowed=False,</span>
+<span class="red">        code=BLOCK_WINDOW_CAP_EXCEEDED,</span>
+<span class="muted">    )</span>
+<span class="green"># 22 tests: cap, cap-1, cap+1,
+# revoked, category, quantity</span></pre>
+      <p style="font-style:italic;margin-top:1em">Off-by-one in a limit check is a production incident,
+        not a style nit — so the boundary is tested three ways.</p>
+    </div>
+  </div>
+  <div class="foot"><span class="pill"><span class="dot"></span>Every edit bumps mandate.version — the
+    agent re-reads it every turn, so there is no cache to invalidate.</span></div>
+</section>
+
+<!-- 5 -->
+<section class="slide">
+  <div class="kicker">Autonomous execution</div>
+  <h2>Razorpay Remote MCP — no hand-rolled API calls</h2>
+  <p class="sub">The agent speaks MCP Streamable HTTP to mcp.razorpay.com, exactly as the
+    <code>npx mcp-remote</code> bridge does. 35+ payment tools in the model's context.</p>
+  <div class="grid split">
+    <div class="grid" style="gap:.8em">
+      <div class="card" style="padding:.9em 1.25em"><h3 class="mono green" style="font-size:.95em">create_payment_link</h3>
+        <p>Raises the link mid-conversation, with mandate_id and version stamped into notes.</p></div>
+      <div class="card" style="padding:.9em 1.25em"><h3 class="mono green" style="font-size:.95em">capture_payment</h3>
+        <p>Settles an authorised transaction — the x402 path for agent-to-agent settlement.</p></div>
+      <div class="card" style="padding:.9em 1.25em"><h3 class="mono blue" style="font-size:.95em">Data retrieval suite</h3>
+        <p>Paginated orders, refunds, settlements for automated reconciliation.</p></div>
+    </div>
+    <div class="card dim">
+      <h3>Authentication</h3>
+<pre class="mono" style="margin-top:.7em"><span class="muted">printf '%s' "$KEY_ID:$KEY_SECRET" \
+  | base64</span>
+
+<span class="blue">Authorization: Basic &lt;token&gt;</span>
+POST https://mcp.razorpay.com/mcp</pre>
+      <p style="margin-top:1em">Remote, not Docker: zero infrastructure, smart routing, and nothing
+        local to fail on stage.</p>
+    </div>
+  </div>
+  <div class="card tint foot"><h3 style="font-size:1.05em;font-weight:400">Every money tool is behind the
+    gate. On a blocked turn the MCP client is never called — the block is at the logic layer, not in a
+    system prompt.</h3></div>
+</section>
+
+<!-- 6 -->
+<section class="slide">
+  <div class="kicker">Audit trail</div>
+  <h2>The evidence is an absent span</h2>
+  <p class="sub">One Langfuse trace per turn, four named spans. On a blocked turn the fourth span simply
+    does not exist — and you cannot argue with an absent span.</p>
+  <div class="grid split">
+    <div class="spans">
+      <div class="span"><span class="mono blue">retrieve_catalog</span><span class="muted">matched SKUs</span></div>
+      <div class="span" style="margin-left:5%"><span class="mono blue">plan_cart</span><span class="muted">proposed cart ops</span></div>
+      <div class="span blocked" style="margin-left:10%"><span class="mono red">mandate_check</span><span class="muted">BLOCK_WINDOW_CAP_EXCEEDED</span></div>
+      <div class="span ghost" style="margin-left:15%"><span class="mono">mcp_tool_call</span><span>— never reached —</span></div>
+    </div>
+    <div class="card">
+      <h3>Two records, deliberately separate</h3>
+      <p style="margin-top:.8em"><strong style="color:#fff">audit_log</strong> — append-only, written
+        <em>before</em> the tool call, so a blocked attempt is as durable as a settled one.</p>
+      <p style="margin-top:.7em"><strong style="color:#fff">spend_ledger</strong> — written only on a
+        successful tool result; the mandate envelope is never optimistically debited.</p>
+    </div>
+  </div>
+  <p class="foot" style="font-family:Georgia,serif;font-style:italic;font-size:1.2em">
+    Money attempted and money moved are different facts. A log that only records success is not evidence.</p>
+</section>
+
+<!-- 7 -->
+<section class="slide">
+  <div class="kicker">Live demo</div>
+  <h2>The failure we handle gracefully</h2>
+  <p class="sub">Track 01 asks for one failure handled well. We trigger ours on purpose.</p>
+  <div class="grid c2">
+    <div class="card">
+      <h3 class="red">The breach attempt</h3>
+      <p style="font-style:italic;color:#fff;margin:.7em 0 1em">“Add the Parmigiano Reggiano and the
+        olive oil, then check out”</p>
+      <span class="pill bad"><span class="dot"></span>BLOCK_WINDOW_CAP_EXCEEDED</span>
+<pre class="mono" style="margin-top:1em"><span class="red">cart   ₹2,233</span>
+cap    ₹1,000
+<span class="red">mcp    BLOCKED create_payment_link</span></pre>
+      <p style="margin-top:.9em">The agent wanted to pay. It was stopped before the call, not asked
+        nicely not to make it.</p>
+    </div>
+    <div class="card">
+      <h3 class="green">The graceful recovery</h3>
+      <p style="font-style:italic;color:#fff;margin:.7em 0 1em">“I cannot complete this — ₹2,233 exceeds
+        your authorised mandate of ₹1,000. Dropping the olive oil and parmigiano brings it to ₹685.”</p>
+      <span class="pill"><span class="dot"></span>ALLOW → payment link issued</span>
+      <p style="margin-top:1em"><code>suggest_downgrade()</code> deterministically drops the priciest
+        lines until the cart fits the remaining headroom — then re-verifies. The refusal is priced, not
+        improvised, and the merchant still gets the sale.</p>
+    </div>
+  </div>
+  <div class="card tint foot"><h3 style="font-size:1.05em;font-weight:400">Then we revoke the mandate
+    mid-session. One prompt later it binds — no restart, no cache. That is Revocation Latency.</h3></div>
+</section>
+
+<!-- 8 -->
+<section class="slide">
+  <div class="kicker">Metrics</div>
+  <h2>The numbers a PSP actually underwrites against</h2>
+  <p class="sub">Not “the chatbot worked”. These are the properties that make a delegated agent insurable.</p>
+  <div class="grid c3">
+    <div class="card"><div class="stat red">40%</div>
+      <h3 style="margin-top:.5em">Mandate Breach Attempt Rate</h3>
+      <p>of turns tried to exceed authority — every one stopped at the logic layer.</p></div>
+    <div class="card"><div class="stat blue">1 turn</div>
+      <h3 style="margin-top:.5em">Revocation Latency</h3>
+      <p>from dashboard edit to binding ceiling; no cache to invalidate.</p></div>
+    <div class="card"><div class="stat green">₹0</div>
+      <h3 style="margin-top:.5em">Chargeback Liability</h3>
+      <p>no transaction ever left the mandate envelope.</p></div>
+  </div>
+  <div class="card foot">
+    <p>Also shipped: 22 tests on the gate · 38-SKU agent-readable catalog · append-only audit log ·
+      integer paise throughout · DEMO_MODE runs the whole system with no keys and no network.</p>
+    <p style="color:#fff;font-weight:600;margin-top:.5em">Every one of those is a claim we can prove on
+      this laptop, right now, offline.</p>
+  </div>
+</section>
+
+<!-- 9 -->
+<section class="slide">
+  <div class="kicker">First principles</div>
+  <h2>Why a mandate layer and not just a chatbot</h2>
+  <div class="grid c2" style="margin-top:1.4em">
+    <div class="card"><h3 class="blue">“Why not multi-agent?”</h3>
+      <p>Razorpay's own FTX26 position: for commerce, one well-instrumented agent with full context has
+        fewer handoff failure modes and predictable latency. Multi-agent adds a second place for
+        authority to leak.</p></div>
+    <div class="card"><h3 class="blue">“Why not prompt the model to respect the limit?”</h3>
+      <p>A prompt is a request. A gate is a guarantee. Ours is a pure function with 22 tests, and it runs
+        whether or not the model cooperates.</p></div>
+    <div class="card"><h3 class="blue">“What if Razorpay errors mid-checkout?”</h3>
+      <p>Audit row written first, spend recorded only on success, shopper told nothing was charged. The
+        envelope is never optimistically debited.</p></div>
+    <div class="card"><h3 class="blue">“How does this become a Razorpay product?”</h3>
+      <p>It is the mandate service between Agent Studio and the payment tools: one row per delegated
+        authority, one verdict per action, one log the risk team can underwrite.</p></div>
+  </div>
+  <p class="foot" style="font-family:Georgia,serif;font-size:1.25em;font-weight:700">
+    We are not shipping a chatbot that can buy things. We are shipping the authorization primitive that
+    makes an AI buyer underwritable.</p>
+</section>
+
+<!-- 10 -->
+<section class="slide">
+  <div class="glow" style="width:36%;aspect-ratio:1;background:var(--blue);left:-12%;bottom:-24%"></div>
+  <div style="margin-top:8%">
+    <div class="kicker">Build. Show. Get hired.</div>
+    <h1>Agentic commerce is an<br>authorization problem.</h1>
+    <p class="sub" style="margin-top:1em">Built on Razorpay Remote MCP, ready for NPCI's Unified Agent
+      Protocol and the x402 standard.</p>
+    <span class="pill"><span class="dot"></span>github.com/&lt;you&gt;/razorpay-uap-mandate-agent ·
+      pytest -q → 22 passed</span>
+  </div>
+  <p class="muted foot" style="font-size:.82em">Ayush Choudhary · Razorpay AI Buildathon 2026 ·
+    Track 01: AI Growth &amp; Agentic Commerce</p>
+</section>
+
+</div>
+
+<nav>
+  <button id="prev">←</button><span id="counter">1 / 10</span><button id="next">→</button>
+</nav>
+
+<script>
+  const slides = [...document.querySelectorAll('.slide')];
+  let i = 0;
+  function show(n){
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach((s, k) => s.classList.toggle('on', k === i));
+    document.getElementById('counter').textContent = `${i+1} / ${slides.length}`;
+    document.getElementById('bar').style.width = ((i+1)/slides.length*100) + '%';
+    location.hash = i + 1;
+  }
+  document.getElementById('next').onclick = () => show(i+1);
+  document.getElementById('prev').onclick = () => show(i-1);
+  addEventListener('keydown', e => {
+    if (['ArrowRight',' ','PageDown','n'].includes(e.key)) { e.preventDefault(); show(i+1); }
+    if (['ArrowLeft','PageUp','p'].includes(e.key)) { e.preventDefault(); show(i-1); }
+    if (e.key === 'Home') show(0);
+    if (e.key === 'End') show(slides.length-1);
+    if (e.key === 'f') document.documentElement.requestFullscreen?.();
+  });
+  addEventListener('click', e => { if (!e.target.closest('nav')) show(i+1); });
+  addEventListener('hashchange', () => {
+    const n = parseInt(location.hash.slice(1)) - 1;
+    if (!Number.isNaN(n) && n !== i) show(n);
+  });
+  show(parseInt(location.hash.slice(1)) - 1 || 0);
+</script>
+</body>
+</html>
