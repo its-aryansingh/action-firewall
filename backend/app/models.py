@@ -79,6 +79,24 @@ class MandateDecision(BaseModel):
         return not self.allowed and self.code != DecisionCode.ALLOW
 
 
+class Reservation(BaseModel):
+    """The outcome of asking for headroom under a mandate.
+
+    `granted` is the only field the caller may branch on to decide whether to
+    reach a money tool. `replayed` marks an idempotent retry of work that has
+    already settled — the caller must return the stored result rather than
+    calling Razorpay a second time.
+    """
+    granted: bool
+    id: Optional[str] = None
+    mandate_id: Optional[str] = None
+    amount_paise: int = 0
+    replayed: bool = False
+    razorpay_ref: Optional[str] = None
+    headroom_paise: int = 0
+    reason: str = ""
+
+
 class ChatRequest(BaseModel):
     session_id: str
     user_id: str = "user_demo"

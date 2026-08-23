@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from typing import Optional
 
 from .config import get_settings
-from .models import Mandate, MandateCreate, MandateUpdate, Window
+from .models import Mandate, MandateCreate, MandateUpdate, Reservation, Window
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS mandates (
@@ -26,14 +26,24 @@ CREATE TABLE IF NOT EXISTS mandates (
 );
 CREATE INDEX IF NOT EXISTS idx_mandate_agent ON mandates(user_id, agent_id, active);
 
+-- The ledger is also the reservation table. A row is created as 'reserved'
+-- BEFORE the money tool is called and flips to 'committed' only on success,
+-- so headroom is consumed for the whole window in which the call is in flight.
+-- That is what closes the check-then-act race (see tests/test_concurrency.py).
 CREATE TABLE IF NOT EXISTS spend_ledger (
     id TEXT PRIMARY KEY,
     mandate_id TEXT NOT NULL,
     amount_paise INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'committed',   -- reserved | committed | released
+    idempotency_key TEXT,
+    expires_at REAL,
     razorpay_ref TEXT,
     created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_ledger_mandate ON spend_ledger(mandate_id, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ledger_idem
+    ON spend_ledger(mandate_id, idempotency_key)
+    WHERE idempotency_key IS NOT NULL AND status != 'released';
 
 CREATE TABLE IF NOT EXISTS audit_log (
     id TEXT PRIMARY KEY,
@@ -69,9 +79,28 @@ def _conn():
         cx.close()
 
 
+RESERVATION_TTL_SECONDS = 180
+
+
 def init_db() -> None:
     with _conn() as cx:
+        # WAL lets readers run while one writer holds the lock, which is what
+        # makes BEGIN IMMEDIATE cheap enough to take on every reservation.
+        cx.execute("PRAGMA journal_mode=WAL")
         cx.executescript(SCHEMA)
+        _migrate(cx)
+
+
+def _migrate(cx: sqlite3.Connection) -> None:
+    """Additive migration for databases created before reservations existed."""
+    cols = {r["name"] for r in cx.execute("PRAGMA table_info(spend_ledger)")}
+    for col, ddl in (
+        ("status", "ALTER TABLE spend_ledger ADD COLUMN status TEXT NOT NULL DEFAULT 'committed'"),
+        ("idempotency_key", "ALTER TABLE spend_ledger ADD COLUMN idempotency_key TEXT"),
+        ("expires_at", "ALTER TABLE spend_ledger ADD COLUMN expires_at REAL"),
+    ):
+        if col not in cols:
+            cx.execute(ddl)
 
 
 def _row_to_mandate(r: sqlite3.Row) -> Mandate:
@@ -170,24 +199,157 @@ def update_mandate(mandate_id: str, u: MandateUpdate) -> Optional[Mandate]:
     return m
 
 
+_CONSUMED_SQL = """
+SELECT COALESCE(SUM(amount_paise),0) AS s FROM spend_ledger
+ WHERE mandate_id=? AND created_at>=?
+   AND (status='committed'
+        OR (status='reserved' AND COALESCE(expires_at,0) > ?))
+"""
+
+
 def spent_in_window(mandate_id: str, window: Window) -> int:
+    """Headroom consumed: money already moved PLUS money currently in flight.
+
+    Counting live reservations is the point. A turn that has reserved but not
+    yet heard back from Razorpay is still holding that headroom, and a second
+    turn must not be told it is free.
+    """
     if window == Window.PER_TXN:
         return 0
-    since = time.time() - WINDOW_SECONDS[window]
+    now = time.time()
+    since = now - WINDOW_SECONDS[window]
     with _conn() as cx:
-        r = cx.execute(
-            "SELECT COALESCE(SUM(amount_paise),0) AS s FROM spend_ledger "
-            "WHERE mandate_id=? AND created_at>=?",
-            (mandate_id, since),
-        ).fetchone()
+        r = cx.execute(_CONSUMED_SQL, (mandate_id, since, now)).fetchone()
     return int(r["s"])
 
 
-def record_spend(mandate_id: str, amount_paise: int, razorpay_ref: str | None = None) -> None:
+def reserve_headroom(mandate_id: str, amount_paise: int, idempotency_key: str,
+                     ttl_seconds: int | None = None) -> Reservation:
+    """Atomically claim headroom under a mandate. The only way to reach money.
+
+    Runs the re-check and the write inside one BEGIN IMMEDIATE transaction, so
+    two concurrent turns cannot both observe the same free headroom. Returns a
+    Reservation; callers must branch only on `.granted`.
+
+    `idempotency_key` makes retries safe: the same key returns the same
+    reservation, and a key whose work already committed replays the stored
+    Razorpay reference instead of charging again.
+    """
+    ttl = RESERVATION_TTL_SECONDS if ttl_seconds is None else ttl_seconds
+    now = time.time()
+    cx = sqlite3.connect(get_settings().db_path, timeout=15.0)
+    cx.row_factory = sqlite3.Row
+    try:
+        cx.execute("BEGIN IMMEDIATE")               # take the write lock up front
+
+        m = cx.execute("SELECT * FROM mandates WHERE id=?", (mandate_id,)).fetchone()
+        if not m:
+            cx.rollback()
+            return Reservation(granted=False, reason="UNKNOWN_MANDATE")
+        if not m["active"]:
+            cx.rollback()
+            return Reservation(granted=False, mandate_id=mandate_id,
+                               reason="MANDATE_REVOKED")
+
+        prior = cx.execute(
+            "SELECT * FROM spend_ledger WHERE mandate_id=? AND idempotency_key=? "
+            "AND status!='released' ORDER BY created_at DESC LIMIT 1",
+            (mandate_id, idempotency_key),
+        ).fetchone()
+        if prior:
+            if prior["status"] == "committed":
+                cx.commit()
+                return Reservation(granted=True, id=prior["id"], mandate_id=mandate_id,
+                                   amount_paise=prior["amount_paise"], replayed=True,
+                                   razorpay_ref=prior["razorpay_ref"],
+                                   reason="REPLAYED_COMMITTED")
+            if (prior["expires_at"] or 0) > now:
+                cx.commit()
+                return Reservation(granted=True, id=prior["id"], mandate_id=mandate_id,
+                                   amount_paise=prior["amount_paise"],
+                                   reason="REPLAYED_RESERVED")
+            # Expired: free it so this key can be retried cleanly.
+            cx.execute("UPDATE spend_ledger SET status='released', expires_at=NULL "
+                       "WHERE id=?", (prior["id"],))
+
+        window = Window(m["window"])
+        since = now - WINDOW_SECONDS[window]
+        consumed = int(cx.execute(_CONSUMED_SQL, (mandate_id, since, now)).fetchone()["s"])
+        headroom = m["cap_paise"] - consumed
+
+        if amount_paise > headroom:
+            cx.commit()
+            return Reservation(granted=False, mandate_id=mandate_id,
+                               amount_paise=amount_paise, headroom_paise=max(0, headroom),
+                               reason="INSUFFICIENT_HEADROOM")
+
+        rid = f"rsv_{uuid.uuid4().hex[:12]}"
+        cx.execute(
+            "INSERT INTO spend_ledger (id,mandate_id,amount_paise,status,"
+            "idempotency_key,expires_at,razorpay_ref,created_at) "
+            "VALUES (?,?,?,'reserved',?,?,NULL,?)",
+            (rid, mandate_id, amount_paise, idempotency_key, now + ttl, now),
+        )
+        cx.commit()
+        return Reservation(granted=True, id=rid, mandate_id=mandate_id,
+                           amount_paise=amount_paise,
+                           headroom_paise=headroom - amount_paise, reason="RESERVED")
+    finally:
+        cx.close()
+
+
+def find_committed_reservation(mandate_id: str, idempotency_key: str) -> Reservation | None:
+    """Has this exact purchase attempt already settled?
+
+    Must be consulted BEFORE the mandate check on a checkout turn. Once money
+    has moved, that spend is counted against the cap — so re-running the cap
+    check on a retry of the SAME purchase would block it as if it were a second
+    purchase. Idempotency has to short-circuit the gate, not sit behind it.
+    """
+    with _conn() as cx:
+        r = cx.execute(
+            "SELECT * FROM spend_ledger WHERE mandate_id=? AND idempotency_key=? "
+            "AND status='committed' ORDER BY created_at DESC LIMIT 1",
+            (mandate_id, idempotency_key),
+        ).fetchone()
+    if not r:
+        return None
+    return Reservation(granted=True, id=r["id"], mandate_id=mandate_id,
+                       amount_paise=r["amount_paise"], replayed=True,
+                       razorpay_ref=r["razorpay_ref"], reason="REPLAYED_COMMITTED")
+
+
+def commit_reservation(reservation_id: str, razorpay_ref: str | None = None) -> None:
+    """Money moved. Make the hold permanent."""
     with _conn() as cx:
         cx.execute(
-            "INSERT INTO spend_ledger (id,mandate_id,amount_paise,razorpay_ref,created_at) "
-            "VALUES (?,?,?,?,?)",
+            "UPDATE spend_ledger SET status='committed', expires_at=NULL, razorpay_ref=? "
+            "WHERE id=? AND status='reserved'",
+            (razorpay_ref, reservation_id),
+        )
+
+
+def release_reservation(reservation_id: str) -> None:
+    """Money did not move. Give the headroom back immediately."""
+    with _conn() as cx:
+        cx.execute(
+            "UPDATE spend_ledger SET status='released', expires_at=NULL "
+            "WHERE id=? AND status='reserved'",
+            (reservation_id,),
+        )
+
+
+def record_spend(mandate_id: str, amount_paise: int, razorpay_ref: str | None = None) -> None:
+    """Write a committed spend directly, with NO reservation.
+
+    Unsafe under concurrency by construction — kept only for backfill and for
+    the test that reproduces the check-then-act race. Production paths must go
+    through reserve_headroom() -> commit_reservation().
+    """
+    with _conn() as cx:
+        cx.execute(
+            "INSERT INTO spend_ledger (id,mandate_id,amount_paise,status,razorpay_ref,created_at) "
+            "VALUES (?,?,?,'committed',?,?)",
             (f"spn_{uuid.uuid4().hex[:12]}", mandate_id, amount_paise, razorpay_ref, time.time()),
         )
 
@@ -235,12 +397,18 @@ def metrics(user_id: str = "user_demo") -> dict:
             "WHERE event='MANDATE_CHECK' AND code IS NOT NULL AND code!='ALLOW'"
         ).fetchone()["s"]
         settled = cx.execute(
-            "SELECT COALESCE(SUM(amount_paise),0) s FROM spend_ledger").fetchone()["s"]
+            "SELECT COALESCE(SUM(amount_paise),0) s FROM spend_ledger "
+            "WHERE status='committed'").fetchone()["s"]
+        in_flight = cx.execute(
+            "SELECT COALESCE(SUM(amount_paise),0) s FROM spend_ledger "
+            "WHERE status='reserved' AND COALESCE(expires_at,0) > ?",
+            (time.time(),)).fetchone()["s"]
     return {
         "mandate_checks": total,
         "mandate_breach_attempts": breaches,
         "mandate_breach_attempt_rate": round(breaches / total, 4) if total else 0.0,
         "value_blocked_paise": int(blocked_value),
         "value_settled_paise": int(settled),
+        "value_in_flight_paise": int(in_flight),
         "chargeback_liability_paise": 0,
     }
