@@ -14,10 +14,10 @@ from pathlib import Path
 
 
 if hasattr(sys.stdout, "reconfigure"):
-    # Windows terminals may default to a code page that cannot encode the rupee
-    # sign. Replacement is preferable to losing the rehearsal to presentation
-    # encoding.
-    sys.stdout.reconfigure(errors="replace")
+    # The default Windows code page cannot represent the rupee sign or the
+    # punctuation used by the scripted responses. Force a deterministic stream
+    # encoding so the fallback demo remains readable on the presentation host.
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 _TEMP_DIR = tempfile.TemporaryDirectory(prefix="action-firewall-demo-")
 os.environ["DB_PATH"] = str(Path(_TEMP_DIR.name) / "demo.db")
