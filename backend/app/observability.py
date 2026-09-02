@@ -1,10 +1,9 @@
-"""Langfuse tracing (Module 4) — the audit trail you project on screen.
+"""Optional Langfuse tracing for proposals and explicit authorization.
 
-Every turn becomes one trace with named spans in this order:
-  retrieve_catalog -> plan_cart -> mandate_check -> mcp_tool_call
-so a judge can see the mandate evaluation sitting BETWEEN the plan and the
-money, and can see the MCP span simply absent on a blocked turn.
-Degrades to a no-op if Langfuse keys are missing.
+Proposal traces contain retrieval, planning, and a non-authorizing policy
+preview. Confirmation traces contain authorization and, only after an exact
+grant is claimed, the registered Razorpay action. Local database state remains
+authoritative if tracing is disabled or unavailable.
 """
 from __future__ import annotations
 import contextlib
@@ -41,7 +40,7 @@ class Trace:
         if self._lf:
             self._trace = self._lf.trace(name=name, session_id=session_id,
                                          user_id=user_id, input=input,
-                                         tags=["uap-mandate", "track01"])
+                                         tags=["action-firewall", "track01"])
 
     @contextlib.contextmanager
     def span(self, name: str, input: Any = None):

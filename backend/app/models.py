@@ -14,8 +14,11 @@ class Window(str, Enum):
 
 
 class Mandate(BaseModel):
-    """A human-authorised spending authority delegated to an AI agent.
-    Models NPCI UAP / UPI Circle delegated-payer semantics."""
+    """A shopper-defined application policy for one AI buyer.
+
+    The legacy class name is retained for API and database compatibility. This
+    is not a banking mandate or a claim of payment-rail delegation.
+    """
     id: str
     user_id: str
     agent_id: str
@@ -112,12 +115,12 @@ class MandateDecision(BaseModel):
 
 
 class Reservation(BaseModel):
-    """The outcome of asking for headroom under a mandate.
+    """Legacy helper result for asking for headroom under an application policy.
 
     `granted` is the only field the caller may branch on to decide whether to
     reach a money tool. `replayed` marks an idempotent retry of work that has
-    already settled — the caller must return the stored result rather than
-    calling Razorpay a second time.
+    already reached the helper's committed state; the caller must return the
+    stored result rather than calling the provider a second time.
     """
     granted: bool
     id: Optional[str] = None

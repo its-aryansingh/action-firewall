@@ -1070,12 +1070,10 @@ def reconcile_unknown(
 
 
 def find_committed_reservation(mandate_id: str, idempotency_key: str) -> Reservation | None:
-    """Has this exact purchase attempt already settled?
+    """Has this legacy reservation already reached its committed state?
 
-    Must be consulted BEFORE the mandate check on a checkout turn. Once money
-    has moved, that spend is counted against the cap — so re-running the cap
-    check on a retry of the SAME purchase would block it as if it were a second
-    purchase. Idempotency has to short-circuit the gate, not sit behind it.
+    This helper exists for the historical race-regression path. The active
+    checkout flow uses exact action grants and distinct issued/settled states.
     """
     with _conn() as cx:
         r = cx.execute(
