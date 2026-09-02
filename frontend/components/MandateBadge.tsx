@@ -2,15 +2,17 @@
 import { inr, type Decision } from "@/lib/api";
 
 const COPY: Record<string, string> = {
-  ALLOW: "Within mandate",
-  BLOCK_NO_MANDATE: "No mandate authorised",
-  BLOCK_MANDATE_REVOKED: "Mandate revoked",
-  BLOCK_WINDOW_CAP_EXCEEDED: "Mandate cap exceeded",
+  ALLOW: "Within policy",
+  BLOCK_NO_MANDATE: "No policy configured",
+  BLOCK_MANDATE_REVOKED: "Policy revoked",
+  BLOCK_WINDOW_CAP_EXCEEDED: "Policy cap exceeded",
   BLOCK_PER_TXN_CAP_EXCEEDED: "Per-transaction cap exceeded",
-  BLOCK_CATEGORY_NOT_ALLOWED: "Category not authorised",
+  BLOCK_CATEGORY_NOT_ALLOWED: "Category not allowed",
+  BLOCK_STALE_POLICY_VERSION: "Policy version changed",
+  BLOCK_CART_CHANGED: "Cart changed after review",
+  BLOCK_INVALID_ACTION: "Action binding rejected",
 };
 
-/** The verdict chip. This is the object the judges should be looking at. */
 export function MandateBadge({ d }: { d: Decision }) {
   const ok = d.allowed;
   return (
