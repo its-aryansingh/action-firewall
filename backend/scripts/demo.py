@@ -1,60 +1,173 @@
-"""Headless dress rehearsal of the exact demo you run for the judges.
+"""Disposable, offline dress rehearsal for the five-minute judge demo.
 
-    cd backend && python scripts/demo.py
-
-Runs the full script end-to-end with no frontend and no network, so you can
-verify the story still holds five minutes before you present.
+Run from ``backend`` with ``python scripts/demo.py``. The script forces demo
+mode, uses a temporary SQLite database, and never needs network credentials.
 """
-import sys, uuid
+from __future__ import annotations
+
+import json
+import os
+import sys
+import tempfile
+import uuid
 from pathlib import Path
+
+
+if hasattr(sys.stdout, "reconfigure"):
+    # Windows terminals may default to a code page that cannot encode the rupee
+    # sign. Replacement is preferable to losing the rehearsal to presentation
+    # encoding.
+    sys.stdout.reconfigure(errors="replace")
+
+_TEMP_DIR = tempfile.TemporaryDirectory(prefix="action-firewall-demo-")
+os.environ["DB_PATH"] = str(Path(_TEMP_DIR.name) / "demo.db")
+os.environ["DEMO_MODE"] = "true"
+for secret_name in (
+    "OPENAI_API_KEY",
+    "PINECONE_API_KEY",
+    "RAZORPAY_KEY_ID",
+    "RAZORPAY_KEY_SECRET",
+    "RAZORPAY_MCP_TOKEN",
+    "LANGFUSE_PUBLIC_KEY",
+    "LANGFUSE_SECRET_KEY",
+):
+    os.environ[secret_name] = ""
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app import store                                   # noqa: E402
-from app.agent import handle_turn                       # noqa: E402
-from app.mandate import rupees                          # noqa: E402
-from app.models import ChatRequest, MandateCreate, MandateUpdate  # noqa: E402
+from app import store  # noqa: E402
+from app.agent import confirm_checkout, handle_turn, reset_session  # noqa: E402
+from app.mandate import rupees  # noqa: E402
+from app.models import (  # noqa: E402
+    ChatRequest,
+    ChatResponse,
+    CheckoutConfirmRequest,
+    MandateCreate,
+    MandateUpdate,
+)
 
-G, R, B, D = "\033[92m", "\033[91m", "\033[94m", "\033[0m"
-SID = f"demo_{uuid.uuid4().hex[:8]}"
+
+USE_COLOR = sys.stdout.isatty() and "NO_COLOR" not in os.environ
+GREEN = "\033[92m" if USE_COLOR else ""
+RED = "\033[91m" if USE_COLOR else ""
+BLUE = "\033[94m" if USE_COLOR else ""
+RESET = "\033[0m" if USE_COLOR else ""
+SESSION_ID = f"judge_demo_{uuid.uuid4().hex[:8]}"
 
 
-def say(msg: str) -> None:
-    print(f"\n{B}SHOPPER:{D} {msg}")
-    r = handle_turn(ChatRequest(session_id=SID, message=msg))
-    print(f"{B}AGENT:{D}   {r.reply}")
-    if r.decision:
-        c = G if r.decision.allowed else R
-        print(f"  {c}[{r.decision.code.value}]{D} cart={rupees(r.decision.cart_total_paise)} "
-              f"cap={rupees(r.decision.cap_paise)} headroom={rupees(r.decision.headroom_paise)}")
-    for t in r.tools:
-        tag = f"{R}BLOCKED{D}" if t.blocked else f"{G}CALLED {D}"
-        print(f"  {tag} mcp:{t.name}")
-    return r
+def heading(title: str) -> None:
+    print(f"\n--- {title} ---")
+
+
+def show_response(response: ChatResponse) -> None:
+    print(f"{BLUE}ASSISTANT:{RESET} {response.reply}")
+    print(
+        "  cart="
+        f"{rupees(response.cart.total_paise)} "
+        f"hash={response.cart_hash[:12] or '-'} "
+        f"confirmation_required={response.confirmation_required}"
+    )
+    if response.decision:
+        color = GREEN if response.decision.allowed else RED
+        print(
+            f"  {color}[{response.decision.code.value}]{RESET} "
+            f"headroom={rupees(response.decision.headroom_paise)}"
+        )
+    for invocation in response.tools:
+        status = (
+            f"{RED}BLOCKED{RESET}"
+            if invocation.blocked
+            else f"{GREEN}ISSUED{RESET}"
+        )
+        print(f"  {status} action:{invocation.name}")
+    if response.action_status:
+        print(
+            f"  state={response.action_status.value} "
+            f"grant={response.grant_id or '-'}"
+        )
+
+
+def propose(message: str) -> ChatResponse:
+    print(f"\n{BLUE}SHOPPER:{RESET} {message}")
+    response = handle_turn(ChatRequest(session_id=SESSION_ID, message=message))
+    show_response(response)
+    if response.tools:
+        raise AssertionError("Proposal-only chat unexpectedly reached an action")
+    return response
+
+
+def authorize(proposal: ChatResponse, purchase_attempt_id: str) -> ChatResponse:
+    print(
+        f"\n{BLUE}SHOPPER ACTION:{RESET} Authorize exact cart "
+        f"{proposal.cart_hash[:12]} for create_payment_link"
+    )
+    response = confirm_checkout(
+        CheckoutConfirmRequest(
+            session_id=SESSION_ID,
+            expected_cart_hash=proposal.cart_hash,
+            idempotency_key=purchase_attempt_id,
+        )
+    )
+    show_response(response)
+    return response
 
 
 def main() -> None:
     store.init_db()
-    m = store.create_mandate(MandateCreate(cap_rupees=1000, blocked_categories=["gift_cards"]))
-    print(f"{G}Mandate issued:{D} {m.id} — {rupees(m.cap_paise)} / {m.window.value}")
+    policy = store.create_mandate(
+        MandateCreate(
+            label="Grocery action policy",
+            cap_rupees=1000,
+            blocked_categories=["gift_cards"],
+        )
+    )
+    print("Action Firewall offline rehearsal")
+    print("State: disposable temporary SQLite database; network: disabled")
+    print(
+        f"{GREEN}Policy active:{RESET} {policy.id} v{policy.version} — "
+        f"{rupees(policy.cap_paise)} / {policy.window.value}"
+    )
 
-    print("\n--- ACT 1: conversational discovery (RAG) ---")
-    say("I need supplies for a pasta dinner")
+    try:
+        heading("ACT 1 — the agent proposes; it cannot pay")
+        propose("I need supplies for a pasta dinner")
 
-    print("\n--- ACT 2: the mandate breach attempt ---")
-    say("Add the Parmigiano Reggiano and the olive oil, then check out")
+        heading("ACT 2 — an over-cap exact action is denied")
+        oversized = propose(
+            "Add the Parmigiano Reggiano and the olive oil, then check out"
+        )
+        denied = authorize(oversized, "demo_attempt_over_cap")
+        assert denied.decision and not denied.decision.allowed
+        assert all(invocation.blocked for invocation in denied.tools)
 
-    print("\n--- ACT 3: graceful recovery within the mandate ---")
-    say("Remove the parmigiano and the olive oil")
-    say("Checkout please")
+        heading("ACT 3 — recovery creates one payment link, not a settlement")
+        propose("Remove the Parmigiano Reggiano and the olive oil")
+        recovered = propose("Checkout please")
+        issued = authorize(recovered, "demo_attempt_recovered")
+        assert issued.action_status and issued.action_status.value == "action_issued"
+        assert any(not invocation.blocked for invocation in issued.tools)
 
-    print("\n--- ACT 4: revocation latency ---")
-    store.update_mandate(m.id, MandateUpdate(active=False))
-    print(f"{R}Mandate revoked in the dashboard.{D}")
-    say("Buy me some coffee beans")
+        heading("ACT 4 — revocation binds at the next authorization")
+        revoked = store.update_mandate(policy.id, MandateUpdate(active=False))
+        assert revoked and not revoked.active
+        print(
+            f"{RED}Policy revoked:{RESET} {revoked.id} v{revoked.version}; "
+            "new action receipts are disabled"
+        )
+        coffee = propose("Buy me some coffee beans")
+        blocked_after_revocation = authorize(coffee, "demo_attempt_revoked")
+        assert blocked_after_revocation.decision
+        assert not blocked_after_revocation.decision.allowed
 
-    print(f"\n--- METRICS ---\n{store.metrics()}")
+        heading("EVIDENCE — truthful outcome metrics")
+        print(json.dumps(store.metrics(), indent=2, sort_keys=True))
+        print(f"\n{GREEN}REHEARSAL PASSED{RESET}")
+    finally:
+        reset_session(SESSION_ID)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    finally:
+        _TEMP_DIR.cleanup()

@@ -258,6 +258,76 @@ def test_timeout_after_dispatch_becomes_unknown_and_blocks_retry(clean_db):
         )
 
 
+def test_stale_dispatching_recovers_to_unknown_without_releasing_headroom(clean_db):
+    mandate = store.create_mandate(MandateCreate(cap_rupees=1_000))
+    outcome, canonical, context = make_authorization(mandate=mandate)
+    grant, token, reason = store.claim_action_grant(
+        outcome.grant.id,
+        context=context,
+        action_name=canonical.name,
+        action_schema_hash=canonical.schema_hash,
+        args=canonical.args,
+        cart_hash=outcome.grant.cart_hash,
+    )
+
+    assert grant and token and reason == "DISPATCH_CLAIMED"
+    assert store.recover_stale_dispatches(cutoff_seconds=0) == 1
+    recovered = store.get_action_grant(outcome.grant.id)
+    assert recovered and recovered.state is ActionState.UNKNOWN
+    assert store.spent_in_window(mandate.id, mandate.window) == canonical.amount_paise
+
+    with pytest.raises(ActionInProgress):
+        SimulatedMCPClient().call_tool(
+            canonical.name,
+            canonical.args,
+            outcome.grant.id,
+            context,
+            outcome.grant.cart_hash,
+        )
+
+
+def test_late_result_from_original_dispatch_owner_can_resolve_recovered_unknown(clean_db):
+    mandate = store.create_mandate(MandateCreate(cap_rupees=1_000))
+    outcome, canonical, context = make_authorization(mandate=mandate)
+    _, token, _ = store.claim_action_grant(
+        outcome.grant.id,
+        context=context,
+        action_name=canonical.name,
+        action_schema_hash=canonical.schema_hash,
+        args=canonical.args,
+        cart_hash=outcome.grant.cart_hash,
+    )
+    assert token
+    assert store.recover_stale_dispatches(cutoff_seconds=0) == 1
+
+    issued = store.mark_action_issued(
+        outcome.grant.id,
+        token,
+        provider_ref="plink_late_result",
+        result={"id": "plink_late_result", "status": "created"},
+    )
+
+    assert issued.state is ActionState.ACTION_ISSUED
+    assert issued.provider_ref == "plink_late_result"
+
+
+def test_fresh_dispatch_is_not_recovered_early(clean_db):
+    mandate = store.create_mandate(MandateCreate(cap_rupees=1_000))
+    outcome, canonical, context = make_authorization(mandate=mandate)
+    store.claim_action_grant(
+        outcome.grant.id,
+        context=context,
+        action_name=canonical.name,
+        action_schema_hash=canonical.schema_hash,
+        args=canonical.args,
+        cart_hash=outcome.grant.cart_hash,
+    )
+
+    assert store.recover_stale_dispatches(cutoff_seconds=60) == 0
+    current = store.get_action_grant(outcome.grant.id)
+    assert current and current.state is ActionState.DISPATCHING
+
+
 def test_unknown_can_be_reconciled_without_redispatch(clean_db):
     mandate = store.create_mandate(MandateCreate(cap_rupees=1_000))
     outcome, canonical, context = make_authorization(mandate=mandate)
