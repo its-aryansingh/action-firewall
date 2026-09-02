@@ -1,6 +1,14 @@
 "use client";
+
 import { useEffect, useRef, useState } from "react";
-import { api, inr, type ChatResponse, type Decision, type Mandate, type ToolInvocation } from "@/lib/api";
+import {
+  api,
+  inr,
+  type ChatResponse,
+  type Decision,
+  type Mandate,
+  type ToolInvocation,
+} from "@/lib/api";
 import { MandateBadge } from "@/components/MandateBadge";
 import { CartPanel } from "@/components/CartPanel";
 
@@ -10,6 +18,8 @@ type Msg = {
   decision?: Decision | null;
   tools?: ToolInvocation[];
   traceUrl?: string | null;
+  actionStatus?: ChatResponse["action_status"];
+  grantId?: string | null;
 };
 
 const PROMPTS = [
@@ -18,47 +28,115 @@ const PROMPTS = [
   "Checkout please",
 ];
 
+function purchaseAttemptId(): string {
+  return "attempt_" + globalThis.crypto.randomUUID();
+}
+
 export default function ChatPage() {
-  const [sessionId] = useState(() => `sess_${Math.random().toString(36).slice(2, 10)}`);
+  const [sessionId] = useState(
+    () => "sess_" + Math.random().toString(36).slice(2, 10),
+  );
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<ChatResponse | null>(null);
   const [mandate, setMandate] = useState<Mandate | null>(null);
-  const [spent, setSpent] = useState(0);
+  const [exposure, setExposure] = useState(0);
+  const [attemptId, setAttemptId] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
   const refresh = async () => {
     try {
-      const m = await api.activeMandate();
-      setMandate(m);
-      const u = await api.usage(m.id);
-      setSpent(u.spent_paise);
-    } catch { /* backend not up yet */ }
+      const policies = await api.listMandates();
+      const current = policies[0] ?? null;
+      setMandate(current);
+      if (current) {
+        const usage = await api.usage(current.id);
+        setExposure(usage.spent_paise);
+      }
+    } catch {
+      // The app remains usable while the backend starts.
+    }
   };
 
-  useEffect(() => { refresh(); }, []);
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs]);
+  useEffect(() => {
+    refresh();
+  }, []);
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [msgs]);
+
+  function appendAgentResponse(response: ChatResponse) {
+    setRes(response);
+    setMsgs((current) => [
+      ...current,
+      {
+        role: "agent",
+        text: response.reply,
+        decision: response.decision,
+        tools: response.tools,
+        traceUrl: response.trace_url,
+        actionStatus: response.action_status,
+        grantId: response.grant_id,
+      },
+    ]);
+  }
 
   async function send(text: string) {
     if (!text.trim() || busy) return;
     setInput("");
-    setMsgs((m) => [...m, { role: "user", text }]);
+    setMsgs((current) => [...current, { role: "user", text }]);
     setBusy(true);
     try {
-      // The mandate is re-read server-side on every turn: revocation binds here.
-      const r = await api.chat(sessionId, text);
-      setRes(r);
-      setMsgs((m) => [...m, {
-        role: "agent", text: r.reply, decision: r.decision,
-        tools: r.tools, traceUrl: r.trace_url,
-      }]);
-      refresh();
-    } catch (e) {
-      setMsgs((m) => [...m, {
-        role: "agent",
-        text: `Backend unreachable (${String(e)}). Is uvicorn running on :8000?`,
-      }]);
+      const response = await api.chat(sessionId, text);
+      appendAgentResponse(response);
+      setAttemptId(response.cart.lines.length ? purchaseAttemptId() : null);
+      await refresh();
+    } catch (error) {
+      setMsgs((current) => [
+        ...current,
+        {
+          role: "agent",
+          text:
+            "Backend unreachable (" +
+            String(error) +
+            "). Is uvicorn running on :8000?",
+        },
+      ]);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function authorizePaymentLink() {
+    if (!res?.cart_hash || !res.cart.lines.length || busy) return;
+    const stableAttemptId = attemptId ?? purchaseAttemptId();
+    setAttemptId(stableAttemptId);
+    setMsgs((current) => [
+      ...current,
+      { role: "user", text: "Authorize this exact payment-link action." },
+    ]);
+    setBusy(true);
+    try {
+      const response = await api.confirmCheckout(
+        sessionId,
+        res.cart_hash,
+        stableAttemptId,
+      );
+      appendAgentResponse(response);
+      if (!response.cart.lines.length) setAttemptId(null);
+      await refresh();
+    } catch (error) {
+      setMsgs((current) => [
+        ...current,
+        {
+          role: "agent",
+          text:
+            "Authorization request failed (" +
+            String(error) +
+            "). The same purchase-attempt ID is retained for a safe retry.",
+        },
+      ]);
     } finally {
       setBusy(false);
     }
@@ -67,17 +145,20 @@ export default function ChatPage() {
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
       <section className="card flex h-[70vh] flex-col">
-        <div className="label">AI Buyer</div>
+        <div className="label">AI Buyer — proposal only</div>
 
         <div className="mt-4 flex-1 space-y-4 overflow-y-auto pr-2">
           {msgs.length === 0 && (
             <div className="text-sm text-muted">
-              <p>Try the demo script:</p>
+              <p>Try the demo sequence:</p>
               <ul className="mt-2 space-y-1">
-                {PROMPTS.map((p) => (
-                  <li key={p}>
-                    <button className="text-brand hover:underline" onClick={() => send(p)}>
-                      → {p}
+                {PROMPTS.map((prompt) => (
+                  <li key={prompt}>
+                    <button
+                      className="text-brand hover:underline"
+                      onClick={() => send(prompt)}
+                    >
+                      → {prompt}
                     </button>
                   </li>
                 ))}
@@ -85,47 +166,60 @@ export default function ChatPage() {
             </div>
           )}
 
-          {msgs.map((m, i) => (
-            <div key={i} className={m.role === "user" ? "text-right" : ""}>
+          {msgs.map((message, index) => (
+            <div
+              key={message.role + "-" + index}
+              className={message.role === "user" ? "text-right" : ""}
+            >
               <div
-                className={`inline-block max-w-[85%] rounded-2xl px-4 py-2 text-sm ${
-                  m.role === "user" ? "bg-brand text-white" : "border border-edge bg-ink"
-                }`}
+                className={
+                  "inline-block max-w-[85%] rounded-2xl px-4 py-2 text-sm " +
+                  (message.role === "user"
+                    ? "bg-brand text-white"
+                    : "border border-edge bg-ink")
+                }
               >
-                {m.text}
+                {message.text}
               </div>
 
-              {m.decision && (
+              {message.decision && (
                 <div className="mt-2 max-w-[85%]">
-                  <MandateBadge d={m.decision} />
+                  <MandateBadge d={message.decision} />
                 </div>
               )}
 
-              {m.tools?.map((t, k) => (
+              {message.actionStatus && (
+                <div className="mt-1 max-w-[85%] rounded-lg border border-edge bg-ink px-3 py-1.5 font-mono text-[11px]">
+                  action {message.actionStatus}
+                  {message.grantId ? " · " + message.grantId : ""}
+                </div>
+              )}
+
+              {message.tools?.map((tool, index) => (
                 <div
-                  key={k}
+                  key={tool.name + "-" + index}
                   className="mt-1 max-w-[85%] rounded-lg border border-edge bg-ink px-3 py-1.5 font-mono text-[11px]"
                 >
-                  <span className={t.blocked ? "text-block" : "text-allow"}>
-                    {t.blocked ? "BLOCKED" : "CALLED"}
+                  <span className={tool.blocked ? "text-block" : "text-allow"}>
+                    {tool.blocked ? "DENIED" : "ACTION ISSUED"}
                   </span>{" "}
-                  mcp:{t.name}
-                  {t.result?.short_url ? (
+                  mcp:{tool.name}
+                  {tool.result?.short_url ? (
                     <a
-                      href={String(t.result.short_url)}
+                      href={String(tool.result.short_url)}
                       target="_blank"
                       rel="noreferrer"
                       className="ml-2 text-brand hover:underline"
                     >
-                      open link
+                      open test link
                     </a>
                   ) : null}
                 </div>
               ))}
 
-              {m.traceUrl && (
+              {message.traceUrl && (
                 <a
-                  href={m.traceUrl}
+                  href={message.traceUrl}
                   target="_blank"
                   rel="noreferrer"
                   className="mt-1 block text-[11px] text-brand hover:underline"
@@ -140,26 +234,35 @@ export default function ChatPage() {
 
         <form
           className="mt-4 flex gap-2"
-          onSubmit={(e) => { e.preventDefault(); send(input); }}
+          onSubmit={(event) => {
+            event.preventDefault();
+            send(input);
+          }}
         >
           <input
             className="input"
             placeholder="I need supplies for a pasta dinner…"
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(event) => setInput(event.target.value)}
             disabled={busy}
           />
           <button className="btn" disabled={busy || !input.trim()}>
-            {busy ? "…" : "Send"}
+            {busy ? "…" : "Propose"}
           </button>
         </form>
       </section>
 
       <aside className="space-y-4">
-        <CartPanel cart={res?.cart ?? { lines: [] }} mandate={mandate} spent={spent} />
+        <CartPanel
+          cart={res?.cart ?? { lines: [] }}
+          mandate={mandate}
+          exposure={exposure}
+          busy={busy}
+          onAuthorize={authorizePaymentLink}
+        />
         {mandate && (
           <div className="card text-sm">
-            <div className="label">Active mandate</div>
+            <div className="label">Current authorization policy</div>
             <p className="mt-2">{mandate.label}</p>
             <p className="font-mono text-muted">
               {inr(mandate.cap_paise)} / {mandate.window}
@@ -167,7 +270,9 @@ export default function ChatPage() {
             <p className="mt-1 font-mono text-[11px] text-muted">
               v{mandate.version} · {mandate.active ? "active" : "revoked"}
             </p>
-            <a href="/mandate" className="btn-ghost mt-3 inline-block">Edit limits</a>
+            <a href="/mandate" className="btn-ghost mt-3 inline-block">
+              Edit policy
+            </a>
           </div>
         )}
       </aside>

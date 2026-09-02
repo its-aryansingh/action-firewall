@@ -27,6 +27,11 @@ export type ToolInvocation = {
 export type ChatResponse = {
   session_id: string; reply: string; cart: Cart;
   decision: Decision | null; tools: ToolInvocation[]; trace_url: string | null;
+  cart_hash: string;
+  confirmation_required: boolean;
+  action_status: "authorized" | "dispatching" | "action_issued" | "settled"
+    | "definitive_failure" | "unknown" | "cancelled" | null;
+  grant_id: string | null;
 };
 
 export type Mandate = {
@@ -37,12 +42,30 @@ export type Mandate = {
 };
 
 export type Metrics = {
-  mandate_checks: number;
-  mandate_breach_attempts: number;
-  mandate_breach_attempt_rate: number;
-  value_blocked_paise: number;
-  value_settled_paise: number;
-  chargeback_liability_paise: number;
+  authorization_attempts: number;
+  denied_authorizations: number;
+  authorization_denial_rate: number;
+  denied_requested_value_paise: number;
+  payment_link_issued_value_paise: number;
+  confirmed_test_payment_value_paise: number;
+  unknown_outcome_value_paise: number;
+  outstanding_authorized_exposure_paise: number;
+  unauthorized_actuator_calls: number;
+  cart_policy_previews: number;
+  generated_at: number;
+};
+
+export type AuditEvent = {
+  id: string;
+  session_id: string | null;
+  mandate_id: string | null;
+  mandate_version: number | null;
+  event: string;
+  code: string | null;
+  cart_total_paise: number | null;
+  cap_paise: number | null;
+  payload: Record<string, unknown>;
+  created_at: number;
 };
 
 async function j<T>(r: Response): Promise<T> {
@@ -56,6 +79,17 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ session_id, message }),
+    }).then(j<ChatResponse>),
+
+  confirmCheckout: (
+    session_id: string,
+    expected_cart_hash: string,
+    idempotency_key: string,
+  ) =>
+    fetch(`${API}/checkout/confirm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id, expected_cart_hash, idempotency_key }),
     }).then(j<ChatResponse>),
 
   activeMandate: () =>
@@ -88,7 +122,7 @@ export const api = {
   audit: (session_id?: string) =>
     fetch(`${API}/audit${session_id ? `?session_id=${session_id}` : ""}`, {
       cache: "no-store",
-    }).then(j<any[]>),
+    }).then(j<AuditEvent[]>),
 };
 
 export const inr = (paise: number) =>
