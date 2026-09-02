@@ -1,10 +1,8 @@
-"""The UAP Mandate Verification Layer.
+"""Pure deterministic evaluation for the shopper-defined action policy.
 
 Design rule: this module is PURE and DETERMINISTIC. The LLM never decides
-whether a payment is allowed — it only proposes a cart. `verify()` is the
-only gate, it runs before any Razorpay MCP tool is reachable, and it is
-unit-tested. That separation is the whole thesis of the project:
-agentic commerce is an authorization problem, not a checkout problem.
+whether an action is allowed. This function provides a preview and is reused
+inside the atomic authorization transaction. It never creates authority.
 """
 from __future__ import annotations
 
@@ -29,8 +27,8 @@ def verify(cart: Cart, mandate: Mandate | None, already_spent_paise: int = 0) ->
     if mandate is None:
         return MandateDecision(
             allowed=False, code=DecisionCode.BLOCK_NO_MANDATE, cart_total_paise=total,
-            human_message=("No spending mandate is authorised for this agent yet. "
-                           "Please create one in the Mandate Dashboard before I can pay."),
+            human_message=("No authorization policy exists for this agent yet. "
+                           "Create one in the Policy Dashboard before authorizing an action."),
         )
 
     base = dict(mandate_id=mandate.id, mandate_version=mandate.version,
@@ -41,8 +39,8 @@ def verify(cart: Cart, mandate: Mandate | None, already_spent_paise: int = 0) ->
     if not mandate.active:
         return MandateDecision(
             allowed=False, code=DecisionCode.BLOCK_MANDATE_REVOKED, **base,
-            human_message=("Your mandate for this agent has been revoked, so I cannot "
-                           "move any money. Re-activate it in the dashboard to continue."),
+            human_message=("This agent's authorization policy is revoked, so no new "
+                           "action receipt can be issued. Re-activate it to continue."),
         )
 
     # 3. Category policy
@@ -56,8 +54,8 @@ def verify(cart: Cart, mandate: Mandate | None, already_spent_paise: int = 0) ->
         return MandateDecision(
             allowed=False, code=DecisionCode.BLOCK_CATEGORY_NOT_ALLOWED,
             offending_skus=offending, **base,
-            human_message=(f"Your mandate does not cover these items: {names}. "
-                           "I have left them out rather than charging you for them."),
+            human_message=(f"Your policy does not cover these items: {names}. "
+                           "No payment action was authorized."),
         )
 
     # 4. Per-transaction cap
@@ -80,7 +78,7 @@ def verify(cart: Cart, mandate: Mandate | None, already_spent_paise: int = 0) ->
             allowed=False, code=DecisionCode.BLOCK_WINDOW_CAP_EXCEEDED, **base,
             human_message=(
                 f"I cannot complete this transaction — the {rupees(total)} total exceeds your "
-                f"authorised UPI Reserve Pay mandate of {rupees(mandate.cap_paise)} "
+                f"authorization policy of {rupees(mandate.cap_paise)} "
                 f"({window_label}).{spent_note} "
                 f"You have {rupees(max(0, headroom))} of headroom left. "
                 "Would you like me to drop the most expensive item to bring it under the limit?"),
@@ -88,8 +86,8 @@ def verify(cart: Cart, mandate: Mandate | None, already_spent_paise: int = 0) ->
 
     return MandateDecision(
         allowed=True, code=DecisionCode.ALLOW, **base,
-        human_message=(f"{rupees(total)} is within your authorised mandate of "
-                       f"{rupees(mandate.cap_paise)}. Proceeding to checkout."),
+        human_message=(f"{rupees(total)} is within the policy ceiling of "
+                       f"{rupees(mandate.cap_paise)}. Explicit confirmation is still required."),
     )
 
 
@@ -102,7 +100,7 @@ def verify_for_agent(cart: Cart, user_id: str, agent_id: str,
     spent = store.spent_in_window(mandate.id, mandate.window) if mandate else 0
     decision = verify(cart, mandate, spent)
     store.log_event(
-        event="MANDATE_CHECK", session_id=session_id,
+        event="CART_POLICY_PREVIEW", session_id=session_id,
         mandate_id=decision.mandate_id, mandate_version=decision.mandate_version,
         code=decision.code.value, cart_total_paise=decision.cart_total_paise,
         cap_paise=decision.cap_paise,

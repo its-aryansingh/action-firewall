@@ -1,55 +1,79 @@
-"""The single-agent orchestrator.
+"""Single-agent proposal flow plus a separate deterministic action boundary.
 
-Razorpay's own FTX26 position is that one well-instrumented agent with full
-context beats a multi-agent swarm for commerce: fewer handoff failure modes,
-predictable latency, one auditable trace. So this is deliberately ONE agent
-with a fixed, inspectable pipeline:
-
-    retrieve_catalog -> plan_cart -> mandate_check -> mcp_tool_call
-
-The LLM only ever produces a *proposal* (which SKUs, what quantity, what to
-say). Money is gated by `mandate.verify_for_agent`, which is deterministic
-and unit-tested. An LLM that hallucinates cannot spend money here.
+Chat may retrieve, interpret, and propose. It never dispatches a Razorpay
+action. Explicit confirmation is a separate server operation that canonicalizes
+the cart, atomically authorizes it, and redeems one exact action grant.
 """
 from __future__ import annotations
+
 import hashlib
 import json
 import re
 from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import Any
+
+from pydantic import ValidationError
 
 from . import catalog, store
+from .actions import canonicalize_action
+from .authorization import cart_hash as compute_cart_hash
 from .config import get_settings
 from .mandate import rupees, suggest_downgrade, verify_for_agent
-from .mcp_client import MandateViolation, get_client, unwrap
-from .models import (Cart, CartLine, ChatRequest, ChatResponse, DecisionCode,
-                     ToolInvocation)
+from .mcp_client import (
+    ActionInProgress,
+    ActionOutcomeUnknown,
+    MandateViolation,
+    get_client,
+    unwrap,
+)
+from .models import (
+    ActionContext,
+    ActionState,
+    AuthorizationRequest,
+    Cart,
+    CartLine,
+    CartOperation,
+    ChatRequest,
+    ChatResponse,
+    CheckoutConfirmRequest,
+    DecisionCode,
+    MandateDecision,
+    PlannerOutput,
+    ToolInvocation,
+)
 from .observability import Trace
 
 SYSTEM_PROMPT = """You are a Razorpay agentic-commerce shopping assistant.
 
-You help a human buy groceries and household goods in chat. You may ONLY
-choose products from the RETRIEVED CATALOG given to you — never invent a SKU
-or a price.
+You help a human assemble a grocery cart. You may ONLY choose products from
+the RETRIEVED CATALOG. Never invent a SKU or a price.
 
-You do not decide whether a payment is permitted. A separate deterministic
-Mandate Verification Layer enforces the human's authorised spending ceiling
-and will hard-block you. Never claim a payment succeeded unless the tool
-result says so.
+Your output is a proposal. It can never authorize or dispatch a payment
+action. A separate deterministic Action Firewall requires explicit user
+confirmation and enforces the current policy.
 
 Reply with JSON only:
 {
-  "reply": "<what you say to the shopper, warm and brief>",
+  "reply": "<warm, brief shopper-facing response>",
   "cart_ops": [{"op": "add"|"remove"|"clear", "sku": "...", "qty": 1}],
   "intent": "discover" | "checkout"
 }
-Set intent to "checkout" only when the shopper clearly asks to pay, order,
-buy or confirm. Cross-sell at most one relevant item, naturally, in `reply`.
+Intent is advisory UI metadata only. Cross-sell at most one relevant item.
 """
 
-CHECKOUT_WORDS = ("checkout", "check out", "buy", "pay", "order it", "place the order",
-                  "confirm", "purchase", "proceed", "book it", "done")
+CHECKOUT_WORDS = (
+    "checkout",
+    "check out",
+    "buy",
+    "pay",
+    "order it",
+    "place the order",
+    "confirm",
+    "purchase",
+    "proceed",
+    "book it",
+    "done",
+)
 
 
 @dataclass
@@ -65,100 +89,124 @@ _SESSIONS: dict[str, Session] = {}
 
 
 def get_session(req: ChatRequest) -> Session:
-    s = _SESSIONS.get(req.session_id)
-    if not s:
-        s = Session(req.session_id, req.user_id, req.agent_id)
-        _SESSIONS[req.session_id] = s
-    return s
+    session = _SESSIONS.get(req.session_id)
+    if not session:
+        session = Session(req.session_id, req.user_id, req.agent_id)
+        _SESSIONS[req.session_id] = session
+    elif session.user_id != req.user_id or session.agent_id != req.agent_id:
+        raise ValueError("A session cannot change its bound user or agent identity")
+    return session
+
+
+def get_session_by_id(session_id: str) -> Session | None:
+    return _SESSIONS.get(session_id)
 
 
 def reset_session(session_id: str) -> None:
     _SESSIONS.pop(session_id, None)
 
 
-# --------------------------------------------------------------------------
-# Planning
-# --------------------------------------------------------------------------
-def _llm_plan(message: str, retrieved: list[dict], cart: Cart,
-              history: list[dict]) -> dict | None:
-    s = get_settings()
-    if not s.openai_api_key:
+def _llm_plan(
+    message: str,
+    retrieved: list[dict],
+    cart: Cart,
+    history: list[dict],
+) -> PlannerOutput | None:
+    settings = get_settings()
+    if not settings.openai_api_key:
         return None
     try:
         from openai import OpenAI
-        client = OpenAI(api_key=s.openai_api_key)
-        ctx = {
+
+        client = OpenAI(api_key=settings.openai_api_key)
+        context = {
             "retrieved_catalog": [
-                {"sku": p["sku"], "name": p["name"], "category": p["category"],
-                 "price_rupees": p["price_paise"] / 100, "tags": p.get("tags", [])}
-                for p in retrieved
+                {
+                    "sku": product["sku"],
+                    "name": product["name"],
+                    "category": product["category"],
+                    "price_rupees": product["price_paise"] / 100,
+                    "tags": product.get("tags", []),
+                }
+                for product in retrieved
             ],
             "current_cart": [
-                {"sku": l.sku, "name": l.name, "qty": l.qty,
-                 "line_total_rupees": l.line_total_paise / 100} for l in cart.lines
+                {
+                    "sku": line.sku,
+                    "name": line.name,
+                    "qty": line.qty,
+                    "line_total_rupees": line.line_total_paise / 100,
+                }
+                for line in cart.lines
             ],
             "cart_total_rupees": cart.total_paise / 100,
         }
-        msgs = [{"role": "system", "content": SYSTEM_PROMPT}]
-        msgs += history[-6:]
-        msgs.append({"role": "user",
-                     "content": f"CONTEXT:\n{json.dumps(ctx)}\n\nSHOPPER: {message}"})
-        resp = client.chat.completions.create(
-            model=s.openai_model, messages=msgs, temperature=0.2,
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        messages += history[-6:]
+        messages.append(
+            {
+                "role": "user",
+                "content": f"CONTEXT:\n{json.dumps(context)}\n\nSHOPPER: {message}",
+            }
+        )
+        response = client.chat.completions.create(
+            model=settings.openai_model,
+            messages=messages,
+            temperature=0.2,
             response_format={"type": "json_object"},
         )
-        return json.loads(resp.choices[0].message.content)
-    except Exception as exc:  # pragma: no cover - network path
-        print(f"[agent] LLM planning failed, using heuristic planner: {exc}")
+        return PlannerOutput.model_validate_json(response.choices[0].message.content)
+    except (ValidationError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        print(f"[agent] model output rejected, using deterministic planner: {exc}")
+        return None
+    except Exception as exc:
+        print(f"[agent] LLM planning failed, using deterministic planner: {exc}")
         return None
 
 
 @lru_cache
 def _name_word_df() -> dict[str, int]:
-    """How many catalog products use each word in their name."""
-    df: dict[str, int] = {}
-    for p in catalog.load_catalog():
-        for w in set(re.findall(r"[a-z]+", p["name"].lower())):
-            if len(w) > 2:
-                df[w] = df.get(w, 0) + 1
-    return df
+    counts: dict[str, int] = {}
+    for product in catalog.load_catalog():
+        for word in set(re.findall(r"[a-z]+", product["name"].lower())):
+            if len(word) > 2:
+                counts[word] = counts.get(word, 0) + 1
+    return counts
 
 
 def _mentioned_skus(message: str) -> list[str]:
-    """Resolve explicit product mentions ("add the parmigiano") to SKUs.
-
-    A product matches only if the shopper used at least one word UNIQUE to it.
-    Matching on shared words alone is what made "the olive oil" also pull in
-    Sunflower Oil: both contain "oil", but only one contains "olive". Requiring
-    a discriminating word is the difference between an agent that knows what it
-    is buying and one that is guessing.
-    """
     low = message.lower()
-    df = _name_word_df()
+    counts = _name_word_df()
     hits: list[str] = []
-    for p in sorted(catalog.load_catalog(), key=lambda p: -len(p["name"])):
-        words = [w for w in re.findall(r"[a-z]+", p["name"].lower()) if len(w) > 2]
-        matched = [w for w in words if w in low]
-        if not matched:
+    for product in sorted(catalog.load_catalog(), key=lambda item: -len(item["name"])):
+        words = [
+            word
+            for word in re.findall(r"[a-z]+", product["name"].lower())
+            if len(word) > 2
+        ]
+        matched = [word for word in words if word in low]
+        if not matched or min(counts[word] for word in matched) > 1:
             continue
-        if min(df[w] for w in matched) > 1:
-            continue        # only generic words matched — not a real reference
-        if p["sku"] not in hits:
-            hits.append(p["sku"])
+        if product["sku"] not in hits:
+            hits.append(product["sku"])
     return hits
 
 
-def _heuristic_plan(message: str, retrieved: list[dict], cart: Cart) -> dict:
-    """Deterministic fallback so the demo always runs without an LLM key.
-
-    Order matters: explicit mentions are resolved FIRST, independently of
-    intent, so "add the parmigiano and check out" both adds and checks out.
-    """
+def _checkout_language(message: str) -> bool:
     low = message.lower()
-    intent = "checkout" if any(w in low for w in CHECKOUT_WORDS) else "discover"
-    removing = any(w in low for w in ("remove", "drop", "take out", "without", "delete"))
+    if any(phrase in low for phrase in ("do not checkout", "don't checkout", "not checkout")):
+        return False
+    return any(word in low for word in CHECKOUT_WORDS)
+
+
+def _heuristic_plan(message: str, retrieved: list[dict], cart: Cart) -> PlannerOutput:
+    low = message.lower()
+    advisory_intent = "checkout" if _checkout_language(message) else "discover"
+    removing = any(
+        word in low for word in ("remove", "drop", "take out", "without", "delete")
+    )
     ops: list[dict] = []
-    in_cart = {l.sku for l in cart.lines}
+    in_cart = {line.sku for line in cart.lines}
     mentioned = _mentioned_skus(message)
 
     if "clear" in low or "empty the cart" in low:
@@ -168,276 +216,480 @@ def _heuristic_plan(message: str, retrieved: list[dict], cart: Cart) -> dict:
             if sku in in_cart:
                 ops.append({"op": "remove", "sku": sku, "qty": 99})
     elif mentioned:
-        ops += [{"op": "add", "sku": sku, "qty": 1}
-                for sku in mentioned if sku not in in_cart]
-    elif intent == "discover":
-        ops += [{"op": "add", "sku": p["sku"], "qty": 1} for p in retrieved[:4]]
+        ops.extend(
+            {"op": "add", "sku": sku, "qty": 1}
+            for sku in mentioned
+            if sku not in in_cart
+        )
+    elif advisory_intent == "discover":
+        ops.extend(
+            {"op": "add", "sku": product["sku"], "qty": 1}
+            for product in retrieved[:4]
+        )
 
-    added = [o["sku"] for o in ops if o.get("op") == "add"]
-    removed = [o["sku"] for o in ops if o.get("op") == "remove"]
-
+    added = [op["sku"] for op in ops if op.get("op") == "add"]
+    removed = [op["sku"] for op in ops if op.get("op") == "remove"]
     if added:
-        names = ", ".join(catalog.by_sku()[s]["name"] for s in added)
+        names = ", ".join(catalog.by_sku()[sku]["name"] for sku in added)
         extra = catalog.cross_sell(added + list(in_cart), 1)
-        cs = (f" People usually add {extra[0]['name']} "
-              f"({rupees(extra[0]['price_paise'])}) with this — want it?") if extra else ""
-        reply = f"Added {names} to your cart.{cs}"
+        cross_sell = (
+            f" People usually add {extra[0]['name']} "
+            f"({rupees(extra[0]['price_paise'])}) with this — want it?"
+            if extra
+            else ""
+        )
+        reply = f"Added {names} to your cart.{cross_sell}"
     elif removed:
-        names = ", ".join(catalog.by_sku()[s]["name"] for s in removed)
+        names = ", ".join(catalog.by_sku()[sku]["name"] for sku in removed)
         reply = f"Removed {names}."
-    elif intent == "checkout":
-        reply = "Sending this to checkout now."
+    elif advisory_intent == "checkout":
+        reply = "Your cart is ready for review."
     else:
-        reply = "Tell me what you'd like to cook or buy and I'll put a cart together."
+        reply = "Tell me what you would like to cook or buy."
 
-    if intent == "checkout" and (added or removed):
-        reply += " Taking it to checkout."
-    return {"reply": reply, "cart_ops": ops, "intent": intent}
-
-
-def cart_idempotency_key(session_id: str, mandate_id: str, mandate_version: int,
-                         cart: Cart) -> str:
-    """Stable identity for one logical purchase attempt.
-
-    Scoped to the SESSION as well as the basket. An earlier version keyed on
-    (mandate, version, basket) alone, and a concurrency test caught it: two
-    different shoppers buying the same item under one mandate produced the same
-    key, so the second was silently handed the first one's payment link. Two
-    identical baskets in two sessions are two purchases; the same basket
-    re-submitted inside one session is a retry.
-
-    Callers who can supply a real client-generated key should do so via
-    ChatRequest.idempotency_key — this is only the fallback.
-    """
-    basket = sorted((l.sku, l.qty, l.unit_price_paise) for l in cart.lines)
-    raw = json.dumps([session_id, mandate_id, mandate_version, basket],
-                     separators=(",", ":"))
-    return hashlib.sha256(raw.encode()).hexdigest()[:32]
+    return PlannerOutput.model_validate(
+        {"reply": reply, "cart_ops": ops, "intent": advisory_intent}
+    )
 
 
-def _apply_ops(cart: Cart, ops: list[dict]) -> Cart:
-    lines = {l.sku: l for l in cart.lines}
-    for op in ops or []:
-        kind = op.get("op")
-        if kind == "clear":
+def cart_idempotency_key(session_id: str, mandate_id: str, cart: Cart) -> str:
+    """Fallback purchase-attempt identity, independent of policy version."""
+    basket = sorted(
+        (line.sku, line.qty, line.unit_price_paise) for line in cart.lines
+    )
+    raw = json.dumps([session_id, mandate_id, basket], separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
+
+
+def _apply_ops(cart: Cart, ops: list[CartOperation]) -> Cart:
+    lines = {line.sku: line.model_copy(deep=True) for line in cart.lines}
+    for operation in ops:
+        if operation.op == "clear":
             lines = {}
             continue
-        sku = op.get("sku")
+        sku = operation.sku or ""
         product = catalog.by_sku().get(sku)
         if not product:
-            continue  # hallucinated SKU: silently dropped, never priced
-        qty = int(op.get("qty", 1) or 1)
-        if kind == "add":
+            continue
+        if operation.op == "add":
             if sku in lines:
-                lines[sku].qty += qty
+                new_quantity = lines[sku].qty + operation.qty
+                lines[sku] = CartLine.model_validate(
+                    {**lines[sku].model_dump(), "qty": new_quantity}
+                )
             else:
-                lines[sku] = CartLine(sku=sku, name=product["name"],
-                                      category=product["category"],
-                                      unit_price_paise=product["price_paise"], qty=qty)
-        elif kind == "remove":
-            if sku in lines:
-                lines[sku].qty -= qty
-                if lines[sku].qty <= 0:
-                    del lines[sku]
+                lines[sku] = CartLine(
+                    sku=sku,
+                    name=product["name"],
+                    category=product["category"],
+                    unit_price_paise=product["price_paise"],
+                    qty=operation.qty,
+                )
+        elif operation.op == "remove" and sku in lines:
+            new_quantity = lines[sku].qty - operation.qty
+            if new_quantity <= 0:
+                del lines[sku]
+            else:
+                lines[sku] = CartLine.model_validate(
+                    {**lines[sku].model_dump(), "qty": new_quantity}
+                )
     return Cart(lines=list(lines.values()))
 
 
-# --------------------------------------------------------------------------
-# Turn
-# --------------------------------------------------------------------------
 def handle_turn(req: ChatRequest) -> ChatResponse:
-    sess = get_session(req)
-    trace = Trace(name="agentic-checkout-turn", session_id=req.session_id,
-                  user_id=req.user_id, input=req.message)
-    tools: list[ToolInvocation] = []
+    """Proposal-only chat. This function cannot reach a state-changing tool."""
+    session = get_session(req)
+    trace = Trace(
+        name="agentic-cart-proposal",
+        session_id=req.session_id,
+        user_id=session.user_id,
+        input=req.message,
+    )
 
-    # 1. RETRIEVE -------------------------------------------------------
-    with trace.span("retrieve_catalog", input={"query": req.message}) as sp:
+    with trace.span("retrieve_catalog", input={"query": req.message}) as span:
         retrieved = catalog.search(req.message, top_k=6)
-        sp["output"] = [{"sku": p["sku"], "name": p["name"]} for p in retrieved]
+        span["output"] = [
+            {"sku": product["sku"], "name": product["name"]}
+            for product in retrieved
+        ]
 
-    # 2. PLAN -----------------------------------------------------------
-    with trace.span("plan_cart", input={"message": req.message}) as sp:
-        plan = _llm_plan(req.message, retrieved, sess.cart, sess.history) \
-            or _heuristic_plan(req.message, retrieved, sess.cart)
-        sp["output"] = plan
-    proposed = _apply_ops(sess.cart, plan.get("cart_ops", []))
-    reply = plan.get("reply", "")
-    intent = plan.get("intent", "discover")
+    with trace.span("plan_cart", input={"message": req.message}) as span:
+        plan = _llm_plan(req.message, retrieved, session.cart, session.history)
+        if plan is None:
+            plan = _heuristic_plan(req.message, retrieved, session.cart)
+        span["output"] = plan.model_dump(mode="json")
 
-    # 2b. IDEMPOTENCY SHORT-CIRCUIT ------------------------------------
-    # Runs ahead of the mandate check on purpose: a settled purchase is already
-    # counted against the cap, so re-checking the cap on a retry of that same
-    # purchase would block it as though it were a second one.
-    if intent == "checkout" and proposed.lines:
-        _m = store.get_active_mandate(req.user_id, req.agent_id)
-        if _m:
-            _key = req.idempotency_key or cart_idempotency_key(
-                req.session_id, _m.id, _m.version, proposed)
-            _prior = store.find_committed_reservation(_m.id, _key)
-            if _prior and _prior.razorpay_ref:
-                reply = (f"This order already went through — reusing payment reference "
-                         f"{_prior.razorpay_ref} rather than charging you twice.")
-                tools.append(ToolInvocation(
-                    name="create_payment_link", args={"idempotency_key": _key},
-                    result={"id": _prior.razorpay_ref, "replayed": True}))
-                trace.event(name="idempotent_replay",
-                            metadata={"ref": _prior.razorpay_ref, "key": _key})
-                store.log_event(event="IDEMPOTENT_REPLAY", session_id=req.session_id,
-                                mandate_id=_m.id, mandate_version=_m.version,
-                                code="ALLOW", cart_total_paise=proposed.total_paise,
-                                payload={"razorpay_ref": _prior.razorpay_ref})
-                sess.cart = Cart()
-                trace.end(output=reply)
-                sess.history += [{"role": "user", "content": req.message},
-                                 {"role": "assistant", "content": reply}]
-                return ChatResponse(session_id=req.session_id, reply=reply,
-                                    cart=sess.cart, decision=None, tools=tools,
-                                    trace_url=trace.url)
+    try:
+        proposed = _apply_ops(session.cart, plan.cart_ops)
+    except ValidationError as exc:
+        store.log_event(
+            event="PLANNER_OUTPUT_REJECTED",
+            session_id=session.session_id,
+            code="INVALID_CART_OPERATION",
+            payload={"error": str(exc)[:500]},
+        )
+        proposed = session.cart
+        plan = PlannerOutput(
+            reply=(
+                "I could not safely apply that quantity. Please use a whole-number "
+                "quantity between 1 and 100."
+            ),
+            cart_ops=[],
+            intent="discover",
+        )
+    session.cart = proposed
+    proposed_hash = compute_cart_hash(proposed)
 
-    # 3. MANDATE CHECK — always, on every turn, before any money tool ----
-    with trace.span("mandate_check", input={
+    with trace.span(
+        "policy_preview",
+        input={
             "cart_total_paise": proposed.total_paise,
-            "skus": [l.sku for l in proposed.lines]}) as sp:
-        decision = verify_for_agent(proposed, req.user_id, req.agent_id, req.session_id)
-        sp["output"] = decision.model_dump(mode="json")
-        sp["level"] = "DEFAULT" if decision.allowed else "WARNING"
-        sp["status_message"] = decision.code.value
-    trace.score("mandate_respected", 1.0 if not decision.is_breach else 0.0,
-                comment=decision.code.value)
+            "skus": [line.sku for line in proposed.lines],
+        },
+    ) as span:
+        decision = verify_for_agent(
+            proposed, session.user_id, session.agent_id, req.session_id
+        )
+        span["output"] = decision.model_dump(mode="json")
+        span["level"] = "DEFAULT" if decision.allowed else "WARNING"
+        span["status_message"] = decision.code.value
 
-    # 4a. BLOCKED -> graceful failure, no MCP call ------------------------
+    confirmation_requested = _checkout_language(req.message) or plan.intent == "checkout"
+    confirmation_required = bool(proposed.lines and confirmation_requested)
+    reply = plan.reply
     if not decision.allowed:
-        sess.cart = proposed  # keep the cart visible so the block is legible
         reply = decision.human_message
-        if decision.code in (DecisionCode.BLOCK_WINDOW_CAP_EXCEEDED,
-                             DecisionCode.BLOCK_PER_TXN_CAP_EXCEEDED):
-            fits = suggest_downgrade(proposed, decision)
-            if fits and fits.lines and fits.total_paise < proposed.total_paise:
-                dropped = [l.name for l in proposed.lines
-                           if l.sku not in {k.sku for k in fits.lines}]
-                reply += (f" Dropping {', '.join(dropped)} would bring it to "
-                          f"{rupees(fits.total_paise)}.")
-        tools.append(ToolInvocation(name="create_payment_link",
-                                    args={"amount": proposed.total_paise},
-                                    blocked=True))
-        trace.event(name="mandate_breach_attempt",
-                    metadata={"code": decision.code.value,
-                              "cart_total_paise": proposed.total_paise,
-                              "cap_paise": decision.cap_paise})
+        if decision.code in (
+            DecisionCode.BLOCK_WINDOW_CAP_EXCEEDED,
+            DecisionCode.BLOCK_PER_TXN_CAP_EXCEEDED,
+        ):
+            fitting = suggest_downgrade(proposed, decision)
+            if fitting and fitting.lines and fitting.total_paise < proposed.total_paise:
+                dropped = [
+                    line.name
+                    for line in proposed.lines
+                    if line.sku not in {kept.sku for kept in fitting.lines}
+                ]
+                reply += (
+                    f" Dropping {', '.join(dropped)} would bring the proposal to "
+                    f"{rupees(fitting.total_paise)}."
+                )
+    elif confirmation_required:
+        reply = (
+            f"Your canonical cart is {rupees(proposed.total_paise)}. "
+            "Review it and use the separate authorization control to issue a payment link."
+        )
+
+    trace.score(
+        "policy_preview_valid",
+        1.0 if decision.allowed else 0.0,
+        comment=decision.code.value,
+    )
+    trace.end(output=reply)
+    session.history += [
+        {"role": "user", "content": req.message},
+        {"role": "assistant", "content": reply},
+    ]
+    return ChatResponse(
+        session_id=req.session_id,
+        reply=reply,
+        cart=proposed,
+        cart_hash=proposed_hash,
+        confirmation_required=confirmation_required,
+        decision=decision,
+        tools=[],
+        trace_url=trace.url,
+    )
+
+
+def confirm_checkout(req: CheckoutConfirmRequest) -> ChatResponse:
+    """Authorize and issue one exact payment-link action after explicit consent."""
+    session = get_session_by_id(req.session_id)
+    if not session:
+        raise ValueError("Unknown or expired cart session")
+
+    cart = session.cart
+    current_hash = compute_cart_hash(cart)
+    trace = Trace(
+        name="agentic-checkout-confirmation",
+        session_id=session.session_id,
+        user_id=session.user_id,
+        input={"expected_cart_hash": req.expected_cart_hash},
+    )
+    if not cart.lines or req.expected_cart_hash != current_hash:
+        decision = MandateDecision(
+            allowed=False,
+            code=DecisionCode.BLOCK_CART_CHANGED,
+            cart_total_paise=cart.total_paise,
+            human_message=(
+                "The cart changed after review. Review the current cart before authorizing."
+            ),
+        )
+        store.log_event(
+            event="AUTHORIZATION_REJECTED",
+            session_id=session.session_id,
+            code=decision.code.value,
+            cart_total_paise=cart.total_paise,
+            payload={
+                "expected_cart_hash": req.expected_cart_hash,
+                "current_cart_hash": current_hash,
+            },
+        )
+        trace.end(output=decision.human_message)
+        return ChatResponse(
+            session_id=session.session_id,
+            reply=decision.human_message,
+            cart=cart,
+            cart_hash=current_hash,
+            confirmation_required=bool(cart.lines),
+            decision=decision,
+            tools=[
+                ToolInvocation(
+                    name="create_payment_link",
+                    args={"amount": cart.total_paise},
+                    blocked=True,
+                )
+            ],
+            trace_url=trace.url,
+        )
+
+    mandate = store.get_active_mandate(session.user_id, session.agent_id)
+    if not mandate:
+        decision = verify_for_agent(
+            cart, session.user_id, session.agent_id, session.session_id
+        )
+        store.log_event(
+            event="AUTHORIZATION_ATTEMPT",
+            session_id=session.session_id,
+            code=decision.code.value,
+            cart_total_paise=cart.total_paise,
+        )
+        trace.end(output=decision.human_message)
+        return ChatResponse(
+            session_id=session.session_id,
+            reply=decision.human_message,
+            cart=cart,
+            cart_hash=current_hash,
+            confirmation_required=True,
+            decision=decision,
+            tools=[
+                ToolInvocation(
+                    name="create_payment_link",
+                    args={"amount": cart.total_paise},
+                    blocked=True,
+                )
+            ],
+            trace_url=trace.url,
+        )
+
+    attempt_id = req.idempotency_key or cart_idempotency_key(
+        session.session_id, mandate.id, cart
+    )
+    context = ActionContext(
+        user_id=session.user_id,
+        agent_id=session.agent_id,
+        session_id=session.session_id,
+    )
+    raw_args = {
+        "amount": cart.total_paise,
+        "currency": "INR",
+        "description": f"Agentic cart ({len(cart.lines)} items) under policy {mandate.id}",
+        "accept_partial": False,
+        "reference_id": attempt_id,
+        "notes": {
+            "policy_id": mandate.id,
+            "agent_id": session.agent_id,
+            "session_id": session.session_id,
+            "purchase_attempt_id": attempt_id,
+        },
+    }
+    canonical = canonicalize_action("create_payment_link", raw_args)
+    authorization_request = AuthorizationRequest(
+        context=context,
+        mandate_id=mandate.id,
+        expected_mandate_version=mandate.version,
+        action_name=canonical.name,
+        action_schema_hash=canonical.schema_hash,
+        args=canonical.args,
+        cart=cart,
+        cart_hash=current_hash,
+        purchase_attempt_id=attempt_id,
+    )
+
+    with trace.span(
+        "authorize_and_reserve",
+        input={
+            "cart_hash": current_hash,
+            "purchase_attempt_id": attempt_id,
+            "policy_version": mandate.version,
+        },
+    ) as span:
+        outcome = store.authorize_and_reserve(authorization_request)
+        span["output"] = outcome.model_dump(mode="json")
+        span["level"] = "DEFAULT" if outcome.authorized else "WARNING"
+        span["status_message"] = outcome.reason
+
+    tools: list[ToolInvocation] = []
+    if outcome.in_progress:
+        status = outcome.grant.state if outcome.grant else None
+        reply = (
+            "This purchase attempt is already in progress or pending verification. "
+            "It will not be dispatched again."
+        )
         trace.end(output=reply)
-        sess.history += [{"role": "user", "content": req.message},
-                         {"role": "assistant", "content": reply}]
-        return ChatResponse(session_id=req.session_id, reply=reply, cart=sess.cart,
-                            decision=decision, tools=tools, trace_url=trace.url)
+        return ChatResponse(
+            session_id=session.session_id,
+            reply=reply,
+            cart=cart,
+            cart_hash=current_hash,
+            confirmation_required=True,
+            decision=outcome.decision,
+            tools=tools,
+            trace_url=trace.url,
+            action_status=status,
+            grant_id=outcome.grant.id if outcome.grant else None,
+        )
 
-    # 4b. ALLOWED --------------------------------------------------------
-    sess.cart = proposed
-    if intent == "checkout" and proposed.lines:
-        client = get_client()
+    if not outcome.authorized or not outcome.grant:
+        fitting = suggest_downgrade(cart, outcome.decision)
+        reply = outcome.decision.human_message
+        if fitting and fitting.lines and fitting.total_paise < cart.total_paise:
+            reply += f" A price-fit proposal would be {rupees(fitting.total_paise)}."
+        tools.append(
+            ToolInvocation(
+                name="create_payment_link",
+                args={"amount": cart.total_paise},
+                blocked=True,
+            )
+        )
+        trace.end(output=reply)
+        return ChatResponse(
+            session_id=session.session_id,
+            reply=reply,
+            cart=cart,
+            cart_hash=current_hash,
+            confirmation_required=True,
+            decision=outcome.decision,
+            tools=tools,
+            trace_url=trace.url,
+        )
 
-        # Phase 1 of two-phase settlement: claim the headroom atomically BEFORE
-        # touching Razorpay. `decision` above is advisory — it can go stale in
-        # the microseconds before the tool call. This reservation cannot.
-        idem = req.idempotency_key or cart_idempotency_key(
-            req.session_id, decision.mandate_id or "",
-            decision.mandate_version or 0, proposed)
-        with trace.span("reserve_headroom", input={"idempotency_key": idem}) as sp:
-            reservation = store.reserve_headroom(
-                decision.mandate_id, proposed.total_paise, idem)
-            sp["output"] = reservation.model_dump(mode="json")
-            sp["level"] = "DEFAULT" if reservation.granted else "WARNING"
-            sp["status_message"] = reservation.reason
+    if outcome.replayed:
+        raw_result = outcome.grant.result or {}
+        payload = unwrap(raw_result)
+        replay_result = payload if isinstance(payload, dict) else {"text": str(payload)}
+        replay_result["replayed"] = True
+        tools.append(
+            ToolInvocation(
+                name=canonical.name,
+                args=canonical.args,
+                result=replay_result,
+            )
+        )
+        reply = (
+            "This exact purchase attempt already issued a payment link. "
+            "The stored result was returned without another Razorpay call."
+        )
+        session.cart = Cart()
+        trace.end(output=reply)
+        return ChatResponse(
+            session_id=session.session_id,
+            reply=reply,
+            cart=session.cart,
+            cart_hash=current_hash,
+            confirmation_required=False,
+            decision=outcome.decision,
+            tools=tools,
+            trace_url=trace.url,
+            action_status=outcome.grant.state,
+            grant_id=outcome.grant.id,
+        )
 
-        if not reservation.granted:
-            # Lost a race, or the mandate changed under us mid-turn.
-            store.log_event(event="RESERVATION_DENIED", session_id=req.session_id,
-                            mandate_id=decision.mandate_id,
-                            mandate_version=decision.mandate_version,
-                            code=reservation.reason,
-                            cart_total_paise=proposed.total_paise,
-                            payload={"headroom_paise": reservation.headroom_paise})
-            tools.append(ToolInvocation(name="create_payment_link",
-                                        args={"amount": proposed.total_paise},
-                                        blocked=True))
-            reply = (f"Another purchase under this mandate settled while I was working, "
-                     f"so {rupees(proposed.total_paise)} no longer fits — "
-                     f"{rupees(reservation.headroom_paise)} is left. Nothing was charged.")
-            trace.end(output=reply)
-            sess.history += [{"role": "user", "content": req.message},
-                             {"role": "assistant", "content": reply}]
-            return ChatResponse(session_id=req.session_id, reply=reply, cart=sess.cart,
-                                decision=decision, tools=tools, trace_url=trace.url)
-
-        if reservation.replayed and reservation.razorpay_ref:
-            # This exact basket already settled. Do not charge again.
-            reply = (f"This order already went through — reusing payment reference "
-                     f"{reservation.razorpay_ref} rather than charging you twice.")
-            tools.append(ToolInvocation(name="create_payment_link",
-                                        args={"idempotency_key": idem},
-                                        result={"id": reservation.razorpay_ref,
-                                                "replayed": True}))
-            trace.event(name="idempotent_replay", metadata={"ref": reservation.razorpay_ref})
-            sess.cart = Cart()
-            trace.end(output=reply)
-            sess.history += [{"role": "user", "content": req.message},
-                             {"role": "assistant", "content": reply}]
-            return ChatResponse(session_id=req.session_id, reply=reply, cart=sess.cart,
-                                decision=decision, tools=tools, trace_url=trace.url)
-
-        with trace.span("mcp_tool_call", input={"tool": "create_payment_link"}) as sp:
-            args = {
-                "amount": proposed.total_paise,
-                "currency": "INR",
-                "description": f"Agentic cart ({len(proposed.lines)} items) "
-                               f"under mandate {decision.mandate_id}",
-                "accept_partial": False,
-                "reference_id": idem,
-                "notes": {"mandate_id": decision.mandate_id or "",
-                          "mandate_version": str(decision.mandate_version),
-                          "reservation_id": reservation.id or "",
-                          "idempotency_key": idem,
-                          "agent_id": req.agent_id, "session_id": req.session_id},
-            }
-            try:
-                raw = client.call_tool("create_payment_link", args, decision)
-                payload = unwrap(raw)
-                tools.append(ToolInvocation(name="create_payment_link", args=args,
-                                            result=payload if isinstance(payload, dict) else
-                                            {"text": str(payload)}))
-                sp["output"] = payload
-                # Phase 2: money moved, so the hold becomes permanent.
-                store.commit_reservation(
-                    reservation.id,
-                    razorpay_ref=(payload or {}).get("id")
-                    if isinstance(payload, dict) else None)
-                store.log_event(event="MCP_TOOL_CALL", session_id=req.session_id,
-                                mandate_id=decision.mandate_id,
-                                mandate_version=decision.mandate_version,
-                                code="ALLOW", cart_total_paise=proposed.total_paise,
-                                payload={"tool": "create_payment_link",
-                                         "result": payload if isinstance(payload, dict) else {}})
-                link = payload.get("short_url") if isinstance(payload, dict) else None
-                reply = (f"Done — {rupees(proposed.total_paise)} is within your "
-                         f"{rupees(decision.cap_paise)} mandate, so I raised the payment link"
-                         + (f": {link}" if link else "."))
-                sess.cart = Cart()
-            except MandateViolation as exc:
-                store.release_reservation(reservation.id)
-                sp["level"] = "ERROR"; sp["status_message"] = str(exc)
-                reply = decision.human_message
-            except Exception as exc:  # network / Razorpay error
-                # Nothing settled, so give the headroom straight back rather
-                # than letting a failed call eat the customer's budget.
-                store.release_reservation(reservation.id)
-                sp["level"] = "ERROR"; sp["status_message"] = str(exc)
-                store.log_event(event="MCP_TOOL_ERROR", session_id=req.session_id,
-                                mandate_id=decision.mandate_id, payload={"error": str(exc)})
-                reply = ("Your mandate allows this purchase, but Razorpay did not return a "
-                         "payment link just now. Nothing was charged — shall I retry?")
+    client = get_client()
+    with trace.span(
+        "razorpay_action",
+        input={"action": canonical.name, "grant_id": outcome.grant.id},
+    ) as span:
+        try:
+            raw_result = client.call_tool(
+                canonical.name,
+                canonical.args,
+                outcome.grant.id,
+                context,
+                current_hash,
+            )
+            payload = unwrap(raw_result)
+            result = payload if isinstance(payload, dict) else {"text": str(payload)}
+            tools.append(
+                ToolInvocation(name=canonical.name, args=canonical.args, result=result)
+            )
+            span["output"] = result
+            link = result.get("short_url") if isinstance(result, dict) else None
+            reply = (
+                f"Payment link issued for {rupees(cart.total_paise)}"
+                + (f": {link}" if link else ".")
+                + " Payment is not settled until Razorpay confirms it."
+            )
+            session.cart = Cart()
+            status = ActionState.ACTION_ISSUED
+        except ActionInProgress:
+            current = store.get_action_grant(outcome.grant.id)
+            status = current.state if current else None
+            span["level"] = "WARNING"
+            span["status_message"] = "ACTION_IN_PROGRESS"
+            reply = (
+                "This purchase attempt is already dispatching or pending verification. "
+                "No duplicate action was sent."
+            )
+        except MandateViolation as exc:
+            status = ActionState.CANCELLED
+            span["level"] = "ERROR"
+            span["status_message"] = str(exc)
+            tools.append(
+                ToolInvocation(
+                    name=canonical.name, args=canonical.args, blocked=True
+                )
+            )
+            reply = (
+                "The exact action no longer matches its authorization receipt, "
+                "so the Razorpay call was blocked."
+            )
+        except ActionOutcomeUnknown as exc:
+            current = store.get_action_grant(exc.grant_id)
+            status = current.state if current else ActionState.UNKNOWN
+            span["level"] = "ERROR"
+            span["status_message"] = "UNKNOWN_OUTCOME"
+            tools.append(
+                ToolInvocation(
+                    name=canonical.name,
+                    args=canonical.args,
+                    result={"status": "unknown", "grant_id": exc.grant_id},
+                )
+            )
+            reply = (
+                "Razorpay did not return a final result. This action is pending "
+                "verification and will not be retried until it is reconciled."
+            )
+        except Exception as exc:
+            current = store.get_action_grant(outcome.grant.id)
+            status = current.state if current else ActionState.CANCELLED
+            span["level"] = "ERROR"
+            span["status_message"] = type(exc).__name__
+            reply = (
+                "The provider connection failed before an action could be dispatched. "
+                "Review the cart before trying again."
+            )
 
     trace.end(output=reply)
-    sess.history += [{"role": "user", "content": req.message},
-                     {"role": "assistant", "content": reply}]
-    return ChatResponse(session_id=req.session_id, reply=reply, cart=sess.cart,
-                        decision=decision, tools=tools, trace_url=trace.url)
+    return ChatResponse(
+        session_id=session.session_id,
+        reply=reply,
+        cart=session.cart,
+        cart_hash=current_hash,
+        confirmation_required=bool(session.cart.lines),
+        decision=outcome.decision,
+        tools=tools,
+        trace_url=trace.url,
+        action_status=status,
+        grant_id=outcome.grant.id,
+    )

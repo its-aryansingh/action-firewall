@@ -2,8 +2,8 @@
 This is deliberate: it is the first thing a Razorpay engineer looks for."""
 from __future__ import annotations
 from enum import Enum
-from typing import Literal, Optional
-from pydantic import BaseModel, Field
+from typing import Any, Literal, Optional
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
 
 class Window(str, Enum):
@@ -32,11 +32,13 @@ class Mandate(BaseModel):
 
 
 class CartLine(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     sku: str
     name: str
     category: str
-    unit_price_paise: int
-    qty: int = 1
+    unit_price_paise: int = Field(..., ge=0)
+    qty: StrictInt = Field(default=1, ge=1, le=100)
 
     @property
     def line_total_paise(self) -> int:
@@ -51,6 +53,33 @@ class Cart(BaseModel):
         return sum(l.line_total_paise for l in self.lines)
 
 
+class CartOperation(BaseModel):
+    """Strict planner output. Model data is untrusted until this parses."""
+    model_config = ConfigDict(extra="forbid")
+
+    op: Literal["add", "remove", "clear"]
+    sku: str | None = None
+    qty: StrictInt = Field(default=1, ge=1, le=100)
+
+    @model_validator(mode="after")
+    def validate_shape(self) -> "CartOperation":
+        if self.op == "clear":
+            if self.sku is not None:
+                raise ValueError("clear must not name a SKU")
+        elif not self.sku:
+            raise ValueError(f"{self.op} requires a SKU")
+        return self
+
+
+class PlannerOutput(BaseModel):
+    """The model may propose cart operations, never transaction authority."""
+    model_config = ConfigDict(extra="forbid")
+
+    reply: str
+    cart_ops: list[CartOperation] = Field(default_factory=list)
+    intent: Literal["discover", "checkout"] = "discover"
+
+
 class DecisionCode(str, Enum):
     ALLOW = "ALLOW"
     BLOCK_NO_MANDATE = "BLOCK_NO_MANDATE"
@@ -58,6 +87,9 @@ class DecisionCode(str, Enum):
     BLOCK_WINDOW_CAP_EXCEEDED = "BLOCK_WINDOW_CAP_EXCEEDED"
     BLOCK_PER_TXN_CAP_EXCEEDED = "BLOCK_PER_TXN_CAP_EXCEEDED"
     BLOCK_CATEGORY_NOT_ALLOWED = "BLOCK_CATEGORY_NOT_ALLOWED"
+    BLOCK_STALE_POLICY_VERSION = "BLOCK_STALE_POLICY_VERSION"
+    BLOCK_CART_CHANGED = "BLOCK_CART_CHANGED"
+    BLOCK_INVALID_ACTION = "BLOCK_INVALID_ACTION"
 
 
 class MandateDecision(BaseModel):
@@ -97,6 +129,76 @@ class Reservation(BaseModel):
     reason: str = ""
 
 
+class ActionState(str, Enum):
+    AUTHORIZED = "authorized"
+    DISPATCHING = "dispatching"
+    ACTION_ISSUED = "action_issued"
+    SETTLED = "settled"
+    DEFINITIVE_FAILURE = "definitive_failure"
+    UNKNOWN = "unknown"
+    CANCELLED = "cancelled"
+
+
+class ActionContext(BaseModel):
+    """Server-side identity presented to the actuator with an opaque grant."""
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: str
+    agent_id: str
+    session_id: str
+    merchant_id: str = "merchant_demo"
+
+
+class AuthorizationRequest(BaseModel):
+    """Canonical action presented to the atomic policy-and-reservation gate."""
+    model_config = ConfigDict(extra="forbid")
+
+    context: ActionContext
+    mandate_id: str
+    expected_mandate_version: int = Field(..., ge=1)
+    action_name: str
+    action_schema_hash: str
+    args: dict[str, Any]
+    cart: Cart
+    cart_hash: str
+    purchase_attempt_id: str
+    ttl_seconds: int = Field(default=180, ge=1, le=900)
+
+
+class ActionGrant(BaseModel):
+    """Opaque, exact-bound, one-use authority for one adapter action."""
+    id: str
+    mandate_id: str
+    mandate_version: int
+    policy_hash: str
+    user_id: str
+    agent_id: str
+    session_id: str
+    merchant_id: str
+    action_name: str
+    action_schema_hash: str
+    args_hash: str
+    cart_hash: str
+    amount_paise: int = Field(..., ge=0)
+    currency: str
+    purchase_attempt_id: str
+    state: ActionState
+    expires_at: float | None = None
+    provider_ref: str | None = None
+    result: dict[str, Any] | None = None
+    created_at: float
+    updated_at: float
+
+
+class AuthorizationOutcome(BaseModel):
+    authorized: bool
+    decision: MandateDecision
+    grant: ActionGrant | None = None
+    replayed: bool = False
+    in_progress: bool = False
+    reason: str = ""
+
+
 class ChatRequest(BaseModel):
     session_id: str
     user_id: str = "user_demo"
@@ -107,6 +209,15 @@ class ChatRequest(BaseModel):
     # scoped to this session, because two shoppers buying the same basket are
     # two purchases, not one retry.
     idempotency_key: Optional[str] = None
+
+
+class CheckoutConfirmRequest(BaseModel):
+    """Explicit user confirmation for the exact cart currently in a session."""
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str
+    expected_cart_hash: str
+    idempotency_key: str | None = None
 
 
 class ToolInvocation(BaseModel):
@@ -123,6 +234,10 @@ class ChatResponse(BaseModel):
     decision: MandateDecision | None = None
     tools: list[ToolInvocation] = Field(default_factory=list)
     trace_url: str | None = None
+    cart_hash: str = ""
+    confirmation_required: bool = False
+    action_status: ActionState | None = None
+    grant_id: str | None = None
 
 
 class MandateCreate(BaseModel):

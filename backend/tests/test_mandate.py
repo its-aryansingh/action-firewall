@@ -41,7 +41,7 @@ def test_the_demo_breach_1200_over_1000():
     d = verify(cart(("PASTA", "pantry", 20_000, 1), ("CHEESE", "dairy", 100_000, 1)),
                mandate(cap=100_000))
     assert not d.allowed
-    assert "exceeds your authorised UPI Reserve Pay mandate" in d.human_message
+    assert "exceeds your authorization policy" in d.human_message
     assert "₹1,200" in d.human_message and "₹1,000" in d.human_message
 
 
