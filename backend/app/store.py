@@ -1,12 +1,31 @@
-"""SQLite persistence: mandates, the spend ledger, and the audit log.
-The audit log is append-only — it is the evidence you show the judges."""
+"""SQLite persistence for policies, exact action grants, and event evidence."""
 from __future__ import annotations
 import json, sqlite3, time, uuid
 from contextlib import contextmanager
 from typing import Optional
 
+from .authorization import (
+    action_args_hash,
+    canonical_json,
+    cart_hash as compute_cart_hash,
+    policy_hash,
+    policy_payload,
+)
 from .config import get_settings
-from .models import Mandate, MandateCreate, MandateUpdate, Reservation, Window
+from .models import (
+    ActionContext,
+    ActionGrant,
+    ActionState,
+    AuthorizationOutcome,
+    AuthorizationRequest,
+    DecisionCode,
+    Mandate,
+    MandateCreate,
+    MandateDecision,
+    MandateUpdate,
+    Reservation,
+    Window,
+)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS mandates (
@@ -26,24 +45,50 @@ CREATE TABLE IF NOT EXISTS mandates (
 );
 CREATE INDEX IF NOT EXISTS idx_mandate_agent ON mandates(user_id, agent_id, active);
 
--- The ledger is also the reservation table. A row is created as 'reserved'
--- BEFORE the money tool is called and flips to 'committed' only on success,
--- so headroom is consumed for the whole window in which the call is in flight.
--- That is what closes the check-then-act race (see tests/test_concurrency.py).
+CREATE TABLE IF NOT EXISTS policy_revisions (
+    mandate_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    policy_hash TEXT NOT NULL,
+    policy_json TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    PRIMARY KEY (mandate_id, version)
+);
+
+-- One row is both the headroom hold and the opaque authorization receipt.
+-- Keeping the lifecycle in one record prevents a receipt and reservation from
+-- disagreeing after a crash or concurrent retry.
 CREATE TABLE IF NOT EXISTS spend_ledger (
     id TEXT PRIMARY KEY,
     mandate_id TEXT NOT NULL,
     amount_paise INTEGER NOT NULL,
-    status TEXT NOT NULL DEFAULT 'committed',   -- reserved | committed | released
+    status TEXT NOT NULL DEFAULT 'committed',
     idempotency_key TEXT,
     expires_at REAL,
     razorpay_ref TEXT,
-    created_at REAL NOT NULL
+    user_id TEXT,
+    agent_id TEXT,
+    session_id TEXT,
+    merchant_id TEXT,
+    mandate_version INTEGER,
+    policy_hash TEXT,
+    action_name TEXT,
+    action_schema_hash TEXT,
+    args_json TEXT,
+    args_hash TEXT,
+    cart_hash TEXT,
+    currency TEXT,
+    purchase_attempt_id TEXT,
+    result_json TEXT,
+    error TEXT,
+    dispatch_token TEXT,
+    created_at REAL NOT NULL,
+    updated_at REAL
 );
 CREATE INDEX IF NOT EXISTS idx_ledger_mandate ON spend_ledger(mandate_id, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_ledger_idem
     ON spend_ledger(mandate_id, idempotency_key)
-    WHERE idempotency_key IS NOT NULL AND status != 'released';
+    WHERE idempotency_key IS NOT NULL
+      AND status NOT IN ('released','cancelled','definitive_failure');
 
 CREATE TABLE IF NOT EXISTS audit_log (
     id TEXT PRIMARY KEY,
@@ -92,15 +137,47 @@ def init_db() -> None:
 
 
 def _migrate(cx: sqlite3.Connection) -> None:
-    """Additive migration for databases created before reservations existed."""
+    """Additive migration for databases created before exact action grants."""
     cols = {r["name"] for r in cx.execute("PRAGMA table_info(spend_ledger)")}
     for col, ddl in (
         ("status", "ALTER TABLE spend_ledger ADD COLUMN status TEXT NOT NULL DEFAULT 'committed'"),
         ("idempotency_key", "ALTER TABLE spend_ledger ADD COLUMN idempotency_key TEXT"),
         ("expires_at", "ALTER TABLE spend_ledger ADD COLUMN expires_at REAL"),
+        ("user_id", "ALTER TABLE spend_ledger ADD COLUMN user_id TEXT"),
+        ("agent_id", "ALTER TABLE spend_ledger ADD COLUMN agent_id TEXT"),
+        ("session_id", "ALTER TABLE spend_ledger ADD COLUMN session_id TEXT"),
+        ("merchant_id", "ALTER TABLE spend_ledger ADD COLUMN merchant_id TEXT"),
+        ("mandate_version", "ALTER TABLE spend_ledger ADD COLUMN mandate_version INTEGER"),
+        ("policy_hash", "ALTER TABLE spend_ledger ADD COLUMN policy_hash TEXT"),
+        ("action_name", "ALTER TABLE spend_ledger ADD COLUMN action_name TEXT"),
+        ("action_schema_hash", "ALTER TABLE spend_ledger ADD COLUMN action_schema_hash TEXT"),
+        ("args_json", "ALTER TABLE spend_ledger ADD COLUMN args_json TEXT"),
+        ("args_hash", "ALTER TABLE spend_ledger ADD COLUMN args_hash TEXT"),
+        ("cart_hash", "ALTER TABLE spend_ledger ADD COLUMN cart_hash TEXT"),
+        ("currency", "ALTER TABLE spend_ledger ADD COLUMN currency TEXT"),
+        ("purchase_attempt_id", "ALTER TABLE spend_ledger ADD COLUMN purchase_attempt_id TEXT"),
+        ("result_json", "ALTER TABLE spend_ledger ADD COLUMN result_json TEXT"),
+        ("error", "ALTER TABLE spend_ledger ADD COLUMN error TEXT"),
+        ("dispatch_token", "ALTER TABLE spend_ledger ADD COLUMN dispatch_token TEXT"),
+        ("updated_at", "ALTER TABLE spend_ledger ADD COLUMN updated_at REAL"),
     ):
         if col not in cols:
             cx.execute(ddl)
+    cx.execute("UPDATE spend_ledger SET updated_at=created_at WHERE updated_at IS NULL")
+    cx.execute("DROP INDEX IF EXISTS idx_ledger_idem")
+    cx.execute(
+        """CREATE UNIQUE INDEX IF NOT EXISTS idx_ledger_idem
+           ON spend_ledger(mandate_id, idempotency_key)
+           WHERE idempotency_key IS NOT NULL
+             AND status NOT IN ('released','cancelled','definitive_failure')"""
+    )
+    cx.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ledger_state_expiry "
+        "ON spend_ledger(status, expires_at)"
+    )
+    for row in cx.execute("SELECT * FROM mandates").fetchall():
+        mandate = _row_to_mandate(row)
+        _insert_policy_revision(cx, mandate)
 
 
 def _row_to_mandate(r: sqlite3.Row) -> Mandate:
@@ -112,6 +189,21 @@ def _row_to_mandate(r: sqlite3.Row) -> Mandate:
         blocked_categories=json.loads(r["blocked_categories"]),
         active=bool(r["active"]), version=r["version"],
         created_at=r["created_at"], updated_at=r["updated_at"],
+    )
+
+
+def _insert_policy_revision(cx: sqlite3.Connection, mandate: Mandate) -> None:
+    cx.execute(
+        """INSERT OR IGNORE INTO policy_revisions
+           (mandate_id,version,policy_hash,policy_json,created_at)
+           VALUES (?,?,?,?,?)""",
+        (
+            mandate.id,
+            mandate.version,
+            policy_hash(mandate),
+            canonical_json(policy_payload(mandate)),
+            mandate.updated_at,
+        ),
     )
 
 
@@ -133,6 +225,8 @@ def create_mandate(m: MandateCreate) -> Mandate:
              json.dumps(m.allowed_categories), json.dumps(m.blocked_categories),
              now, now),
         )
+        row = cx.execute("SELECT * FROM mandates WHERE id=?", (mid,)).fetchone()
+        _insert_policy_revision(cx, _row_to_mandate(row))
     log_event(event="MANDATE_CREATED", mandate_id=mid, mandate_version=1,
               payload={"cap_paise": m.cap_rupees * 100, "window": m.window.value})
     return get_mandate(mid)  # type: ignore[return-value]
@@ -172,9 +266,6 @@ def list_mandates(user_id: str) -> list[Mandate]:
 def update_mandate(mandate_id: str, u: MandateUpdate) -> Optional[Mandate]:
     """Every edit bumps `version`. The agent re-reads the mandate on every turn,
     so the new limit binds on the very next prompt — that is Revocation Latency."""
-    cur = get_mandate(mandate_id)
-    if not cur:
-        return None
     now = time.time()
     fields, vals = [], []
     if u.cap_rupees is not None:
@@ -187,32 +278,40 @@ def update_mandate(mandate_id: str, u: MandateUpdate) -> Optional[Mandate]:
         fields.append("allowed_categories=?"); vals.append(json.dumps(u.allowed_categories))
     if u.blocked_categories is not None:
         fields.append("blocked_categories=?"); vals.append(json.dumps(u.blocked_categories))
-    if not fields:
-        return cur
-    fields += ["version=version+1", "updated_at=?"]; vals.append(now); vals.append(mandate_id)
     with _conn() as cx:
+        cx.execute("BEGIN IMMEDIATE")
+        row = cx.execute("SELECT * FROM mandates WHERE id=?", (mandate_id,)).fetchone()
+        if not row:
+            return None
+        cur = _row_to_mandate(row)
+        if not fields:
+            return cur
+        fields += ["version=version+1", "updated_at=?"]
+        vals.extend((now, mandate_id))
         cx.execute(f"UPDATE mandates SET {', '.join(fields)} WHERE id=?", vals)
-    m = get_mandate(mandate_id)
+        updated = cx.execute("SELECT * FROM mandates WHERE id=?", (mandate_id,)).fetchone()
+        m = _row_to_mandate(updated)
+        _insert_policy_revision(cx, m)
     log_event(event="MANDATE_UPDATED", mandate_id=mandate_id,
-              mandate_version=m.version if m else None,
+              mandate_version=m.version,
               payload=u.model_dump(exclude_none=True))
     return m
 
 
 _CONSUMED_SQL = """
 SELECT COALESCE(SUM(amount_paise),0) AS s FROM spend_ledger
- WHERE mandate_id=? AND created_at>=?
-   AND (status='committed'
-        OR (status='reserved' AND COALESCE(expires_at,0) > ?))
+ WHERE mandate_id=?
+   AND ((status IN ('committed','settled') AND created_at>=?)
+        OR status IN ('action_issued','dispatching','unknown')
+        OR (status IN ('reserved','authorized') AND COALESCE(expires_at,0) > ?))
 """
 
 
 def spent_in_window(mandate_id: str, window: Window) -> int:
-    """Headroom consumed: money already moved PLUS money currently in flight.
+    """Headroom consumed by settled, issued, in-flight, or unknown actions.
 
-    Counting live reservations is the point. A turn that has reserved but not
-    yet heard back from Razorpay is still holding that headroom, and a second
-    turn must not be told it is free.
+    An ambiguous or issued action remains exposure. Only a never-dispatched
+    authorization may expire and return headroom automatically.
     """
     if window == Window.PER_TXN:
         return 0
@@ -298,6 +397,625 @@ def reserve_headroom(mandate_id: str, amount_paise: int, idempotency_key: str,
         cx.close()
 
 
+def _row_to_action_grant(row: sqlite3.Row) -> ActionGrant:
+    legacy_states = {
+        "reserved": ActionState.AUTHORIZED,
+        "committed": ActionState.ACTION_ISSUED,
+        "released": ActionState.CANCELLED,
+    }
+    raw_state = str(row["status"])
+    state = legacy_states[raw_state] if raw_state in legacy_states else ActionState(raw_state)
+    result = json.loads(row["result_json"]) if row["result_json"] else None
+    return ActionGrant(
+        id=row["id"],
+        mandate_id=row["mandate_id"],
+        mandate_version=int(row["mandate_version"] or 0),
+        policy_hash=row["policy_hash"] or "",
+        user_id=row["user_id"] or "",
+        agent_id=row["agent_id"] or "",
+        session_id=row["session_id"] or "",
+        merchant_id=row["merchant_id"] or "",
+        action_name=row["action_name"] or "",
+        action_schema_hash=row["action_schema_hash"] or "",
+        args_hash=row["args_hash"] or "",
+        cart_hash=row["cart_hash"] or "",
+        amount_paise=int(row["amount_paise"]),
+        currency=row["currency"] or "",
+        purchase_attempt_id=row["purchase_attempt_id"] or row["idempotency_key"] or "",
+        state=state,
+        expires_at=row["expires_at"],
+        provider_ref=row["razorpay_ref"],
+        result=result,
+        created_at=float(row["created_at"]),
+        updated_at=float(row["updated_at"] or row["created_at"]),
+    )
+
+
+def get_action_grant(grant_id: str) -> ActionGrant | None:
+    with _conn() as cx:
+        row = cx.execute("SELECT * FROM spend_ledger WHERE id=?", (grant_id,)).fetchone()
+    return _row_to_action_grant(row) if row else None
+
+
+def _action_denial(
+    mandate: Mandate | None,
+    request: AuthorizationRequest,
+    code: DecisionCode,
+    message: str,
+    already_spent_paise: int = 0,
+) -> MandateDecision:
+    cap = mandate.cap_paise if mandate else 0
+    return MandateDecision(
+        allowed=False,
+        code=code,
+        mandate_id=mandate.id if mandate else request.mandate_id,
+        mandate_version=mandate.version if mandate else None,
+        cart_total_paise=request.cart.total_paise,
+        cap_paise=cap,
+        already_spent_paise=already_spent_paise,
+        headroom_paise=max(0, cap - already_spent_paise),
+        human_message=message,
+    )
+
+
+def _replay_decision(mandate: Mandate, request: AuthorizationRequest) -> MandateDecision:
+    return MandateDecision(
+        allowed=True,
+        code=DecisionCode.ALLOW,
+        mandate_id=mandate.id,
+        mandate_version=request.expected_mandate_version,
+        cart_total_paise=request.cart.total_paise,
+        cap_paise=mandate.cap_paise,
+        human_message="This exact purchase attempt already has a stored result.",
+    )
+
+
+def _binding_conflicts(
+    row: sqlite3.Row,
+    request: AuthorizationRequest,
+    args_hash: str,
+    amount_paise: int,
+    currency: str,
+) -> list[str]:
+    expected = {
+        "user_id": request.context.user_id,
+        "agent_id": request.context.agent_id,
+        "session_id": request.context.session_id,
+        "merchant_id": request.context.merchant_id,
+        "action_name": request.action_name,
+        "action_schema_hash": request.action_schema_hash,
+        "args_hash": args_hash,
+        "cart_hash": request.cart_hash,
+        "amount_paise": amount_paise,
+        "currency": currency,
+        "purchase_attempt_id": request.purchase_attempt_id,
+    }
+    return [name for name, value in expected.items() if row[name] != value]
+
+
+def authorize_and_reserve(request: AuthorizationRequest) -> AuthorizationOutcome:
+    """Atomically evaluate the complete policy and mint one exact action grant."""
+    from .mandate import verify
+
+    now = time.time()
+    amount_paise = request.cart.total_paise
+    currency = request.args.get("currency")
+    raw_amount = request.args.get("amount")
+    computed_cart_hash = compute_cart_hash(request.cart)
+    request_args_hash = action_args_hash(request.action_name, request.args)
+
+    cx = sqlite3.connect(get_settings().db_path, timeout=15.0)
+    cx.row_factory = sqlite3.Row
+    try:
+        cx.execute("BEGIN IMMEDIATE")
+        mandate_row = cx.execute(
+            "SELECT * FROM mandates WHERE id=?", (request.mandate_id,)
+        ).fetchone()
+        mandate = _row_to_mandate(mandate_row) if mandate_row else None
+
+        if not mandate:
+            decision = _action_denial(
+                None,
+                request,
+                DecisionCode.BLOCK_NO_MANDATE,
+                "No authorization policy exists for this agent.",
+            )
+            _insert_audit_row(
+                cx,
+                event="AUTHORIZATION_ATTEMPT",
+                session_id=request.context.session_id,
+                mandate_id=request.mandate_id,
+                code=decision.code.value,
+                cart_total_paise=amount_paise,
+            )
+            cx.commit()
+            return AuthorizationOutcome(
+                authorized=False, decision=decision, reason="UNKNOWN_POLICY"
+            )
+
+        prior = cx.execute(
+            """SELECT * FROM spend_ledger
+               WHERE mandate_id=? AND idempotency_key=?
+                 AND status NOT IN ('released','cancelled','definitive_failure')
+               ORDER BY created_at DESC LIMIT 1""",
+            (request.mandate_id, request.purchase_attempt_id),
+        ).fetchone()
+        if prior:
+            conflicts = _binding_conflicts(
+                prior, request, request_args_hash, amount_paise, str(currency)
+            )
+            if conflicts:
+                decision = _action_denial(
+                    mandate,
+                    request,
+                    DecisionCode.BLOCK_INVALID_ACTION,
+                    "This purchase-attempt identity is already bound to a different action.",
+                )
+                _insert_audit_row(
+                    cx,
+                    event="AUTHORIZATION_REJECTED",
+                    session_id=request.context.session_id,
+                    mandate_id=mandate.id,
+                    mandate_version=mandate.version,
+                    code="IDEMPOTENCY_BINDING_CONFLICT",
+                    cart_total_paise=amount_paise,
+                    cap_paise=mandate.cap_paise,
+                    payload={"conflicting_fields": conflicts, "grant_id": prior["id"]},
+                )
+                cx.commit()
+                return AuthorizationOutcome(
+                    authorized=False,
+                    decision=decision,
+                    reason="IDEMPOTENCY_BINDING_CONFLICT",
+                )
+
+            status = str(prior["status"])
+            grant = _row_to_action_grant(prior)
+            if status in ("committed", "action_issued", "settled"):
+                cx.commit()
+                return AuthorizationOutcome(
+                    authorized=True,
+                    decision=_replay_decision(mandate, request),
+                    grant=grant,
+                    replayed=True,
+                    reason="REPLAYED_RESULT",
+                )
+            if status in ("dispatching", "unknown"):
+                cx.commit()
+                return AuthorizationOutcome(
+                    authorized=False,
+                    decision=_replay_decision(mandate, request),
+                    grant=grant,
+                    in_progress=True,
+                    reason="UNKNOWN_OUTCOME" if status == "unknown" else "ACTION_IN_PROGRESS",
+                )
+            if status in ("reserved", "authorized") and (prior["expires_at"] or 0) > now:
+                cx.commit()
+                return AuthorizationOutcome(
+                    authorized=True,
+                    decision=_replay_decision(mandate, request),
+                    grant=grant,
+                    reason="REUSED_AUTHORIZATION",
+                )
+            if status in ("reserved", "authorized"):
+                cx.execute(
+                    """UPDATE spend_ledger
+                       SET status='cancelled',expires_at=NULL,error=?,updated_at=?
+                       WHERE id=? AND status IN ('reserved','authorized')""",
+                    ("AUTHORIZATION_EXPIRED", now, prior["id"]),
+                )
+
+        invalid_reason = None
+        if request.context.user_id != mandate.user_id or request.context.agent_id != mandate.agent_id:
+            invalid_reason = "ACTION_CONTEXT_MISMATCH"
+        elif request.expected_mandate_version != mandate.version:
+            invalid_reason = "POLICY_VERSION_CHANGED"
+        elif request.cart_hash != computed_cart_hash:
+            invalid_reason = "CART_HASH_MISMATCH"
+        elif amount_paise <= 0:
+            invalid_reason = "EMPTY_OR_ZERO_CART"
+        elif isinstance(raw_amount, bool) or not isinstance(raw_amount, int):
+            invalid_reason = "ACTION_AMOUNT_INVALID"
+        elif raw_amount != amount_paise:
+            invalid_reason = "ACTION_AMOUNT_MISMATCH"
+        elif currency != "INR":
+            invalid_reason = "ACTION_CURRENCY_INVALID"
+
+        if invalid_reason:
+            code = (
+                DecisionCode.BLOCK_STALE_POLICY_VERSION
+                if invalid_reason == "POLICY_VERSION_CHANGED"
+                else DecisionCode.BLOCK_INVALID_ACTION
+            )
+            decision = _action_denial(
+                mandate,
+                request,
+                code,
+                "The confirmed action no longer matches the current policy or canonical cart.",
+            )
+            _insert_audit_row(
+                cx,
+                event="AUTHORIZATION_REJECTED",
+                session_id=request.context.session_id,
+                mandate_id=mandate.id,
+                mandate_version=mandate.version,
+                code=invalid_reason,
+                cart_total_paise=amount_paise,
+                cap_paise=mandate.cap_paise,
+            )
+            cx.commit()
+            return AuthorizationOutcome(
+                authorized=False, decision=decision, reason=invalid_reason
+            )
+
+        window = mandate.window
+        since = now - WINDOW_SECONDS[window]
+        consumed = int(
+            cx.execute(_CONSUMED_SQL, (mandate.id, since, now)).fetchone()["s"]
+        )
+        decision = verify(request.cart, mandate, consumed)
+        if not decision.allowed:
+            _insert_audit_row(
+                cx,
+                event="AUTHORIZATION_ATTEMPT",
+                session_id=request.context.session_id,
+                mandate_id=mandate.id,
+                mandate_version=mandate.version,
+                code=decision.code.value,
+                cart_total_paise=amount_paise,
+                cap_paise=mandate.cap_paise,
+                payload={"already_exposed_paise": consumed},
+            )
+            cx.commit()
+            return AuthorizationOutcome(
+                authorized=False, decision=decision, reason=decision.code.value
+            )
+
+        revision_hash = policy_hash(mandate)
+        _insert_policy_revision(cx, mandate)
+        grant_id = f"act_{uuid.uuid4().hex}"
+        expires_at = now + request.ttl_seconds
+        cx.execute(
+            """INSERT INTO spend_ledger (
+                   id,mandate_id,amount_paise,status,idempotency_key,expires_at,
+                   razorpay_ref,user_id,agent_id,session_id,merchant_id,
+                   mandate_version,policy_hash,action_name,action_schema_hash,
+                   args_json,args_hash,cart_hash,currency,purchase_attempt_id,
+                   result_json,error,dispatch_token,created_at,updated_at
+               ) VALUES (
+                   :id,:mandate_id,:amount_paise,'authorized',:idempotency_key,
+                   :expires_at,NULL,:user_id,:agent_id,:session_id,:merchant_id,
+                   :mandate_version,:policy_hash,:action_name,:action_schema_hash,
+                   :args_json,:args_hash,:cart_hash,:currency,:purchase_attempt_id,
+                   NULL,NULL,NULL,:created_at,:updated_at
+               )""",
+            {
+                "id": grant_id,
+                "mandate_id": mandate.id,
+                "amount_paise": amount_paise,
+                "idempotency_key": request.purchase_attempt_id,
+                "expires_at": expires_at,
+                "user_id": request.context.user_id,
+                "agent_id": request.context.agent_id,
+                "session_id": request.context.session_id,
+                "merchant_id": request.context.merchant_id,
+                "mandate_version": mandate.version,
+                "policy_hash": revision_hash,
+                "action_name": request.action_name,
+                "action_schema_hash": request.action_schema_hash,
+                "args_json": canonical_json(request.args),
+                "args_hash": request_args_hash,
+                "cart_hash": request.cart_hash,
+                "currency": currency,
+                "purchase_attempt_id": request.purchase_attempt_id,
+                "created_at": now,
+                "updated_at": now,
+            },
+        )
+        row = cx.execute("SELECT * FROM spend_ledger WHERE id=?", (grant_id,)).fetchone()
+        _insert_audit_row(
+            cx,
+            event="AUTHORIZATION_ATTEMPT",
+            session_id=request.context.session_id,
+            mandate_id=mandate.id,
+            mandate_version=mandate.version,
+            code=DecisionCode.ALLOW.value,
+            cart_total_paise=amount_paise,
+            cap_paise=mandate.cap_paise,
+            payload={
+                "grant_id": grant_id,
+                "action": request.action_name,
+                "args_hash": request_args_hash,
+                "cart_hash": request.cart_hash,
+                "policy_hash": revision_hash,
+                "purchase_attempt_id": request.purchase_attempt_id,
+            },
+        )
+        cx.commit()
+        return AuthorizationOutcome(
+            authorized=True,
+            decision=decision,
+            grant=_row_to_action_grant(row),
+            reason="AUTHORIZED",
+        )
+    finally:
+        cx.close()
+
+
+def _cancel_grant_in_transaction(
+    cx: sqlite3.Connection,
+    row: sqlite3.Row,
+    reason: str,
+) -> None:
+    now = time.time()
+    cx.execute(
+        """UPDATE spend_ledger
+           SET status='cancelled',expires_at=NULL,error=?,updated_at=?
+           WHERE id=? AND status IN ('reserved','authorized')""",
+        (reason, now, row["id"]),
+    )
+    _insert_audit_row(
+        cx,
+        event="ACTION_REJECTED",
+        session_id=row["session_id"],
+        mandate_id=row["mandate_id"],
+        mandate_version=row["mandate_version"],
+        code=reason,
+        cart_total_paise=row["amount_paise"],
+        payload={"grant_id": row["id"], "action": row["action_name"]},
+    )
+
+
+def cancel_action_grant(grant_id: str, reason: str) -> bool:
+    with _conn() as cx:
+        cx.execute("BEGIN IMMEDIATE")
+        row = cx.execute("SELECT * FROM spend_ledger WHERE id=?", (grant_id,)).fetchone()
+        if not row or row["status"] not in ("reserved", "authorized"):
+            return False
+        _cancel_grant_in_transaction(cx, row, reason)
+        return True
+
+
+def claim_action_grant(
+    grant_id: str,
+    *,
+    context: ActionContext,
+    action_name: str,
+    action_schema_hash: str,
+    args: dict,
+    cart_hash: str,
+) -> tuple[ActionGrant | None, str | None, str]:
+    """Claim single dispatch ownership after exact binding and policy fencing."""
+    now = time.time()
+    args_hash = action_args_hash(action_name, args)
+    cx = sqlite3.connect(get_settings().db_path, timeout=15.0)
+    cx.row_factory = sqlite3.Row
+    try:
+        cx.execute("BEGIN IMMEDIATE")
+        row = cx.execute("SELECT * FROM spend_ledger WHERE id=?", (grant_id,)).fetchone()
+        if not row:
+            cx.rollback()
+            return None, None, "UNKNOWN_GRANT"
+
+        status = str(row["status"])
+        if status == "dispatching":
+            cx.commit()
+            return _row_to_action_grant(row), None, "ACTION_IN_PROGRESS"
+        if status == "unknown":
+            cx.commit()
+            return _row_to_action_grant(row), None, "UNKNOWN_OUTCOME"
+        if status in ("committed", "action_issued", "settled"):
+            cx.commit()
+            return _row_to_action_grant(row), None, "ALREADY_ISSUED"
+        if status not in ("reserved", "authorized"):
+            cx.commit()
+            return _row_to_action_grant(row), None, "GRANT_NOT_ACTIVE"
+        if (row["expires_at"] or 0) <= now:
+            _cancel_grant_in_transaction(cx, row, "AUTHORIZATION_EXPIRED")
+            cx.commit()
+            return None, None, "AUTHORIZATION_EXPIRED"
+
+        mismatches = []
+        expected = {
+            "user_id": context.user_id,
+            "agent_id": context.agent_id,
+            "session_id": context.session_id,
+            "merchant_id": context.merchant_id,
+            "action_name": action_name,
+            "action_schema_hash": action_schema_hash,
+            "args_hash": args_hash,
+            "cart_hash": cart_hash,
+        }
+        for name, value in expected.items():
+            if row[name] != value:
+                mismatches.append(name)
+        amount = args.get("amount")
+        currency = args.get("currency")
+        if isinstance(amount, bool) or amount != row["amount_paise"]:
+            mismatches.append("amount_paise")
+        if currency != row["currency"]:
+            mismatches.append("currency")
+        if mismatches:
+            _cancel_grant_in_transaction(
+                cx, row, "ACTION_BINDING_MISMATCH:" + ",".join(sorted(set(mismatches)))
+            )
+            cx.commit()
+            return None, None, "ACTION_BINDING_MISMATCH"
+
+        mandate_row = cx.execute(
+            "SELECT * FROM mandates WHERE id=?", (row["mandate_id"],)
+        ).fetchone()
+        mandate = _row_to_mandate(mandate_row) if mandate_row else None
+        if (
+            not mandate
+            or not mandate.active
+            or mandate.version != row["mandate_version"]
+            or policy_hash(mandate) != row["policy_hash"]
+        ):
+            _cancel_grant_in_transaction(cx, row, "POLICY_CHANGED_BEFORE_DISPATCH")
+            cx.commit()
+            return None, None, "POLICY_CHANGED_BEFORE_DISPATCH"
+
+        dispatch_token = f"dsp_{uuid.uuid4().hex}"
+        updated = cx.execute(
+            """UPDATE spend_ledger
+               SET status='dispatching',dispatch_token=?,expires_at=NULL,updated_at=?
+               WHERE id=? AND status IN ('reserved','authorized')""",
+            (dispatch_token, now, grant_id),
+        )
+        if updated.rowcount != 1:
+            cx.rollback()
+            return None, None, "DISPATCH_CLAIM_CONFLICT"
+        claimed = cx.execute(
+            "SELECT * FROM spend_ledger WHERE id=?", (grant_id,)
+        ).fetchone()
+        _insert_audit_row(
+            cx,
+            event="ACTION_DISPATCH_STARTED",
+            session_id=row["session_id"],
+            mandate_id=row["mandate_id"],
+            mandate_version=row["mandate_version"],
+            code="DISPATCHING",
+            cart_total_paise=row["amount_paise"],
+            payload={"grant_id": grant_id, "action": action_name},
+        )
+        cx.commit()
+        return _row_to_action_grant(claimed), dispatch_token, "DISPATCH_CLAIMED"
+    finally:
+        cx.close()
+
+
+def mark_action_issued(
+    grant_id: str,
+    dispatch_token: str,
+    *,
+    provider_ref: str | None,
+    result: dict,
+) -> ActionGrant:
+    now = time.time()
+    with _conn() as cx:
+        cx.execute("BEGIN IMMEDIATE")
+        updated = cx.execute(
+            """UPDATE spend_ledger
+               SET status='action_issued',razorpay_ref=?,result_json=?,
+                   error=NULL,dispatch_token=NULL,updated_at=?
+               WHERE id=? AND status='dispatching' AND dispatch_token=?""",
+            (provider_ref, canonical_json(result), now, grant_id, dispatch_token),
+        )
+        if updated.rowcount != 1:
+            raise RuntimeError("ACTION_ISSUED_TRANSITION_CONFLICT")
+        row = cx.execute("SELECT * FROM spend_ledger WHERE id=?", (grant_id,)).fetchone()
+        _insert_audit_row(
+            cx,
+            event="ACTION_ISSUED",
+            session_id=row["session_id"],
+            mandate_id=row["mandate_id"],
+            mandate_version=row["mandate_version"],
+            code="ACTION_ISSUED",
+            cart_total_paise=row["amount_paise"],
+            payload={"grant_id": grant_id, "provider_ref": provider_ref},
+        )
+        return _row_to_action_grant(row)
+
+
+def mark_action_unknown(grant_id: str, dispatch_token: str, error: str) -> ActionGrant:
+    now = time.time()
+    with _conn() as cx:
+        cx.execute("BEGIN IMMEDIATE")
+        updated = cx.execute(
+            """UPDATE spend_ledger
+               SET status='unknown',error=?,updated_at=?
+               WHERE id=? AND status='dispatching' AND dispatch_token=?""",
+            (error[:500], now, grant_id, dispatch_token),
+        )
+        if updated.rowcount != 1:
+            raise RuntimeError("UNKNOWN_TRANSITION_CONFLICT")
+        row = cx.execute("SELECT * FROM spend_ledger WHERE id=?", (grant_id,)).fetchone()
+        _insert_audit_row(
+            cx,
+            event="ACTION_OUTCOME_UNKNOWN",
+            session_id=row["session_id"],
+            mandate_id=row["mandate_id"],
+            mandate_version=row["mandate_version"],
+            code="UNKNOWN",
+            cart_total_paise=row["amount_paise"],
+            payload={"grant_id": grant_id, "error": error[:200]},
+        )
+        return _row_to_action_grant(row)
+
+
+def mark_action_definitive_failure(
+    grant_id: str, dispatch_token: str, error: str
+) -> ActionGrant:
+    now = time.time()
+    with _conn() as cx:
+        cx.execute("BEGIN IMMEDIATE")
+        updated = cx.execute(
+            """UPDATE spend_ledger
+               SET status='definitive_failure',error=?,dispatch_token=NULL,updated_at=?
+               WHERE id=? AND status='dispatching' AND dispatch_token=?""",
+            (error[:500], now, grant_id, dispatch_token),
+        )
+        if updated.rowcount != 1:
+            raise RuntimeError("FAILURE_TRANSITION_CONFLICT")
+        row = cx.execute("SELECT * FROM spend_ledger WHERE id=?", (grant_id,)).fetchone()
+        _insert_audit_row(
+            cx,
+            event="ACTION_DEFINITIVE_FAILURE",
+            session_id=row["session_id"],
+            mandate_id=row["mandate_id"],
+            mandate_version=row["mandate_version"],
+            code="DEFINITIVE_FAILURE",
+            cart_total_paise=row["amount_paise"],
+            payload={"grant_id": grant_id, "error": error[:200]},
+        )
+        return _row_to_action_grant(row)
+
+
+def reconcile_unknown(
+    grant_id: str,
+    *,
+    accepted: bool,
+    provider_ref: str | None = None,
+    result: dict | None = None,
+    settled: bool = False,
+) -> ActionGrant:
+    """Resolve UNKNOWN only from an authoritative provider observation."""
+    now = time.time()
+    new_status = "settled" if accepted and settled else (
+        "action_issued" if accepted else "definitive_failure"
+    )
+    with _conn() as cx:
+        cx.execute("BEGIN IMMEDIATE")
+        updated = cx.execute(
+            """UPDATE spend_ledger
+               SET status=?,razorpay_ref=COALESCE(?,razorpay_ref),result_json=?,
+                   error=NULL,dispatch_token=NULL,updated_at=?
+               WHERE id=? AND status='unknown'""",
+            (
+                new_status,
+                provider_ref,
+                canonical_json(result or {}),
+                now,
+                grant_id,
+            ),
+        )
+        if updated.rowcount != 1:
+            raise RuntimeError("RECONCILIATION_TRANSITION_CONFLICT")
+        row = cx.execute("SELECT * FROM spend_ledger WHERE id=?", (grant_id,)).fetchone()
+        _insert_audit_row(
+            cx,
+            event="ACTION_RECONCILED",
+            session_id=row["session_id"],
+            mandate_id=row["mandate_id"],
+            mandate_version=row["mandate_version"],
+            code=new_status.upper(),
+            cart_total_paise=row["amount_paise"],
+            payload={"grant_id": grant_id, "provider_ref": provider_ref},
+        )
+        return _row_to_action_grant(row)
+
+
 def find_committed_reservation(mandate_id: str, idempotency_key: str) -> Reservation | None:
     """Has this exact purchase attempt already settled?
 
@@ -319,24 +1037,26 @@ def find_committed_reservation(mandate_id: str, idempotency_key: str) -> Reserva
                        razorpay_ref=r["razorpay_ref"], reason="REPLAYED_COMMITTED")
 
 
-def commit_reservation(reservation_id: str, razorpay_ref: str | None = None) -> None:
-    """Money moved. Make the hold permanent."""
+def commit_reservation(reservation_id: str, razorpay_ref: str | None = None) -> bool:
+    """Legacy test helper; an expired unclaimed hold can never commit late."""
     with _conn() as cx:
-        cx.execute(
+        updated = cx.execute(
             "UPDATE spend_ledger SET status='committed', expires_at=NULL, razorpay_ref=? "
-            "WHERE id=? AND status='reserved'",
-            (razorpay_ref, reservation_id),
+            "WHERE id=? AND status='reserved' AND COALESCE(expires_at,0)>?",
+            (razorpay_ref, reservation_id, time.time()),
         )
+    return updated.rowcount == 1
 
 
-def release_reservation(reservation_id: str) -> None:
-    """Money did not move. Give the headroom back immediately."""
+def release_reservation(reservation_id: str) -> bool:
+    """Legacy helper. Only a never-dispatched reservation may be released."""
     with _conn() as cx:
-        cx.execute(
+        updated = cx.execute(
             "UPDATE spend_ledger SET status='released', expires_at=NULL "
             "WHERE id=? AND status='reserved'",
             (reservation_id,),
         )
+    return updated.rowcount == 1
 
 
 def record_spend(mandate_id: str, amount_paise: int, razorpay_ref: str | None = None) -> None:
@@ -354,16 +1074,51 @@ def record_spend(mandate_id: str, amount_paise: int, razorpay_ref: str | None = 
         )
 
 
+def _insert_audit_row(
+    cx: sqlite3.Connection,
+    *,
+    event: str,
+    session_id: str | None = None,
+    mandate_id: str | None = None,
+    mandate_version: int | None = None,
+    code: str | None = None,
+    cart_total_paise: int | None = None,
+    cap_paise: int | None = None,
+    payload: dict | None = None,
+) -> None:
+    cx.execute(
+        """INSERT INTO audit_log (id,session_id,mandate_id,mandate_version,event,code,
+           cart_total_paise,cap_paise,payload,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)""",
+        (
+            f"aud_{uuid.uuid4().hex[:12]}",
+            session_id,
+            mandate_id,
+            mandate_version,
+            event,
+            code,
+            cart_total_paise,
+            cap_paise,
+            json.dumps(payload or {}),
+            time.time(),
+        ),
+    )
+
+
 def log_event(event: str, session_id: str | None = None, mandate_id: str | None = None,
               mandate_version: int | None = None, code: str | None = None,
               cart_total_paise: int | None = None, cap_paise: int | None = None,
               payload: dict | None = None) -> None:
     with _conn() as cx:
-        cx.execute(
-            """INSERT INTO audit_log (id,session_id,mandate_id,mandate_version,event,code,
-               cart_total_paise,cap_paise,payload,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)""",
-            (f"aud_{uuid.uuid4().hex[:12]}", session_id, mandate_id, mandate_version, event,
-             code, cart_total_paise, cap_paise, json.dumps(payload or {}), time.time()),
+        _insert_audit_row(
+            cx,
+            event=event,
+            session_id=session_id,
+            mandate_id=mandate_id,
+            mandate_version=mandate_version,
+            code=code,
+            cart_total_paise=cart_total_paise,
+            cap_paise=cap_paise,
+            payload=payload,
         )
 
 
@@ -385,30 +1140,90 @@ def audit_trail(session_id: str | None = None, limit: int = 200) -> list[dict]:
 
 
 def metrics(user_id: str = "user_demo") -> dict:
-    """The two numbers the judges are told to care about."""
+    """Observed action-safety and lifecycle metrics for one policy owner."""
     with _conn() as cx:
-        total = cx.execute(
-            "SELECT COUNT(*) c FROM audit_log WHERE event='MANDATE_CHECK'").fetchone()["c"]
-        breaches = cx.execute(
-            "SELECT COUNT(*) c FROM audit_log WHERE event='MANDATE_CHECK' "
-            "AND code IS NOT NULL AND code!='ALLOW'").fetchone()["c"]
-        blocked_value = cx.execute(
-            "SELECT COALESCE(SUM(cart_total_paise),0) s FROM audit_log "
-            "WHERE event='MANDATE_CHECK' AND code IS NOT NULL AND code!='ALLOW'"
+        policy_ids = [
+            row["id"]
+            for row in cx.execute(
+                "SELECT id FROM mandates WHERE user_id=?", (user_id,)
+            ).fetchall()
+        ]
+        if not policy_ids:
+            return {
+                "authorization_attempts": 0,
+                "denied_authorizations": 0,
+                "authorization_denial_rate": 0.0,
+                "denied_requested_value_paise": 0,
+                "payment_link_issued_value_paise": 0,
+                "confirmed_test_payment_value_paise": 0,
+                "unknown_outcome_value_paise": 0,
+                "outstanding_authorized_exposure_paise": 0,
+                "unauthorized_actuator_calls": 0,
+                "cart_policy_previews": 0,
+            }
+        placeholders = ",".join("?" for _ in policy_ids)
+        attempts = cx.execute(
+            f"""SELECT COUNT(*) c FROM audit_log
+                WHERE mandate_id IN ({placeholders})
+                  AND event IN ('AUTHORIZATION_ATTEMPT','AUTHORIZATION_REJECTED')""",
+            policy_ids,
+        ).fetchone()["c"]
+        denied = cx.execute(
+            f"""SELECT COUNT(*) c FROM audit_log
+                WHERE mandate_id IN ({placeholders})
+                  AND event IN ('AUTHORIZATION_ATTEMPT','AUTHORIZATION_REJECTED')
+                  AND code IS NOT NULL AND code!='ALLOW'""",
+            policy_ids,
+        ).fetchone()["c"]
+        denied_value = cx.execute(
+            f"""SELECT COALESCE(SUM(cart_total_paise),0) s FROM audit_log
+                WHERE mandate_id IN ({placeholders})
+                  AND event IN ('AUTHORIZATION_ATTEMPT','AUTHORIZATION_REJECTED')
+                  AND code IS NOT NULL AND code!='ALLOW'""",
+            policy_ids,
+        ).fetchone()["s"]
+        previews = cx.execute(
+            f"""SELECT COUNT(*) c FROM audit_log
+                WHERE mandate_id IN ({placeholders})
+                  AND event='CART_POLICY_PREVIEW'""",
+            policy_ids,
+        ).fetchone()["c"]
+        issued = cx.execute(
+            """SELECT COALESCE(SUM(amount_paise),0) s FROM spend_ledger
+               WHERE user_id=? AND status='action_issued'""",
+            (user_id,),
         ).fetchone()["s"]
         settled = cx.execute(
-            "SELECT COALESCE(SUM(amount_paise),0) s FROM spend_ledger "
-            "WHERE status='committed'").fetchone()["s"]
-        in_flight = cx.execute(
-            "SELECT COALESCE(SUM(amount_paise),0) s FROM spend_ledger "
-            "WHERE status='reserved' AND COALESCE(expires_at,0) > ?",
-            (time.time(),)).fetchone()["s"]
+            """SELECT COALESCE(SUM(amount_paise),0) s FROM spend_ledger
+               WHERE user_id=? AND status='settled'""",
+            (user_id,),
+        ).fetchone()["s"]
+        unknown = cx.execute(
+            """SELECT COALESCE(SUM(amount_paise),0) s FROM spend_ledger
+               WHERE user_id=? AND status='unknown'""",
+            (user_id,),
+        ).fetchone()["s"]
+        outstanding = cx.execute(
+            """SELECT COALESCE(SUM(amount_paise),0) s FROM spend_ledger
+               WHERE user_id=?
+                 AND (status IN ('dispatching','unknown','action_issued')
+                      OR (status='authorized' AND COALESCE(expires_at,0)>?))""",
+            (user_id, time.time()),
+        ).fetchone()["s"]
+        rejected = cx.execute(
+            f"""SELECT COUNT(*) c FROM audit_log
+                WHERE mandate_id IN ({placeholders}) AND event='ACTION_REJECTED'""",
+            policy_ids,
+        ).fetchone()["c"]
     return {
-        "mandate_checks": total,
-        "mandate_breach_attempts": breaches,
-        "mandate_breach_attempt_rate": round(breaches / total, 4) if total else 0.0,
-        "value_blocked_paise": int(blocked_value),
-        "value_settled_paise": int(settled),
-        "value_in_flight_paise": int(in_flight),
-        "chargeback_liability_paise": 0,
+        "authorization_attempts": int(attempts),
+        "denied_authorizations": int(denied),
+        "authorization_denial_rate": round(denied / attempts, 4) if attempts else 0.0,
+        "denied_requested_value_paise": int(denied_value),
+        "payment_link_issued_value_paise": int(issued),
+        "confirmed_test_payment_value_paise": int(settled),
+        "unknown_outcome_value_paise": int(unknown),
+        "outstanding_authorized_exposure_paise": int(outstanding),
+        "unauthorized_actuator_calls": int(rejected),
+        "cart_policy_previews": int(previews),
     }

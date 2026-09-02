@@ -19,6 +19,7 @@ os.environ["DB_PATH"] = os.path.join(tempfile.mkdtemp(), "concurrency.db")
 os.environ["DEMO_MODE"] = "true"
 
 from app import store                                            # noqa: E402
+from app.config import get_settings                              # noqa: E402
 from app.models import MandateCreate, Window                      # noqa: E402
 
 CAP_RUPEES = 1_000
@@ -28,9 +29,13 @@ THREADS = 8
 
 
 @pytest.fixture()
-def mandate():
+def mandate(tmp_path, monkeypatch):
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "concurrency.db"))
+    get_settings.cache_clear()
     store.init_db()
-    return store.create_mandate(MandateCreate(cap_rupees=CAP_RUPEES))
+    created = store.create_mandate(MandateCreate(cap_rupees=CAP_RUPEES))
+    yield created
+    get_settings.cache_clear()
 
 
 def _run(fn, n=THREADS):
@@ -149,41 +154,71 @@ def test_committed_key_replays_stored_result(mandate):
 # ---------------------------------------------------------------------------
 # End-to-end: two agent turns checking out at the same instant
 # ---------------------------------------------------------------------------
-def test_two_concurrent_checkouts_cannot_both_settle(mandate):
+def test_two_concurrent_confirmations_cannot_both_issue(mandate):
     """The real shape of the attack: one mandate, two sessions, same moment."""
-    from app.agent import handle_turn, reset_session
-    from app.models import ChatRequest
+    from app.agent import confirm_checkout, handle_turn, reset_session
+    from app.models import ChatRequest, CheckoutConfirmRequest
 
     # ₹899 parmigiano twice = ₹1,798 against a ₹1,000 cap. Exactly one may win.
     def buy(i):
         sid = f"race_{i}"
-        handle_turn(ChatRequest(session_id=sid, message="add the parmigiano reggiano"))
-        r = handle_turn(ChatRequest(session_id=sid, message="checkout please"))
+        proposal = handle_turn(
+            ChatRequest(session_id=sid, message="add the parmigiano reggiano")
+        )
+        r = confirm_checkout(
+            CheckoutConfirmRequest(
+                session_id=sid,
+                expected_cart_hash=proposal.cart_hash,
+                idempotency_key=f"race-attempt-{i}",
+            )
+        )
         reset_session(sid)
         return r
 
     results = _run(buy, n=2)
-    settled = [r for r in results
-               if not isinstance(r, Exception)
-               and any(t.name == "create_payment_link" and not t.blocked for t in r.tools)]
+    issued = [
+        r
+        for r in results
+        if not isinstance(r, Exception)
+        and any(
+            t.name == "create_payment_link" and not t.blocked for t in r.tools
+        )
+    ]
 
-    assert len(settled) == 1, f"expected exactly one settlement, got {len(settled)}"
+    assert len(issued) == 1, f"expected exactly one link issuance, got {len(issued)}"
     assert store.spent_in_window(mandate.id, mandate.window) <= CAP_PAISE
 
 
 def test_same_session_retry_is_idempotent_end_to_end(mandate):
     """A re-sent checkout inside one session must not charge twice."""
-    from app.agent import handle_turn, reset_session
-    from app.models import ChatRequest
+    from app.agent import confirm_checkout, handle_turn, reset_session
+    from app.models import ChatRequest, CheckoutConfirmRequest
 
     sid = "retry_session"
-    handle_turn(ChatRequest(session_id=sid, message="add the parmigiano reggiano"))
-    first = handle_turn(ChatRequest(session_id=sid, message="checkout please"))
+    attempt_id = "retry-session-attempt"
+    proposal = handle_turn(
+        ChatRequest(session_id=sid, message="add the parmigiano reggiano")
+    )
+    first = confirm_checkout(
+        CheckoutConfirmRequest(
+            session_id=sid,
+            expected_cart_hash=proposal.cart_hash,
+            idempotency_key=attempt_id,
+        )
+    )
     ref = first.tools[0].result.get("id")
 
     # Client never saw the response and re-sends the same basket + key.
-    handle_turn(ChatRequest(session_id=sid, message="add the parmigiano reggiano"))
-    second = handle_turn(ChatRequest(session_id=sid, message="checkout please"))
+    replay_proposal = handle_turn(
+        ChatRequest(session_id=sid, message="add the parmigiano reggiano")
+    )
+    second = confirm_checkout(
+        CheckoutConfirmRequest(
+            session_id=sid,
+            expected_cart_hash=replay_proposal.cart_hash,
+            idempotency_key=attempt_id,
+        )
+    )
     reset_session(sid)
 
     assert second.tools[0].result.get("replayed") is True

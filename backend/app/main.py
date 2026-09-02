@@ -8,11 +8,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import agent, catalog, store
 from .config import get_settings
 from .mcp_client import get_client
-from .models import (ChatRequest, ChatResponse, Mandate, MandateCreate,
-                     MandateUpdate)
+from .models import (
+    ChatRequest,
+    ChatResponse,
+    CheckoutConfirmRequest,
+    Mandate,
+    MandateCreate,
+    MandateUpdate,
+)
 
-app = FastAPI(title="AI-Native Agentic Checkout with UAP Mandate Verification",
-              version="1.0.0")
+app = FastAPI(
+    title="Action Firewall — Policy-bound Agentic Checkout",
+    version="2.0.0",
+)
 app.add_middleware(
     CORSMiddleware, allow_origins=["http://localhost:3000"],
     allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
@@ -39,7 +47,18 @@ def health() -> dict:
 # ---------------- Chat ----------------
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest) -> ChatResponse:
-    return agent.handle_turn(req)
+    try:
+        return agent.handle_turn(req)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@app.post("/checkout/confirm", response_model=ChatResponse)
+def confirm_checkout(req: CheckoutConfirmRequest) -> ChatResponse:
+    try:
+        return agent.confirm_checkout(req)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 @app.post("/chat/{session_id}/reset")
