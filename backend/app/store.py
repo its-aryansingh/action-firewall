@@ -103,6 +103,16 @@ CREATE TABLE IF NOT EXISTS audit_log (
     created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_log(session_id, created_at);
+CREATE TRIGGER IF NOT EXISTS audit_log_no_update
+BEFORE UPDATE ON audit_log
+BEGIN
+    SELECT RAISE(ABORT, 'audit_log is append-only');
+END;
+CREATE TRIGGER IF NOT EXISTS audit_log_no_delete
+BEFORE DELETE ON audit_log
+BEGIN
+    SELECT RAISE(ABORT, 'audit_log is append-only');
+END;
 """
 
 WINDOW_SECONDS = {
