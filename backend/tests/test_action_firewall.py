@@ -1,6 +1,7 @@
 """Adversarial tests for the exact action receipt and dispatch state machine."""
 from __future__ import annotations
 
+import sqlite3
 import threading
 import uuid
 
@@ -95,6 +96,31 @@ def make_authorization(
         purchase_attempt_id=attempt_id,
     )
     return store.authorize_and_reserve(request), canonical, context
+
+
+def test_audit_rows_cannot_be_updated(clean_db):
+    store.log_event("TEST_EVENT", session_id="audit-session", code="ORIGINAL")
+    audit_id = store.audit_trail("audit-session")[0]["id"]
+
+    with sqlite3.connect(get_settings().db_path) as cx:
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            cx.execute(
+                "UPDATE audit_log SET code='TAMPERED' WHERE id=?",
+                (audit_id,),
+            )
+
+    assert store.audit_trail("audit-session")[0]["code"] == "ORIGINAL"
+
+
+def test_audit_rows_cannot_be_deleted(clean_db):
+    store.log_event("TEST_EVENT", session_id="audit-session", code="ORIGINAL")
+    audit_id = store.audit_trail("audit-session")[0]["id"]
+
+    with sqlite3.connect(get_settings().db_path) as cx:
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            cx.execute("DELETE FROM audit_log WHERE id=?", (audit_id,))
+
+    assert store.audit_trail("audit-session")[0]["id"] == audit_id
 
 
 def test_amount_tamper_is_rejected_before_transport(clean_db):
