@@ -30,10 +30,14 @@ app.add_middleware(
 @app.on_event("startup")
 def _startup() -> None:
     store.init_db()
+    recovered = store.recover_stale_dispatches()
     s = get_settings()
     if not store.get_active_mandate("user_demo", "agent_groceries"):
         store.create_mandate(MandateCreate(cap_rupees=1000))
-    print(f"[boot] demo_mode={s.demo_mode} | catalog={len(catalog.load_catalog())} SKUs")
+    print(
+        f"[boot] demo_mode={s.demo_mode} | catalog={len(catalog.load_catalog())} SKUs "
+        f"| stale_dispatches_to_unknown={recovered}"
+    )
 
 
 @app.get("/health")

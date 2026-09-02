@@ -899,7 +899,8 @@ def mark_action_issued(
             """UPDATE spend_ledger
                SET status='action_issued',razorpay_ref=?,result_json=?,
                    error=NULL,dispatch_token=NULL,updated_at=?
-               WHERE id=? AND status='dispatching' AND dispatch_token=?""",
+               WHERE id=? AND status IN ('dispatching','unknown')
+                 AND dispatch_token=?""",
             (provider_ref, canonical_json(result), now, grant_id, dispatch_token),
         )
         if updated.rowcount != 1:
@@ -916,6 +917,48 @@ def mark_action_issued(
             payload={"grant_id": grant_id, "provider_ref": provider_ref},
         )
         return _row_to_action_grant(row)
+
+
+def recover_stale_dispatches(cutoff_seconds: float = 60.0) -> int:
+    """Turn crash-stranded dispatch claims into UNKNOWN without freeing headroom.
+
+    The provider may have accepted the action before this process disappeared,
+    so recovery must never cancel or retry it. The original dispatch token is
+    retained: a late result held by that exact owner may still close the state.
+    """
+    now = time.time()
+    cutoff = now - max(0.0, cutoff_seconds)
+    with _conn() as cx:
+        cx.execute("BEGIN IMMEDIATE")
+        rows = cx.execute(
+            """SELECT * FROM spend_ledger
+               WHERE status='dispatching'
+                 AND COALESCE(updated_at,created_at)<=?""",
+            (cutoff,),
+        ).fetchall()
+        for row in rows:
+            updated = cx.execute(
+                """UPDATE spend_ledger
+                   SET status='unknown',error=?,updated_at=?
+                   WHERE id=? AND status='dispatching'""",
+                ("PROCESS_INTERRUPTED_AFTER_DISPATCH_CLAIM", now, row["id"]),
+            )
+            if updated.rowcount != 1:
+                continue
+            _insert_audit_row(
+                cx,
+                event="ACTION_OUTCOME_UNKNOWN",
+                session_id=row["session_id"],
+                mandate_id=row["mandate_id"],
+                mandate_version=row["mandate_version"],
+                code="STALE_DISPATCH_RECOVERED",
+                cart_total_paise=row["amount_paise"],
+                payload={
+                    "grant_id": row["id"],
+                    "reason": "PROCESS_INTERRUPTED_AFTER_DISPATCH_CLAIM",
+                },
+            )
+        return len(rows)
 
 
 def mark_action_unknown(grant_id: str, dispatch_token: str, error: str) -> ActionGrant:
