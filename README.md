@@ -131,6 +131,31 @@ Current verified baseline: **51 backend tests passing**, a successful production
 frontend build, and **0 known npm audit vulnerabilities**. Re-run these commands on
 the final commit before recording or submitting.
 
+## Continue with Claude Code
+
+The repository includes a committed Claude Code handoff:
+
+- `CLAUDE.md` — project workflow and non-negotiable authorization invariants;
+- `claude/project-brief.md` — authoritative product state and next priorities;
+- `.claude/rules/` — path-scoped backend, frontend, and evidence rules;
+- `.claude/settings.json` — shared safe-command permissions, secret-file denials,
+  destructive-Git denials, and disabled AI commit attribution.
+
+Start Claude Code from the repository root:
+
+```powershell
+claude
+```
+
+On the first interactive launch, review and accept the workspace trust prompt. Then
+run `/context` to confirm `CLAUDE.md` is loaded and `/status` to confirm the project
+settings source is active. Personal overrides belong in `CLAUDE.local.md` or
+`.claude/settings.local.json`; both are intentionally ignored by Git.
+
+No Claude-side Razorpay MCP configuration is committed. Runtime Razorpay access
+continues to use the backend adapter and environment variables, so credentials stay
+outside source control.
+
 ## Demo proof
 
 The five-minute path shows one narrow loop end to end:
