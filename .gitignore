@@ -19,3 +19,7 @@ out/
 # Misc
 .DS_Store
 .pytest_cache/
+
+# Claude Code machine-local state
+CLAUDE.local.md
+.claude/settings.local.json
