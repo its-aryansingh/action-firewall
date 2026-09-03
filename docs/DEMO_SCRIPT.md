@@ -1,112 +1,230 @@
-# Live Demo Script — 4 minutes
+# Action Firewall — five-minute demo
 
-Two browser tabs open before you start: **/** (chat) and **/mandate** (dashboard).
-A third tab on Langfuse. Backend running. `pytest -q` already green on screen if the
-room allows it.
+This is the judge-facing path for Track 01. It demonstrates one narrow claim:
+chat may propose a cart, but only a current, exact, one-use authorization grant
+may reach the registered Razorpay action.
 
-**Pre-flight (30s before you go up):** run `python scripts/demo.py`. If the four acts
-print correctly, the live demo will work.
+## Before recording or presenting
 
----
+Open these views before the clock starts:
 
-### Act 0 — The frame (20s)
+1. `/mandate` — active application policy, ₹1,000 weekly ceiling, `gift_cards`
+   blocked.
+2. `/` — empty AI Buyer session and cart.
+3. `/audit` — application event log and outcome-aware metrics.
+4. A terminal with `python scripts/demo.py` ready from `backend/`.
 
-> "Everyone is treating agentic payments as a checkout problem — a faster button.
-> It isn't. The moment an agent holds a payment instrument, it's an authorization
-> problem. Here's the authorization layer."
+Use `DEMO_MODE=true` for the reliable stage path. It uses a simulated actuator,
+a deterministic catalog fallback, and no network credentials. If a live
+test-mode Razorpay call is shown, label it separately and never treat link
+creation as payment completion.
 
-Show the Mandate Dashboard. Point at one number: **₹1,000 per week**, blocked category
-`gift_cards`.
+Immediately before presenting, run:
 
-> "A human granted this agent ₹1,000 a week. That's NPCI's Unified Agent Protocol
-> semantics — UPI Circle delegation, applied to an AI instead of a family member."
+```powershell
+cd backend
+python scripts/demo.py
+python -m pytest -q
+```
 
----
+Expected rehearsal totals are derived from the current catalog: ₹2,034 denied,
+₹486 payment-link value issued, and a later ₹549 authorization denied after
+revocation. The exact grant and policy IDs change every run.
 
-### Act 1 — Discovery (40s)
+## The five-minute story
 
-Type: **"I need supplies for a pasta dinner"**
+### 0:00–0:25 — establish the boundary
 
-Cart fills from the Pinecone-backed catalog; the agent cross-sells one item.
-Point at the green verdict chip under the reply.
+**Screen:** `/mandate`.
 
-> "Every single turn is evaluated against the mandate — not just checkout. Cart ₹486,
-> cap ₹1,000, ALLOW."
+Point to the ₹1,000 weekly ceiling, active state, policy version, and blocked
+category.
 
----
+**Say:**
 
-### Act 2 — The breach attempt (60s) ← **this is the demo**
+> “Razorpay asks Track 01 builders to make every money action explainable,
+> bounded, and gated. Here the model can shop, but it cannot authorize itself.
+> This shopper-defined application policy is the only source of action
+> authority.”
 
-Type: **"Add the Parmigiano Reggiano and the olive oil, then check out"**
+### 0:25–1:05 — prove chat is proposal-only
 
-The chip flips red: `BLOCK_WINDOW_CAP_EXCEEDED`, ₹2,233 against ₹1,000. The tool row
-reads **BLOCKED mcp:create_payment_link**.
+**Screen:** `/`.
 
-> "The agent wanted to pay. It was stopped at the logic layer — the Razorpay MCP call
-> was never made. Not a prompt asking it nicely not to spend. A deterministic gate."
+Submit exactly:
 
-Switch to Langfuse. Open the trace. Four spans:
-`retrieve_catalog → plan_cart → mandate_check → …` and the fourth span is **absent**.
+```text
+I need supplies for a pasta dinner
+```
 
-> "That's the audit trail. `mandate_check` returned BLOCK, and there is simply no
-> `mcp_tool_call` span underneath it. You can't argue with an absent span."
+The catalog-backed cart becomes ₹486. Point to `AI Buyer — proposal only`, the
+cart hash, and the policy preview.
 
----
+**Say:**
 
-### Act 3 — Graceful recovery (40s)
+> “The model interprets an open-ended goal and proposes catalog SKUs. Prices,
+> totals, and the canonical cart hash are computed by the server. This green
+> result is feedback, not authority. Chat has no state-changing tool path.”
 
-Read the agent's own recovery line aloud, then type: **"Remove the parmigiano"**
+### 1:05–2:00 — the failure proves the gate
 
-Cart drops back under the ceiling. Type **"Checkout please"** → green, payment link
-issued, MCP call **CALLED**.
+Submit exactly:
 
-> "Failure handled gracefully: it didn't just refuse, it priced the alternative that
-> fits and got the merchant the sale."
+```text
+Add the Parmigiano Reggiano and the olive oil, then check out
+```
 
----
+The proposal becomes ₹2,034 and shows `BLOCK_WINDOW_CAP_EXCEEDED`. Emphasize
+that the words “check out” still caused no action. Then click **Authorize payment
+link** so the separate confirmation request is also denied.
 
-### Act 4 — Revocation latency (40s)
+**Say:**
 
-Go to the dashboard. Change ₹1,000 → ₹200. Save. Note the flash: updated in ~Xms.
-Back to chat, type: **"Buy me some coffee beans"** (₹549).
+> “Natural-language checkout is not confirmation. The explicit request re-reads
+> the current policy and evaluates the exact ₹2,034 action inside the same write
+> transaction that would reserve headroom. It is denied before the actuator:
+> zero external calls.”
 
-> "Blocked. One prompt later, no restart, no cache to invalidate — the agent re-reads
-> the mandate every turn. That's Revocation Latency, and it's the property that makes
-> delegated authority safe to hand to software."
+Point to the deterministic price-fit suggestion of ₹486.
 
-Open **/audit**: breach attempts, breach rate, **chargeback liability ₹0**.
+### 2:00–2:55 — recover and issue one action
 
----
+Submit exactly:
 
-### The close (20s)
+```text
+Remove the Parmigiano Reggiano and the olive oil
+```
 
-> "Mandate Breach Attempt Rate and Revocation Latency are the two numbers a PSP
-> actually underwrites against. We're not shipping a chatbot that can buy things —
-> we're shipping the authorization primitive that makes an AI buyer underwritable.
-> Zero chargeback liability for the merchant, bounded exposure for the consumer,
-> and it's built on Razorpay's Remote MCP, ready for NPCI's UAP and the x402 standard."
+Then submit:
 
----
+```text
+Checkout please
+```
 
-## If a judge asks…
+The cart is ₹486. Point out that the chat request still did not dispatch. Click
+**Authorize payment link** once.
 
-**"Why not multi-agent?"**
-Razorpay's own FTX26 position: for commerce, one well-instrumented agent with full
-context has fewer handoff failure modes and more predictable latency. Multi-agent here
-would add coordination surface and a second place for authority to leak. We optimised
-for auditability, not for an architecture diagram.
+**Say:**
 
-**"Why not just prompt the model to respect the limit?"**
-Because a prompt is a request and a gate is a guarantee. Our gate is a pure function
-with 22 tests including cap, cap−1 and cap+1. An LLM that hallucinates a price cannot
-move money here — the SKU wouldn't exist and the total is computed server-side in paise.
+> “The recovery preserves the shopper’s goal while fitting the current
+> headroom. Explicit confirmation now creates an exact grant bound to this user,
+> agent, session, cart hash, amount, action arguments, policy version, and one
+> purchase-attempt ID. One compare-and-set owner dispatches once.”
 
-**"What happens when Razorpay's API errors mid-checkout?"**
-The spend ledger is written only on a successful tool result, the audit row is written
-before it, and the shopper is told nothing was charged. The mandate envelope is never
-optimistically debited.
+When the UI shows `ACTION ISSUED`, say:
 
-**"How does this become a Razorpay product?"**
-It's the mandate service that sits between Agent Studio and the payment tools —
-one row per delegated authority, one verdict per agent action, one audit log the
-risk team can underwrite against.
+> “A payment link was issued. That is not a paid transaction and not
+> settlement; payment completion needs later verified Razorpay state.”
+
+### 2:55–3:45 — revoke authority and show next-action latency
+
+**Screen:** `/mandate`.
+
+Click **Revoke policy**. Point to version 2 and the `REVOKED` state. Return to
+`/`, submit:
+
+```text
+Buy me some coffee beans
+```
+
+Then click **Authorize payment link**.
+
+**Say:**
+
+> “Revocation binds at the next authorization. The server distinguishes a
+> revoked policy from a missing one, re-reads the current version, and denies
+> the ₹549 action. An action already issued externally is not magically unsent;
+> it must be observed or reconciled.”
+
+### 3:45–4:30 — show evidence, not narration
+
+**Screen:** `/audit`.
+
+Point to:
+
+- 3 explicit authorization attempts;
+- 2 denied authorizations;
+- ₹2,583 denied requested value;
+- ₹486 payment-link value issued;
+- ₹0 confirmed test payments;
+- ₹0 unknown-outcome exposure in this run;
+- 0 actuator binding mismatches in the normal rehearsal.
+
+Find the relevant event rows: `AUTHORIZATION_ATTEMPT`,
+`ACTION_DISPATCH_STARTED`, `ACTION_ISSUED`, and the revoked denial. Point to the
+policy version and opaque grant ID. If Langfuse is configured, show it only as a
+secondary trace; the database evidence remains authoritative.
+
+**Say:**
+
+> “Authorization, dispatch start, and provider outcome are separate facts. The
+> application event rows cannot be updated or deleted by SQLite, and the grant
+> record carries the exact hashes used at dispatch. This is append-only
+> application evidence, not a cryptographically signed ledger.”
+
+### 4:30–5:00 — engineering proof and close
+
+**Screen:** pre-opened terminal output or the proof slide.
+
+Show the full test result and name the concurrency test that drives eight
+simultaneous claims to exactly one simulated actuator call.
+
+**Say:**
+
+> “The original check-then-act design overspent ₹2,400 against a ₹1,000 cap
+> under eight concurrent workers. The fixed path atomically authorizes and
+> reserves, fences the current policy version, and grants one dispatch owner.
+> If the provider times out after send, the state becomes UNKNOWN, keeps
+> headroom reserved, and never auto-retries. Chat proposes. Policy authorizes.
+> One grant dispatches one action.”
+
+Stop there. Do not add a roadmap monologue.
+
+## What not to say
+
+- Do not say “powered by Vulcan” or imply access to a Vulcan API, SDK, model, or
+  private Razorpay pilot.
+- Do not call the application policy an NPCI, bank, or UPI mandate. Internal
+  `Mandate*` names and `/mandates` routes are compatibility debt.
+- Do not say the payment link is paid, captured, settled, or recovered revenue.
+- Do not say the audit log is cryptographically immutable or independently
+  signed.
+- Do not claim production authentication or tenant isolation; browser identity
+  is an MVP stub.
+- Do not claim zero chargebacks, regulatory compliance, or a production SLA.
+- Do not imply that all Razorpay MCP tools are exposed. The application registry
+  allows only `create_payment_link`.
+- Do not cite an unsourced “single-agent Razorpay doctrine.” Defend one agent on
+  the smaller handoff and authority surface.
+
+## Live-failure playbook
+
+### Browser or backend failure
+
+Run `python scripts/demo.py`. State once that it is the disposable offline
+rehearsal using the same policy, grant, reservation, dispatch, and audit code
+with a simulated actuator. Do not call it a live Razorpay transaction.
+
+### Pinecone or model failure
+
+Continue. The deterministic catalog retriever and planner are deliberate
+fallbacks. Say that degraded intelligence must not widen payment authority.
+
+### Langfuse failure
+
+Use `/audit`. Tracing is optional observability; it is not the authorization
+source of truth.
+
+### Razorpay timeout after dispatch
+
+Do not click authorize again with a new attempt ID. Preserve the same attempt
+identity and show `UNKNOWN` or the corresponding audit/test evidence. Say:
+
+> “We cannot prove whether the provider accepted the request, so we preserve
+> exposure and suppress automatic redispatch until authoritative reconciliation.”
+
+### An unexpected UI total
+
+Stop using memorized numbers and read the canonical amount shown by the app.
+The server-owned cart is authoritative. If the scripted catalog was changed,
+fall back to the headless rehearsal and update the deck before recording.

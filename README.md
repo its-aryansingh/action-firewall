@@ -1,203 +1,231 @@
-# AI-Native Agentic Checkout with UAP Mandate Verification
+# Action Firewall
 
-**Razorpay AI Buildathon 2026 — Track 01: AI Growth & Agentic Commerce**
+**Agentic checkout authorization for Razorpay — Track 01: AI Growth & Agentic Commerce**
 
-> Agentic commerce is an **authorization** problem, not a checkout problem.
+> An AI agent may propose a cart. Only a deterministic, versioned, customer-defined policy may authorize a payment action.
 
-A merchant becomes transactable by an AI buyer end-to-end — discovery, cart, payment —
-with every money action **bounded and gated** by a human-authorised, revocable mandate
-that simulates NPCI's Unified Agent Protocol (UAP), built on the UPI Circle delegation
-pattern and Razorpay's UPI Reserve Pay.
+Action Firewall puts a narrow authorization boundary between an AI shopping agent and
+Razorpay's payment tooling. The model can search the catalog and assemble a cart, but
+it cannot approve spend, mint its own authority, change payment arguments after
+approval, or dispatch a payment action from chat. The customer confirms the exact
+cart; the backend re-evaluates the current policy and reserves headroom atomically;
+only then can one registered action be dispatched once.
 
----
+## What the product proves
 
-## The thesis in one paragraph
+- **Proposal is not authorization.** `POST /chat` can only return a cart proposal and
+  policy preview. It never calls a state-changing payment tool.
+- **Confirmation is exact.** `POST /checkout/confirm` includes the expected cart hash.
+  A changed cart fails closed and must be confirmed again.
+- **Authorization uses current state.** The backend re-reads the policy, verifies every
+  rule, and reserves cap headroom in one `BEGIN IMMEDIATE` transaction.
+- **Authority is one-use and argument-bound.** A grant binds the user, agent, session,
+  purchase attempt, policy version and hash, cart hash, action name, canonical
+  arguments, amount and currency.
+- **The actuator is closed.** The only registered payment action is
+  `create_payment_link`; arbitrary tool names are rejected.
+- **Dispatch has one owner.** An atomic claim and dispatch token prevent concurrent
+  callers from redeeming the same grant twice.
+- **Ambiguity does not free exposure.** A timeout or uncertain provider result becomes
+  `UNKNOWN`. Headroom remains held and the system will not auto-retry until an
+  authoritative provider observation resolves the outcome.
+- **Issuance is not settlement.** Creating a payment link records
+  `action_issued`. Only separate, verified payment evidence may record `settled`.
 
-The industry instinct is to make agentic payments a *faster button*. That is the wrong
-frame. The moment an autonomous agent holds a payment instrument, the merchant inherits
-unbounded chargeback liability and the consumer inherits runaway-spend risk. What is
-missing is not a checkout — it is an **authorization layer** that is deterministic,
-auditable, and revocable. This project builds that layer, and proves it by trying to
-break it on stage.
+## Trust boundary
 
-## Architecture — deliberately a single agent
+```text
+Untrusted / probabilistic                         Trusted / deterministic
 
-At FTX26, Razorpay's engineering team argued that for commerce tasks a single
-well-instrumented agent with full context hits fewer failure modes and scales more
-predictably than a multi-agent swarm. This build takes that position seriously.
-
+Shopper prompt -> catalog retrieval -> cart  ──> exact-cart confirmation
+                       proposal                   current-policy evaluation
+                                                  atomic headroom reservation
+                                                  exact one-use action grant
+                                                  one-owner dispatch claim
+                                                  create_payment_link actuator
+                                                  append-only event evidence
 ```
-Shopper (Next.js chat)
-        │
-        ▼
-┌──────────────────────────────────────────────────────────────┐
-│  FastAPI single-agent orchestrator                           │
-│                                                              │
-│  1. retrieve_catalog   Pinecone RAG over the merchant SKUs   │
-│  2. plan_cart          LLM proposes SKUs + qty (never price) │
-│  3. mandate_check  ◀── DETERMINISTIC GATE. Pure. Unit-tested │
-│  4. mcp_tool_call      Razorpay Remote MCP — only if ALLOWED │
-└──────────────────────────────────────────────────────────────┘
-        │                          │
-        ▼                          ▼
-  SQLite: mandates,          mcp.razorpay.com/mcp
-  spend ledger, audit        create_payment_link
-        │                    capture_payment
-        ▼
-  Langfuse trace (one trace per turn, four named spans)
+
+The model may select known catalog SKUs and quantities and explain a proposal. It
+may not invent prices, authorize an action, choose an unregistered action, edit a
+policy, resolve an unknown provider outcome, or declare a payment settled.
+
+## Checkout lifecycle
+
+```text
+POST /chat
+  retrieve catalog -> propose cart -> deterministic preview -> confirmation required
+
+POST /checkout/confirm
+  verify cart hash
+    -> atomically re-read policy + authorize + reserve
+    -> mint exact grant
+    -> claim grant for one dispatcher
+    -> call registered create_payment_link action
+       -> accepted response: action_issued, exposure remains accounted
+       -> definitive failure: release reservation
+       -> ambiguous failure: UNKNOWN, hold exposure, no automatic retry
 ```
 
-The LLM produces a **proposal**. It never decides whether money may move.
-`app/mandate.py:verify()` is a pure function with no I/O, and no money tool is
-reachable without a headroom reservation — `mcp_client.call_tool()` raises `MandateViolation` if handed a denied
-decision, so even a caller that ignores the gate cannot spend. Defence in depth.
+Policy edits are serialized against authorization and dispatch claims. Every edit
+increments `mandate.version` (the database and route retain the historical name
+`mandate`; the user-facing product term is **policy**). A policy edit or revocation
+before dispatch invalidates the older grant.
 
-## Repository layout
+## Repository map
 
-```
+```text
 backend/
-  app/
-    mandate.py       ★ the UAP verification layer — pure, deterministic, tested
-    agent.py           single-agent pipeline + graceful-failure handling
-    mcp_client.py      Razorpay Remote MCP (Streamable HTTP) + simulated client
-    catalog.py         Pinecone RAG with a deterministic keyword fallback
-    store.py           mandates, spend ledger, append-only audit log
-    observability.py   Langfuse spans / scores
-    models.py          domain models — all money in integer paise
-    main.py            FastAPI routes
-  tests/             32 tests — money-gate boundaries, then the concurrency race
-  scripts/demo.py    headless dress rehearsal of the live demo
+  app/agent.py          proposal and explicit-confirmation flows
+  app/mandate.py        pure policy evaluator; all money is integer paise
+  app/store.py          policies, atomic grants, dispatch state and audit events
+  app/mcp_client.py     closed action registry; simulated and Razorpay MCP clients
+  app/catalog.py        Pinecone retrieval with deterministic offline fallback
+  app/main.py           FastAPI routes
+  tests/                policy, boundary, concurrency and recovery proof
+  scripts/demo.py       disposable, offline five-minute rehearsal
 frontend/
-  app/page.tsx           AI buyer chat, with the mandate verdict on every turn
-  app/mandate/page.tsx   Mandate Dashboard — set, cap, restrict, revoke
-  app/audit/page.tsx     Audit trail + the two judge-facing metrics
-data/catalog.json        38-SKU agent-readable merchant catalog
-docs/DEMO_SCRIPT.md      the four-act stage script, timed
+  app/page.tsx          chat, exact-cart confirmation and action status
+  app/mandate/page.tsx  policy limits, categories and revocation
+  app/audit/page.tsx    lifecycle evidence and safety metrics
+data/catalog.json       fixed-price demo catalog
+docs/                   architecture, demo script, build plan and submission deck
 ```
 
 ## Quick start
 
-```bash
-# 1. Backend
-cd backend
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env                                 # DEMO_MODE=true works with no keys
-uvicorn app.main:app --reload --port 8000
+The default `DEMO_MODE=true` path requires no API keys and makes no network calls.
 
-# 2. Frontend (new terminal)
+```powershell
+# Terminal 1
+cd backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+Copy-Item .env.example .env
+python -m uvicorn app.main:app --reload --port 8000
+
+# Terminal 2
 cd frontend
 npm install
-cp .env.local.example .env.local
-npm run dev                                          # http://localhost:3000
-
-# 3. Rehearse the demo with no browser and no network
-cd backend && python scripts/demo.py
-
-# 4. Prove the gate
-cd backend && pytest -q                              # 32 passed
+Copy-Item .env.local.example .env.local
+npm run dev
 ```
 
-### Going live
+Open `http://localhost:3000`. The backend health check is
+`http://localhost:8000/health`.
 
-`DEMO_MODE=true` runs the whole system with a simulated MCP client and a keyword
-retriever — no keys, no network, nothing to fail on stage. To go live:
+Run the proof suite and headless rehearsal:
 
-```bash
-# Razorpay Remote MCP: base64 the test key pair
-printf '%s' "$RAZORPAY_KEY_ID:$RAZORPAY_KEY_SECRET" | base64
-# put the result in RAZORPAY_MCP_TOKEN, then:
-DEMO_MODE=false
+```powershell
+cd backend
+python -m pytest -q
+python scripts/demo.py
+
+cd ..\frontend
+npm run build
+npm audit
 ```
 
-Seed the vector catalog once: `python -m app.catalog` (creates the Pinecone serverless
-index and upserts all 38 SKUs).
+Current verified baseline: **51 backend tests passing**, a successful production
+frontend build, and **0 known npm audit vulnerabilities**. Re-run these commands on
+the final commit before recording or submitting.
 
-For an AI coding assistant to reach the same server, the equivalent config is:
+## Demo proof
 
-```json
-{ "mcpServers": { "razorpay": { "command": "npx", "args": [
-    "mcp-remote", "https://mcp.razorpay.com/mcp",
-    "--header", "Authorization: Basic <base64 token>" ] } } }
-```
+The five-minute path shows one narrow loop end to end:
 
-## Two-phase settlement
+1. The agent proposes a grocery cart; no payment tool is called.
+2. A larger natural-language checkout request remains a proposal and exceeds the cap.
+3. Explicit confirmation of that exact cart is denied; there is no actuator call.
+4. The shopper removes the premium items; one exact grant issues one simulated
+   payment link for the smaller cart.
+5. The policy is revoked; the next confirmation fails against the new version.
+6. The audit view distinguishes denied value, issued-link value, confirmed test
+   payment value, unknown exposure and unauthorized actuator calls.
+7. The test proof shows atomic headroom accounting and eight concurrent redemptions
+   of one grant producing one simulated provider call.
 
-`mandate_check → mcp_tool_call` is a check-then-act sequence, and check-then-act is
-the largest single vulnerability class catalogued in the agentic-commerce literature.
-Two turns running at once both read the same headroom and both spend it.
+The concurrency regression is the strongest engineering evidence: the intentionally
+naive check-then-act path can record ₹2,400 against a ₹1,000 cap. Atomic reservation
+caps eight concurrent ₹300 requests at ₹900, while the exact-grant test collapses
+eight simultaneous redemptions to one simulated provider call.
 
-`tests/test_concurrency.py::test_naive_check_then_act_overspends` reproduces exactly
-that against the unguarded path — eight threads through a barrier settle ₹2,400
-against a ₹1,000 cap. The fix is a reservation:
+## Metrics
 
-```
-reserve_headroom()   BEGIN IMMEDIATE; re-read consumption; write the hold; COMMIT
-      ↓              a live reservation counts against the cap while in flight
-create_payment_link  Razorpay
-      ↓
-commit_reservation() success — the hold becomes permanent
-release_reservation() failure — the headroom goes straight back
-```
+`GET /metrics` reports observed system state without relabelling it:
 
-Reservations carry a TTL, so a crashed turn cannot hold a mandate hostage, and an
-idempotency key, so a retry claims the same hold rather than a second one. The key is
-scoped to the session: two shoppers buying the same basket are two purchases, one
-shopper re-sending the same basket is a retry. Clients that can generate a real key
-may pass one on `ChatRequest.idempotency_key`.
-
-The idempotency check runs **before** the mandate gate. A retry of an already-settled
-purchase would otherwise be blocked by the cap that its own spend now fills.
-
-## The mandate model
-
-| Control | Field | Enforced in |
-|---|---|---|
-| Window ceiling (daily / weekly / monthly) | `cap_paise` | `verify()` step 5 |
-| Per-transaction ceiling | `per_txn_cap_paise` | `verify()` step 4 |
-| Category allow / block list | `allowed_categories`, `blocked_categories` | `verify()` step 3 |
-| Instant revocation | `active` | `verify()` step 2 |
-| Rolling spend against the window | `spend_ledger` | `spent_in_window()` |
-
-Every edit bumps `mandate.version`. The agent re-reads the mandate row on **every**
-turn — there is no cache to invalidate — so a limit change binds on the very next
-prompt. That is the *Revocation Latency* metric.
-
-## Metrics the judges care about
-
-Exposed at `GET /metrics` and rendered on `/audit`:
-
-- **Mandate Breach Attempt Rate** — how often the agent tried to exceed authority and
-  was stopped at the logic layer.
-- **Revocation Latency** — time from dashboard edit to the new ceiling binding
-  (one turn, no cache).
-- **Value blocked** vs **value settled**.
-- **Chargeback liability: ₹0** — no transaction ever left the mandate envelope.
-
-## Engineering notes worth defending in the interview
-
-- **Money is integer paise everywhere.** No float rupees touch the codebase.
-- **The cap is inclusive**, and there is a test for cap, cap−1 and cap+1. Off-by-one in
-  a limit check is a production incident, not a style nit.
-- **A revoked mandate is not the same as no mandate.** Collapsing them tells the shopper
-  to create a mandate they already have and loses the revocation audit trail.
-- **Hallucinated SKUs are dropped, never priced.** `_apply_ops` only accepts SKUs that
-  exist in the catalog.
-- **Graceful failure is computed, not improvised.** `suggest_downgrade()` deterministically
-  drops the priciest lines until the cart fits the remaining headroom, then re-verifies.
-- **The audit log is append-only and written before the tool call**, so a blocked attempt
-  is as durable as a successful one.
-- **A revoked mandate is reported as revoked, not as absent.** Collapsing the two tells
-  the shopper to create a mandate they already have and loses the revocation record.
-- **A product mention resolves only on a word unique to that product.** "The olive oil"
-  must not also buy sunflower oil; every mis-resolved SKU is money moved against the
-  wrong basket.
-
-## Track 01 requirements → where they are met
-
-| Requirement | Implementation |
+| Metric | Meaning |
 |---|---|
-| Merchant transactable by an AI buyer end-to-end | RAG discovery → cart → Razorpay MCP payment link |
-| Money actions bounded and gated | `mandate.verify()` before every money tool; `MandateViolation` as backstop |
-| Show the audit trail | Langfuse trace per turn + `/audit` append-only log |
-| One failure handled gracefully | Mandate breach → hard block → priced downgrade offer |
+| `authorization_denial_rate` | Share of authorization attempts denied by policy |
+| `denied_requested_value_paise` | Requested value that never reached the actuator |
+| `payment_link_issued_value_paise` | Value for which the system issued links; not settlement |
+| `confirmed_test_payment_value_paise` | Value with separate confirmed test evidence |
+| `unknown_outcome_value_paise` | Value held because provider outcome is ambiguous |
+| `outstanding_authorized_exposure_paise` | Live reserved or unresolved policy headroom |
+| `unauthorized_actuator_calls` | Rejected attempts to bypass the action boundary |
+
+## Failure and recovery semantics
+
+| Failure | Safe behavior | Recovery |
+|---|---|---|
+| Cart changes after preview | Reject confirmation | Show the new cart and request confirmation again |
+| Policy edited or revoked | Cancel stale grant | Re-evaluate only after a new explicit confirmation |
+| Concurrent confirmations | Atomic cap accounting | Return the winning result or a deterministic denial |
+| Definite provider rejection | Record failure and release hold | Customer may start a new purchase attempt |
+| Timeout or dropped response | Mark `UNKNOWN`; keep hold | Reconcile against authoritative provider state |
+| Process crash during dispatch | Recover stale `dispatching` to `UNKNOWN` | Reconcile; never blind-retry |
+
+## Optional live integrations
+
+The offline path is the submission-safe default. With test credentials,
+`DEMO_MODE=false` can use Razorpay Remote MCP for the registered
+`create_payment_link` action and Pinecone for retrieval. Langfuse tracing is optional.
+Every external dependency has a deterministic fallback so the safety proof does not
+depend on network availability.
+
+## Submission artifacts
+
+- [Five-minute demo script](docs/DEMO_SCRIPT.md)
+- [Architecture and failure semantics](docs/ARCHITECTURE.md)
+- [Finish and submit plan](docs/BUILD_PLAN.md)
+- [Evidence-led strategy and risk register](docs/SUBMISSION_STRATEGY.md)
+- [Browser pitch deck](docs/pitch-deck.html)
+- [PowerPoint pitch deck](docs/Razorpay_Buildathon_Action_Firewall_Deck.pptx)
+- [Dated market and source context](market-context.md)
+
+Vulcan is **product context, not a dependency**. This repository does not claim a
+Vulcan API, SDK, model endpoint, partnership, or internal Razorpay access. The overlap
+is architectural: learned payment intelligence should remain upstream of a bounded,
+auditable action boundary.
+
+## Honest limitations
+
+- Demo identity is a browser-provided user/agent identifier, not production-grade
+  authentication or workload identity.
+- Policy records and grants are not cryptographically signed attestations.
+- `UNKNOWN` has safe accounting and explicit reconciliation semantics, but the MVP
+  does not include a background Razorpay status reconciler.
+- Payment-link issuance is observable; customer payment and settlement require
+  signed webhook or provider-state verification outside the current demo.
+- SQLite `BEGIN IMMEDIATE` proves the concurrency invariant on one service instance.
+  Production deployment would use a transactional database, unique constraints and
+  an outbox/reconciliation worker.
+- Pinecone, Langfuse and Remote MCP are optional integrations, not prerequisites for
+  the deterministic authorization proof.
+
+## Strategic scope
+
+Action Firewall remains the primary Track 01 submission because its hardest claims
+are demonstrated in the current repository: exact confirmation, current-policy
+authorization, concurrency-safe reservation, one-use dispatch and conservative
+unknown-outcome handling. **Retry Budget** remains a secondary Track 03 challenger;
+it should replace this direction only if it can produce stronger reproducible batch
+evidence and compliance-safe execution within the remaining time.
+
+Current public references to verify before submission:
+
+- Buildathon tracks and deliverables: <https://razorpay.com/buildathon/>
+- Razorpay MCP tool reference: <https://razorpay.com/docs/mcp-server/tools-reference/>
+- Razorpay Remote MCP setup: <https://razorpay.com/docs/mcp-server/remote/>
+- Razorpay Payment Links lifecycle: <https://razorpay.com/docs/payments/payment-links/create/>
