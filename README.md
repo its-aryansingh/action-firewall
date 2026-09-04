@@ -127,34 +127,9 @@ npm run build
 npm audit
 ```
 
-Current verified baseline: **51 backend tests passing**, a successful production
+Current verified baseline: **54 backend tests passing**, a successful production
 frontend build, and **0 known npm audit vulnerabilities**. Re-run these commands on
 the final commit before recording or submitting.
-
-## Continue with Claude Code
-
-The repository includes a committed Claude Code handoff:
-
-- `CLAUDE.md` — project workflow and non-negotiable authorization invariants;
-- `claude/project-brief.md` — authoritative product state and next priorities;
-- `.claude/rules/` — path-scoped backend, frontend, and evidence rules;
-- `.claude/settings.json` — shared safe-command permissions, secret-file denials,
-  destructive-Git denials, and disabled AI commit attribution.
-
-Start Claude Code from the repository root:
-
-```powershell
-claude
-```
-
-On the first interactive launch, review and accept the workspace trust prompt. Then
-run `/context` to confirm `CLAUDE.md` is loaded and `/status` to confirm the project
-settings source is active. Personal overrides belong in `CLAUDE.local.md` or
-`.claude/settings.local.json`; both are intentionally ignored by Git.
-
-No Claude-side Razorpay MCP configuration is committed. Runtime Razorpay access
-continues to use the backend adapter and environment variables, so credentials stay
-outside source control.
 
 ## Demo proof
 
@@ -226,18 +201,102 @@ auditable action boundary.
 
 ## Honest limitations
 
-- Demo identity is a browser-provided user/agent identifier, not production-grade
-  authentication or workload identity.
-- Policy records and grants are not cryptographically signed attestations.
-- `UNKNOWN` has safe accounting and explicit reconciliation semantics, but the MVP
-  does not include a background Razorpay status reconciler.
-- Payment-link issuance is observable; customer payment and settlement require
-  signed webhook or provider-state verification outside the current demo.
-- SQLite `BEGIN IMMEDIATE` proves the concurrency invariant on one service instance.
-  Production deployment would use a transactional database, unique constraints and
-  an outbox/reconciliation worker.
-- Pinecone, Langfuse and Remote MCP are optional integrations, not prerequisites for
-  the deterministic authorization proof.
+These are stated precisely because the rest of this document makes precise
+claims. Each was reproduced against this repository, not inferred.
+
+**There is no authentication on any route.** Not a weak one — none. `POST
+/mandates` and `PATCH /mandates/{id}` are unauthenticated, so any caller who can
+reach the API can raise, lower or revoke the policy the firewall enforces.
+`GET /audit` is unscoped and publishes session identifiers and cart hashes.
+Because `cart_hash` is a digest of catalog-derived fields with no session salt,
+a caller holding a session id can read the audit trail, recompute the current
+hash, and confirm a payment action against someone else's session and policy
+headroom. The exact-cart fence works exactly as designed and does not help here:
+it proves the confirmer knows the cart, not that they are the shopper. The
+authorization boundary in this MVP therefore binds **possession of a session id,
+not a person.** Closing it needs an authenticated principal and per-actor
+authorization on every route, which is production work this repository has not
+done.
+
+**The planner adds items the shopper did not ask for.** When the heuristic
+planner cannot parse a message it falls back to adding the top retrieved
+catalog items. A message like "what are your delivery hours" puts several
+hundred rupees of goods in the cart. Nothing can be dispatched without explicit
+confirmation of the exact hash, so this cannot move money on its own — but it is
+a real quality defect and it fires with the shipped catalog, no adversary
+required.
+
+**Retrieved catalog text is not treated as untrusted.** Product names and tags
+are concatenated into the planner prompt without delimiting or data framing, and
+a name containing a distinctive common word can cause its SKU to be matched
+against an unrelated shopper message. Injection cannot set a price, invent a
+SKU, or name an action — those are all server-side — but it can influence which
+real SKUs are proposed and can author the shopper-facing reply text. A
+multi-model injection corpus is the outstanding proof gap.
+
+**Unresolved exposure never ages out of the window.** Settled spend rolls off a
+weekly window; `action_issued`, `dispatching` and `unknown` exposure does not,
+by design, because an issued link may still be paid. Combined with the missing
+reconciler below, a long-lived policy's usable headroom only decreases. `GET
+/mandates/{id}/usage` reports these as window figures; for unresolved exposure
+they are lifetime figures.
+
+**No background reconciler exists.** `UNKNOWN` has correct accounting and
+explicit reconciliation semantics, and `recover_stale_dispatches` runs once at
+startup, but nothing sweeps or resolves unknown outcomes on an ongoing basis and
+there is no operator route to do it by hand.
+
+**Payment-link issuance is observable; payment and settlement are not.**
+`action_issued` is recorded. Confirming a customer actually paid requires signed
+webhook or provider-state verification that is outside this demo, which is why
+`confirmed_test_payment_value_paise` reports zero.
+
+**Evidence is append-only, not tamper-proof.** The audit table rejects updates
+and deletes at the database layer, and `PRAGMA recursive_triggers=ON` closes the
+`INSERT OR REPLACE` path that would otherwise rewrite a row in place. It is not
+hash-chained, not signed, and lives inside the service's own trust domain, so it
+resists accident and casual tampering — not a determined operator.
+
+**`denied_requested_value_paise` counts denial events, not distinct carts.**
+Re-submitting one blocked cart five times reports five times the value. It is a
+measure of blocked attempts, not of loss prevented, and nothing here should be
+read as prevented fraud.
+
+**Policy records and grants are not cryptographically signed attestations.**
+
+**SQLite `BEGIN IMMEDIATE` proves the concurrency invariant on one service
+instance.** In-process session state means a second worker cannot serve a
+confirmation for a cart the first worker holds. Production deployment would need
+a transactional database, unique constraints, and an outbox or reconciliation
+worker.
+
+**Pinecone, Langfuse and Remote MCP are optional.** None is required to
+reproduce the deterministic authorization proof.
+
+## Continue with Claude Code
+
+The repository includes a committed Claude Code handoff:
+
+- `CLAUDE.md` — project workflow and non-negotiable authorization invariants;
+- `claude/project-brief.md` — authoritative product state and next priorities;
+- `.claude/rules/` — path-scoped backend, frontend, and evidence rules;
+- `.claude/settings.json` — shared safe-command permissions, secret-file denials,
+  destructive-Git denials, and disabled AI commit attribution.
+
+Start Claude Code from the repository root:
+
+```powershell
+claude
+```
+
+On the first interactive launch, review and accept the workspace trust prompt. Then
+run `/context` to confirm `CLAUDE.md` is loaded and `/status` to confirm the project
+settings source is active. Personal overrides belong in `CLAUDE.local.md` or
+`.claude/settings.local.json`; both are intentionally ignored by Git.
+
+No Claude-side Razorpay MCP configuration is committed. Runtime Razorpay access
+continues to use the backend adapter and environment variables, so credentials stay
+outside source control.
 
 ## Strategic scope
 
