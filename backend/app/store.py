@@ -113,6 +113,12 @@ BEFORE DELETE ON audit_log
 BEGIN
     SELECT RAISE(ABORT, 'audit_log is append-only');
 END;
+CREATE TRIGGER IF NOT EXISTS audit_log_no_duplicate_id
+BEFORE INSERT ON audit_log
+WHEN EXISTS (SELECT 1 FROM audit_log WHERE id=NEW.id)
+BEGIN
+    SELECT RAISE(ABORT, 'audit_log is append-only');
+END;
 """
 
 WINDOW_SECONDS = {
@@ -127,11 +133,10 @@ def _configure(cx: sqlite3.Connection) -> sqlite3.Connection:
     """Per-connection pragmas.
 
     recursive_triggers is a CONNECTION-level setting and SQLite leaves it OFF.
-    With it off, the implicit DELETE inside an INSERT OR REPLACE conflict does
-    not fire the audit table's BEFORE DELETE guard, so an audit row could be
-    rewritten in place with the row count unchanged and no error. It therefore
-    has to be set on every connection that touches the database, not once at
-    startup.
+    recursive_triggers is enabled as defence in depth for implicit operations.
+    The schema also rejects duplicate audit identifiers before insert, so a raw
+    connection cannot use INSERT OR REPLACE to bypass the delete guard even if
+    it leaves this pragma at SQLite's default.
     """
     cx.row_factory = sqlite3.Row
     cx.execute("PRAGMA recursive_triggers=ON")
@@ -352,7 +357,7 @@ def spent_in_window(mandate_id: str, window: Window) -> int:
 
 def reserve_headroom(mandate_id: str, amount_paise: int, idempotency_key: str,
                      ttl_seconds: int | None = None) -> Reservation:
-    """Atomically claim headroom under a mandate. The only way to reach money.
+    """Legacy helper that atomically claims headroom for concurrency tests.
 
     Runs the re-check and the write inside one BEGIN IMMEDIATE transaction, so
     two concurrent turns cannot both observe the same free headroom. Returns a
@@ -1129,8 +1134,8 @@ def record_spend(mandate_id: str, amount_paise: int, razorpay_ref: str | None = 
     """Write a committed spend directly, with NO reservation.
 
     Unsafe under concurrency by construction — kept only for backfill and for
-    the test that reproduces the check-then-act race. Production paths must go
-    through reserve_headroom() -> commit_reservation().
+    the test that reproduces the check-then-act race. The production path uses
+    authorize_and_reserve() followed by the one-owner dispatch claim.
     """
     with _conn() as cx:
         cx.execute(

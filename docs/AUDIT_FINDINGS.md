@@ -47,9 +47,10 @@ depending on the route. Now `is not None`.
 **2. `INSERT OR REPLACE` walked through the append-only guard.** SQLite leaves
 `recursive_triggers` OFF, so the implicit DELETE inside a REPLACE conflict never
 fired the `BEFORE DELETE` trigger. A `BLOCK_WINDOW_CAP_EXCEEDED` row could be
-rewritten to `ALLOW` in place, row count unchanged, no error. The pragma is
-per-connection, so it is now set in a `_configure()` helper used by every
-connection rather than once at startup.
+rewritten to `ALLOW` in place, row count unchanged, no error. The schema now has
+a `BEFORE INSERT` guard that rejects an existing audit identifier, including from
+a raw connection with `recursive_triggers` left OFF. Application connections also
+enable recursive triggers as defence in depth.
 → `test_audit_rows_cannot_be_rewritten_by_insert_or_replace`
 
 **3. A duplicate dispatch of an already-issued grant was recorded as blocked.**
@@ -102,9 +103,8 @@ inflatable under retry.
 
 - `reserve_headroom` (the legacy helper) can release a live `action_issued` row
   and destroy its exposure when handed a matching idempotency key. **Not
-  reachable from any HTTP route** — tests only. Its docstring calling it "the
-  only way to reach money" is now wrong and should be corrected or the function
-  deleted.
+  reachable from any HTTP route** — tests only. Its docstring now marks it as a
+  legacy test helper; deleting it remains post-submission cleanup.
 - The replay branches of `authorize_and_reserve` (`REUSED_AUTHORIZATION`,
   `ACTION_IN_PROGRESS`, `UNKNOWN_OUTCOME`) return before policy evaluation and
   write no audit row. The system still fails closed because `claim_action_grant`

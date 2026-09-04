@@ -461,10 +461,9 @@ def test_zero_per_transaction_cap_is_a_cap_not_an_absence(clean_db):
 def test_audit_rows_cannot_be_rewritten_by_insert_or_replace(clean_db):
     """INSERT OR REPLACE must not be able to overwrite an audit row in place.
 
-    SQLite leaves recursive_triggers OFF by default, and with it off the
-    implicit DELETE inside a REPLACE conflict does not fire the BEFORE DELETE
-    guard. A breach record could be rewritten to ALLOW with the row count
-    unchanged and no error raised.
+    Exercise an unconfigured raw connection with recursive_triggers OFF. The
+    database schema itself must reject the duplicate identifier before REPLACE
+    can delete the original row; correctness must not depend on _conn().
     """
     store.log_event(event="AUTHORIZATION_ATTEMPT", code="BLOCK_WINDOW_CAP_EXCEEDED",
                     cart_total_paise=500_000, payload={"truth": "the agent overspent"})
@@ -473,6 +472,9 @@ def test_audit_rows_cannot_be_rewritten_by_insert_or_replace(clean_db):
             "SELECT id FROM audit_log WHERE code='BLOCK_WINDOW_CAP_EXCEEDED'"
         ).fetchone()
         assert row is not None
+
+    with sqlite3.connect(get_settings().db_path) as cx:
+        assert cx.execute("PRAGMA recursive_triggers").fetchone()[0] == 0
         with pytest.raises(sqlite3.IntegrityError):
             cx.execute(
                 "INSERT OR REPLACE INTO audit_log "
