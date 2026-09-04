@@ -1,6 +1,6 @@
 # Market context — Razorpay AI Buildathon 2026
 
-**Research cut-off:** 3 September 2026
+**Research cut-off:** 4 September 2026
 **Purpose:** supporting evidence for Action Firewall. This file is not a payment,
 regulatory, or integration specification. The implementation and architecture
 documents remain authoritative for what the repository actually proves.
@@ -58,7 +58,7 @@ announcement.
 [Agentic Payments product page](https://razorpay.com/agentic-payments/) frames
 commerce as moving from clicks to conversations and publicly emphasizes
 pre-authorized spending limits, real-time visibility, authentication,
-compliance, and granular control. On the page rechecked on 3 September 2026,
+compliance, and granular control. On the page rechecked on 4 September 2026,
 in-app commerce is labelled beta, UPI Reserve Pay is labelled live, and UPI
 Circle is labelled coming soon. These are distinct product statements and must
 not be collapsed into one protocol claim.
@@ -191,14 +191,16 @@ It does not currently meet that threshold.
 - explicit `ACTION_ISSUED`, `SETTLED`, `DEFINITIVE_FAILURE`, and `UNKNOWN`
   states;
 - no automatic redispatch after an ambiguous provider outcome;
-- database guards that reject updates and deletes to the application audit log;
+- database guards that reject updates, deletes, and duplicate-ID replacement of
+  application audit events;
 - deterministic offline model, retrieval, and actuator fallbacks.
 
-The final verification on 3 September 2026 produced 51/51 passing backend tests,
+The final verification on 4 September 2026 produced 54/54 passing backend tests,
 a successful frontend production build, zero reported npm vulnerabilities, and
-three consecutive successful offline rehearsals. Internal proof is evidence of
-implementation behavior, not evidence of production revenue, regulatory
-compliance, or a live Razorpay payment.
+three consecutive successful offline rehearsals. A separate fresh clone of the
+pushed repository reproduced the 54 tests, demo, build, and dependency audit.
+Internal proof is evidence of implementation behavior, not evidence of production
+revenue, regulatory compliance, or a live Razorpay payment.
 
 ## Claim discipline
 
@@ -228,11 +230,11 @@ Avoid these phrases:
 
 | Source | Publisher | Visible date | Use | Access note |
 |---|---|---:|---|---|
-| [Razorpay AI Buildathon](https://razorpay.com/buildathon/) | Razorpay | not shown | tracks, bar, deliverables | rechecked 3 Sep 2026 |
-| [Razorpay Agentic Payments](https://razorpay.com/agentic-payments/) | Razorpay | not shown | product status and control language | rechecked 3 Sep 2026; labels are time-sensitive |
+| [Razorpay AI Buildathon](https://razorpay.com/buildathon/) | Razorpay | not shown | tracks, bar, deliverables | rechecked 4 Sep 2026; no deadline shown |
+| [Razorpay Agentic Payments](https://razorpay.com/agentic-payments/) | Razorpay | not shown | product status and control language | rechecked 4 Sep 2026; labels are time-sensitive |
 | [Agentic Payments announcement](https://razorpay.com/newsroom/razorpay-npci-and-openai-come-together-to-launch-agentic-payments-ushering-in-ai-driven-commerce-at-national-scale/) | Razorpay Newsroom | 30 Oct 2025; page updated 15 Jun 2026 | confirmation, tracking, revocation, pilot scope | reviewed 2 Sep 2026 |
-| [Vulcan foundation-model article](https://razorpay.com/blog/?p=27542) | Razorpay | 18 Aug 2026 | disclosed Vulcan positioning and functions | rechecked 3 Sep 2026 |
-| [MCP tools reference](https://razorpay.com/docs/mcp-server/tools-reference/) | Razorpay Docs | not shown | documented tool families | reviewed 2 Sep 2026 |
+| [Vulcan foundation-model article](https://razorpay.com/blog/?p=27542) | Razorpay | 18 Aug 2026 | disclosed Vulcan positioning and functions | rechecked 4 Sep 2026 |
+| [MCP tools reference](https://razorpay.com/docs/mcp-server/tools-reference/) | Razorpay Docs | not shown | documented tool families | rechecked 4 Sep 2026 |
 | [Official Razorpay MCP repository](https://github.com/razorpay/razorpay-mcp-server) | Razorpay | live repository | dated tool snapshot and Remote support | rechecked 3 Sep 2026 |
 | [Remote MCP setup](https://razorpay.com/docs/mcp-server/remote/) | Razorpay Docs | endpoint change effective 13 Aug 2025 | transport and merchant-key authentication | reviewed 2 Sep 2026 |
 | [Create a Payment Link](https://razorpay.com/docs/payments/payment-links/create/) | Razorpay Docs | not shown | initial issued state and test-mode guidance | reviewed 2 Sep 2026 |
