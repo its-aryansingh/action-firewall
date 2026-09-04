@@ -113,6 +113,18 @@ BEFORE DELETE ON audit_log
 BEGIN
     SELECT RAISE(ABORT, 'audit_log is append-only');
 END;
+-- INSERT OR REPLACE overwrites a row by deleting it and inserting again.
+-- Whether that implicit DELETE fires the guard above depends on the
+-- recursive_triggers pragma AND on the SQLite build, so relying on it makes
+-- the append-only claim environment-dependent. This guard does not: a REPLACE
+-- still has to INSERT, and an INSERT onto an existing id is rejected here on
+-- every version.
+CREATE TRIGGER IF NOT EXISTS audit_log_no_overwrite
+BEFORE INSERT ON audit_log
+WHEN EXISTS (SELECT 1 FROM audit_log WHERE id = NEW.id)
+BEGIN
+    SELECT RAISE(ABORT, 'audit_log is append-only');
+END;
 """
 
 WINDOW_SECONDS = {
