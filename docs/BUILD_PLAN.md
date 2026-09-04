@@ -24,7 +24,7 @@ Already implemented:
 - separate `action_issued` and `settled` states;
 - startup recovery from stale `dispatching` to `UNKNOWN`;
 - deterministic offline catalog and payment clients;
-- 51 passing backend tests, including database-enforced audit append-only behavior,
+- 54 passing backend tests, including database-enforced audit append-only behavior,
   plus a passing frontend production build and a clean npm audit
   at the latest full verification.
 

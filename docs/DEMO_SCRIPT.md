@@ -189,8 +189,9 @@ Stop there. Do not add a roadmap monologue.
 - Do not say the payment link is paid, captured, settled, or recovered revenue.
 - Do not say the audit log is cryptographically immutable or independently
   signed.
-- Do not claim production authentication or tenant isolation; browser identity
-  is an MVP stub.
+- Do not claim authentication or tenant isolation. Say plainly that the demo
+  routes are unauthenticated and localhost-only; identity binding is required
+  before any internet-facing deployment.
 - Do not claim zero chargebacks, regulatory compliance, or a production SLA.
 - Do not imply that all Razorpay MCP tools are exposed. The application registry
   allows only `create_payment_link`.

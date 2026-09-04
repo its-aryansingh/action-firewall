@@ -38,9 +38,11 @@ Linux container with no access to the original working tree.
 `CLAUDE.md` requires test counts and demo amounts to agree across the README, the
 script, the HTML deck and the PowerPoint deck. They do.
 
-- Test count: **51** in README, BUILD_PLAN, project brief, SUBMISSION_STRATEGY,
-  HTML deck and PPTX slide 10. The `49` in SUBMISSION_STRATEGY line 170 is a
-  changelog row recording that stale references were fixed — correct as written.
+- Test count: **54** in README, BUILD_PLAN, project brief, SUBMISSION_STRATEGY,
+  HTML deck and PPTX slide 10. The earlier **51** in the audit table is explicitly
+  labelled as the isolated audit-time result before the three regression tests
+  were added. The `49` in SUBMISSION_STRATEGY is a changelog row recording that
+  stale references were fixed — correct as written.
 - Amounts: `₹1,000` cap, `₹2,034` denied, `₹486` issued, `₹549` post-revocation,
   `₹2,583` denied total. Identical across DEMO_SCRIPT, SUBMISSION_STRATEGY, HTML
   deck and PPTX slides 1 and 7.

@@ -1,8 +1,9 @@
 # Submission pack — Action Firewall
 
 Everything needed to submit today. The repo is verified (see
-`PRE_SUBMISSION_AUDIT.md`); what remains is the form, the video, and two small
-README fixes.
+`PRE_SUBMISSION_AUDIT.md`); what remains is the form, the video, and the final
+fresh-clone pre-flight. The two README placement fixes described below have been
+applied.
 
 ---
 
@@ -146,7 +147,7 @@ with the network unplugged is a stronger claim than one that needs live keys.
 | 2:40–3:25 | The closed registry (`actions.py`). Show that `create_payment_link` is the only entry. | "The MCP surface has dozens of consequential tools. One is registered. Anything else is rejected at the boundary, not filtered by a prompt." |
 | 3:25–4:15 | **The proof.** `pytest -q` → 54 passed. Then the concurrency result: naive ₹2,400 vs reserved ₹900. | "The old design is still in the repo as a failing-by-design test. ₹2,400 against a ₹1,000 cap. The fix caps it at ₹900." |
 | 4:15–4:45 | The evidence block from the demo run. Point at `confirmed_test_payment_value_paise: 0`. | "Issuing a link is not payment. We record ACTION_ISSUED, and we report zero confirmed payment, because that is the truth." |
-| 4:45–5:00 | Honest limitations, straight to camera. | Name two: browser identity is a stub; no background reconciler yet. Then close on the thesis. |
+| 4:45–5:00 | Honest limitations, straight to camera. | Name two: the demo routes are unauthenticated and localhost-only; there is no background reconciler yet. Then close on the thesis. |
 
 **Do not** open on slides, spend more than ~30% on the problem, or let the run take
 a path you have not rehearsed three times. Lock the code before recording.
@@ -173,21 +174,15 @@ Your four genuine differentiators, and the video should name each explicitly:
 
 ---
 
-## 3. Two README fixes before you paste the link
+## 3. README placement checks — completed
 
-**Move the "Continue with Claude Code" section.** It currently sits at line 134,
-between *Quick start* and *Demo proof* — exactly where a reviewer is deciding
-whether the implementation is real. Twenty-three lines of AI-tooling setup at that
-position invites the "polished presentation masking thin implementation" read that
-Devpost's judging panel names as a top red flag. This is not about concealing how it
-was built; it is about README real estate. Move it to `docs/` or the bottom, and let
-*Quick start* run straight into *Demo proof*.
+**Claude Code setup is below the evidence.** The "Continue with Claude Code"
+section now sits near the bottom of the README, after the product proof, limitations,
+and operator material. *Quick start* flows directly into *Demo proof*.
 
-**Put the architecture diagram above the fold.** Razorpay asks for "the
-architecture" but the form has no field for it, so by elimination it has to live in
-the repo and the video. Your *Trust boundary* diagram is the right artifact and it
-is already in the README — just make sure a reviewer meets it before they meet
-anything else. Both public competitor repos independently lead with theirs.
+**The architecture diagram is above the fold.** Razorpay asks for "the
+architecture" and the README now presents the *Trust boundary* diagram before the
+repository map and quick start.
 
 ---
 
@@ -207,6 +202,6 @@ anything else. Both public competitor repos independently lead with theirs.
 --name-only`) finds no `.db` or `.env` file ever committed across all 28 commits.
 Nothing to fix here.
 
-`docs/research-history/` is currently untracked. That is a reasonable call — it is
-working material rather than submission evidence — but decide deliberately rather
-than by accident, since `SUBMISSION_STRATEGY.md` links to it as provenance.
+`docs/research-history/` is intentionally retained as dated, non-authoritative
+provenance. Its local index points reviewers back to the current brief and evidence
+ledger so stale counts cannot be mistaken for the submission baseline.
