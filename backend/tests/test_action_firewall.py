@@ -435,3 +435,82 @@ def test_expired_legacy_reservation_cannot_commit_late(clean_db):
     assert store.commit_reservation(expired.id, "plink_late") is False
     assert store.commit_reservation(fresh.id, "plink_fresh") is True
     assert store.spent_in_window(mandate.id, mandate.window) == 100_000
+
+
+# ---------------------------------------------------------------------------
+# Regressions found in the pre-submission adversarial audit
+# ---------------------------------------------------------------------------
+def test_zero_per_transaction_cap_is_a_cap_not_an_absence(clean_db):
+    """A per-transaction cap of 0 must block, not disable the cap.
+
+    create_mandate coerced the value with truthiness, so the most restrictive
+    limit a shopper can express (0) stored NULL and removed the cap entirely.
+    update_mandate had always been correct, so the same input produced opposite
+    policies depending on which route set it.
+    """
+    created = store.create_mandate(MandateCreate(cap_rupees=1_000, per_txn_cap_rupees=0))
+    assert created.per_txn_cap_paise == 0, "0 must persist as a zero cap, not NULL"
+
+    updated = store.update_mandate(created.id, MandateUpdate(per_txn_cap_rupees=0))
+    assert updated is not None
+    assert updated.per_txn_cap_paise == created.per_txn_cap_paise, (
+        "create and update must agree on what a zero per-transaction cap means"
+    )
+
+
+def test_audit_rows_cannot_be_rewritten_by_insert_or_replace(clean_db):
+    """INSERT OR REPLACE must not be able to overwrite an audit row in place.
+
+    SQLite leaves recursive_triggers OFF by default, and with it off the
+    implicit DELETE inside a REPLACE conflict does not fire the BEFORE DELETE
+    guard. A breach record could be rewritten to ALLOW with the row count
+    unchanged and no error raised.
+    """
+    store.log_event(event="AUTHORIZATION_ATTEMPT", code="BLOCK_WINDOW_CAP_EXCEEDED",
+                    cart_total_paise=500_000, payload={"truth": "the agent overspent"})
+    with store._conn() as cx:
+        row = cx.execute(
+            "SELECT id FROM audit_log WHERE code='BLOCK_WINDOW_CAP_EXCEEDED'"
+        ).fetchone()
+        assert row is not None
+        with pytest.raises(sqlite3.IntegrityError):
+            cx.execute(
+                "INSERT OR REPLACE INTO audit_log "
+                "(id,session_id,mandate_id,mandate_version,event,code,"
+                " cart_total_paise,cap_paise,payload,created_at) "
+                "VALUES (?,NULL,NULL,NULL,'AUTHORIZATION_ATTEMPT','ALLOW',0,0,'{}',0)",
+                (row["id"],),
+            )
+
+    with store._conn() as cx:
+        after = cx.execute(
+            "SELECT code, cart_total_paise FROM audit_log WHERE id=?", (row["id"],)
+        ).fetchone()
+    assert after["code"] == "BLOCK_WINDOW_CAP_EXCEEDED"
+    assert after["cart_total_paise"] == 500_000
+
+
+def test_duplicate_dispatch_of_issued_grant_is_in_progress_not_a_violation(clean_db):
+    """A second dispatch of a spent grant must not read as a binding mismatch.
+
+    ALREADY_ISSUED means the action succeeded and this caller lost the race.
+    It was raised as a bare MandateViolation, which the agent renders as "the
+    exact action no longer matches its authorization receipt" and records as a
+    BLOCKED tool call - a false entry for a call that had in fact gone through.
+    ActionInProgress is the correct family, and it is a MandateViolation
+    subclass, so fail-closed behaviour is unchanged.
+    """
+    mandate = store.create_mandate(MandateCreate(cap_rupees=1_000))
+    outcome, canonical, context = make_authorization(mandate=mandate)
+    client = SimulatedMCPClient()
+
+    client.call_tool(canonical.name, canonical.args, outcome.grant.id,
+                     context, outcome.grant.cart_hash)
+
+    with pytest.raises(ActionInProgress) as excinfo:
+        client.call_tool(canonical.name, canonical.args, outcome.grant.id,
+                         context, outcome.grant.cart_hash)
+
+    assert "ALREADY_ISSUED" in str(excinfo.value)
+    assert len(client.calls) == 1, "the provider must still be called exactly once"
+    assert store.get_action_grant(outcome.grant.id).state is ActionState.ACTION_ISSUED
