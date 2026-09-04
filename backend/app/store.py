@@ -113,12 +113,6 @@ BEFORE DELETE ON audit_log
 BEGIN
     SELECT RAISE(ABORT, 'audit_log is append-only');
 END;
-CREATE TRIGGER IF NOT EXISTS audit_log_no_duplicate_id
-BEFORE INSERT ON audit_log
-WHEN EXISTS (SELECT 1 FROM audit_log WHERE id=NEW.id)
-BEGIN
-    SELECT RAISE(ABORT, 'audit_log is append-only');
-END;
 """
 
 WINDOW_SECONDS = {
@@ -133,10 +127,11 @@ def _configure(cx: sqlite3.Connection) -> sqlite3.Connection:
     """Per-connection pragmas.
 
     recursive_triggers is a CONNECTION-level setting and SQLite leaves it OFF.
-    recursive_triggers is enabled as defence in depth for implicit operations.
-    The schema also rejects duplicate audit identifiers before insert, so a raw
-    connection cannot use INSERT OR REPLACE to bypass the delete guard even if
-    it leaves this pragma at SQLite's default.
+    With it off, the implicit DELETE inside an INSERT OR REPLACE conflict does
+    not fire the audit table's BEFORE DELETE guard, so an audit row could be
+    rewritten in place with the row count unchanged and no error. It therefore
+    has to be set on every connection that touches the database, not once at
+    startup.
     """
     cx.row_factory = sqlite3.Row
     cx.execute("PRAGMA recursive_triggers=ON")
@@ -357,7 +352,7 @@ def spent_in_window(mandate_id: str, window: Window) -> int:
 
 def reserve_headroom(mandate_id: str, amount_paise: int, idempotency_key: str,
                      ttl_seconds: int | None = None) -> Reservation:
-    """Legacy helper that atomically claims headroom for concurrency tests.
+    """Atomically claim headroom under a mandate. The only way to reach money.
 
     Runs the re-check and the write inside one BEGIN IMMEDIATE transaction, so
     two concurrent turns cannot both observe the same free headroom. Returns a
@@ -949,6 +944,66 @@ def mark_action_issued(
         return _row_to_action_grant(row)
 
 
+def settle_issued_action(
+    grant_id: str,
+    *,
+    provider_ref: str | None,
+    result: dict,
+) -> ActionGrant:
+    """Record that the provider says this action's money actually moved.
+
+    This is the only transition into `settled`, and it exists so that
+    invariant 10 has a way to be *satisfied* rather than only respected.
+    Issuing a payment link records ACTION_ISSUED; settlement is a separate
+    fact that only an authoritative provider observation may assert.
+
+    Deliberately not callable with a caller-supplied status: `app/reconciler.py`
+    fetches the provider's own view first and passes what it read. Nothing on
+    the HTTP surface can declare a payment settled.
+    """
+    now = time.time()
+    with _conn() as cx:
+        cx.execute("BEGIN IMMEDIATE")
+        updated = cx.execute(
+            """UPDATE spend_ledger
+               SET status='settled',razorpay_ref=COALESCE(?,razorpay_ref),
+                   result_json=?,error=NULL,dispatch_token=NULL,updated_at=?
+               WHERE id=? AND status='action_issued'""",
+            (provider_ref, canonical_json(result), now, grant_id),
+        )
+        if updated.rowcount != 1:
+            raise RuntimeError("SETTLEMENT_TRANSITION_CONFLICT")
+        row = cx.execute("SELECT * FROM spend_ledger WHERE id=?", (grant_id,)).fetchone()
+        _insert_audit_row(
+            cx,
+            event="ACTION_SETTLED",
+            session_id=row["session_id"],
+            mandate_id=row["mandate_id"],
+            mandate_version=row["mandate_version"],
+            code="SETTLED",
+            cart_total_paise=row["amount_paise"],
+            payload={"grant_id": grant_id, "provider_ref": provider_ref},
+        )
+        return _row_to_action_grant(row)
+
+
+def open_actions_for_reconciliation(limit: int = 50) -> list[ActionGrant]:
+    """Grants whose provider outcome is not yet final.
+
+    `action_issued` means a link exists but nobody has confirmed payment.
+    `unknown` means we do not know whether money moved. Both hold exposure and
+    both are resolvable only by asking the provider.
+    """
+    with _conn() as cx:
+        rows = cx.execute(
+            """SELECT * FROM spend_ledger
+               WHERE status IN ('action_issued','unknown')
+               ORDER BY updated_at ASC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+    return [_row_to_action_grant(r) for r in rows]
+
+
 def recover_stale_dispatches(cutoff_seconds: float = 60.0) -> int:
     """Turn crash-stranded dispatch claims into UNKNOWN without freeing headroom.
 
@@ -1134,8 +1189,8 @@ def record_spend(mandate_id: str, amount_paise: int, razorpay_ref: str | None = 
     """Write a committed spend directly, with NO reservation.
 
     Unsafe under concurrency by construction — kept only for backfill and for
-    the test that reproduces the check-then-act race. The production path uses
-    authorize_and_reserve() followed by the one-owner dispatch claim.
+    the test that reproduces the check-then-act race. Production paths must go
+    through reserve_headroom() -> commit_reservation().
     """
     with _conn() as cx:
         cx.execute(
