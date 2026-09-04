@@ -123,10 +123,24 @@ WINDOW_SECONDS = {
 }
 
 
+def _configure(cx: sqlite3.Connection) -> sqlite3.Connection:
+    """Per-connection pragmas.
+
+    recursive_triggers is a CONNECTION-level setting and SQLite leaves it OFF.
+    With it off, the implicit DELETE inside an INSERT OR REPLACE conflict does
+    not fire the audit table's BEFORE DELETE guard, so an audit row could be
+    rewritten in place with the row count unchanged and no error. It therefore
+    has to be set on every connection that touches the database, not once at
+    startup.
+    """
+    cx.row_factory = sqlite3.Row
+    cx.execute("PRAGMA recursive_triggers=ON")
+    return cx
+
+
 @contextmanager
 def _conn():
-    cx = sqlite3.connect(get_settings().db_path)
-    cx.row_factory = sqlite3.Row
+    cx = _configure(sqlite3.connect(get_settings().db_path))
     try:
         yield cx
         cx.commit()
@@ -231,7 +245,11 @@ def create_mandate(m: MandateCreate) -> Mandate:
                per_txn_cap_paise,allowed_categories,blocked_categories,active,version,
                created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,1,1,?,?)""",
             (mid, m.user_id, m.agent_id, m.label, m.cap_rupees * 100, m.window.value,
-             (m.per_txn_cap_rupees * 100) if m.per_txn_cap_rupees else None,
+             # `is not None`, not truthiness: a per-transaction cap of 0 is the
+             # most restrictive value a shopper can express. Treating it as
+             # falsy stored NULL and removed the cap entirely — the exact
+             # inversion of intent. update_mandate already got this right.
+             (m.per_txn_cap_rupees * 100) if m.per_txn_cap_rupees is not None else None,
              json.dumps(m.allowed_categories), json.dumps(m.blocked_categories),
              now, now),
         )
@@ -346,8 +364,7 @@ def reserve_headroom(mandate_id: str, amount_paise: int, idempotency_key: str,
     """
     ttl = RESERVATION_TTL_SECONDS if ttl_seconds is None else ttl_seconds
     now = time.time()
-    cx = sqlite3.connect(get_settings().db_path, timeout=15.0)
-    cx.row_factory = sqlite3.Row
+    cx = _configure(sqlite3.connect(get_settings().db_path, timeout=15.0))
     try:
         cx.execute("BEGIN IMMEDIATE")               # take the write lock up front
 
@@ -514,8 +531,7 @@ def authorize_and_reserve(request: AuthorizationRequest) -> AuthorizationOutcome
     computed_cart_hash = compute_cart_hash(request.cart)
     request_args_hash = action_args_hash(request.action_name, request.args)
 
-    cx = sqlite3.connect(get_settings().db_path, timeout=15.0)
-    cx.row_factory = sqlite3.Row
+    cx = _configure(sqlite3.connect(get_settings().db_path, timeout=15.0))
     try:
         cx.execute("BEGIN IMMEDIATE")
         mandate_row = cx.execute(
@@ -798,8 +814,7 @@ def claim_action_grant(
     """Claim single dispatch ownership after exact binding and policy fencing."""
     now = time.time()
     args_hash = action_args_hash(action_name, args)
-    cx = sqlite3.connect(get_settings().db_path, timeout=15.0)
-    cx.row_factory = sqlite3.Row
+    cx = _configure(sqlite3.connect(get_settings().db_path, timeout=15.0))
     try:
         cx.execute("BEGIN IMMEDIATE")
         row = cx.execute("SELECT * FROM spend_ledger WHERE id=?", (grant_id,)).fetchone()
