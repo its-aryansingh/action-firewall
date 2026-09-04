@@ -41,7 +41,7 @@ payment or settlement state.
 
 ## Proof baseline
 
-- 51 deterministic backend tests passing.
+- 54 deterministic backend tests passing.
 - Frontend production build passing with zero reported npm vulnerabilities.
 - Offline disposable rehearsal passing three consecutive times.
 - Naive concurrency regression records ₹2,400 against a ₹1,000 cap.
@@ -79,7 +79,9 @@ Canonical narration and failure handling live in `docs/DEMO_SCRIPT.md`.
 
 ## Known limitations
 
-- Browser-provided identities are not production authentication or tenant isolation.
+- No route authenticates a shopper or merchant. The demo is single-tenant and
+  localhost-only: an attacker who can reach it can mutate policies, read session
+  identifiers from the unscoped audit route, and confirm another session's cart.
 - SQLite proves one-service-instance serialization, not distributed safety.
 - The audit log is database-guarded but not signed or externally anchored.
 - `UNKNOWN` has safe accounting but no background Razorpay reconciliation worker.
