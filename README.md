@@ -184,15 +184,12 @@ The offline path is the submission-safe default. With test credentials,
 Every external dependency has a deterministic fallback so the safety proof does not
 depend on network availability.
 
-## Submission artifacts
+## Documentation
 
-- [Five-minute demo script](docs/DEMO_SCRIPT.md)
 - [Architecture and failure semantics](docs/ARCHITECTURE.md)
-- [Finish and submit plan](docs/BUILD_PLAN.md)
-- [Evidence-led strategy and risk register](docs/SUBMISSION_STRATEGY.md)
-- [Browser pitch deck](docs/pitch-deck.html)
-- [PowerPoint pitch deck](docs/Razorpay_Buildathon_Action_Firewall_Deck.pptx)
-- [Dated market and source context](market-context.md)
+- [Five-minute demo script](docs/DEMO_SCRIPT.md)
+- [Adversarial audit findings](docs/AUDIT_FINDINGS.md) — what broke, what is fixed,
+  and what is still open
 
 Vulcan is **product context, not a dependency**. This repository does not claim a
 Vulcan API, SDK, model endpoint, partnership, or internal Razorpay access. The overlap
