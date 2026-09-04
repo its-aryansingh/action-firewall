@@ -1,12 +1,18 @@
-# Adversarial audit findings — 4 September 2026
+# Adversarial audit findings
 
-Two independent reviewers went over the authorization core and the request path
-against the eleven invariants in `CLAUDE.md`. Every finding below was
-**reproduced**, not inferred. This file records what was fixed, what was
-deliberately not fixed, and what a reviewer may still find.
+I built most of this system with AI assistants, so I do not treat my own test
+suite as evidence that it works. A suite you wrote alongside the code proves the
+things you already thought of; it is the wrong instrument for finding what you
+missed.
 
-Keeping this in the repository is the point. A submission whose thesis is
-"our claims are exact" should be able to show the list of places it was wrong.
+So I ran two adversarial review passes over the authorization core and the
+request path, pointed at the eleven invariants in `CLAUDE.md` and told to break
+them rather than confirm them. Every finding below was **reproduced** with a
+script before it was written down. Nothing here is inferred from reading.
+
+This file stays in the repository on purpose. A project whose whole claim is
+"our statements are exact" should be able to show the list of places its
+statements were wrong.
 
 ## What held
 
