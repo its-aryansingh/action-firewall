@@ -35,10 +35,12 @@ for secret_name in (
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app import store  # noqa: E402
+from app import reconciler, store  # noqa: E402
 from app.agent import confirm_checkout, handle_turn, reset_session  # noqa: E402
 from app.mandate import rupees  # noqa: E402
+from app.mcp_client import simulate_provider_payment  # noqa: E402
 from app.models import (  # noqa: E402
+    ActionState,
     ChatRequest,
     ChatResponse,
     CheckoutConfirmRequest,
@@ -158,6 +160,40 @@ def main() -> None:
         blocked_after_revocation = authorize(coffee, "demo_attempt_revoked")
         assert blocked_after_revocation.decision
         assert not blocked_after_revocation.decision.allowed
+
+        heading("ACT 5 — settlement is observed, never asserted")
+        issued = [
+            g for g in store.open_actions_for_reconciliation()
+            if g.state is ActionState.ACTION_ISSUED
+        ]
+        assert issued, "act 3 should have left one issued payment link"
+        target = issued[0]
+
+        # Reconciling an unpaid link must change nothing. Issuing is not paying.
+        unpaid = reconciler.reconcile(target.id)
+        print(
+            f"Reconcile before payment: provider says "
+            f"{unpaid.observation.provider_status!r} -> changed={unpaid.changed}"
+        )
+        assert not unpaid.changed
+        assert store.metrics()["confirmed_test_payment_value_paise"] == 0
+
+        # Stand in for the shopper paying the link. In live mode this is a real
+        # test-mode UPI payment; the reconciler cannot tell the difference,
+        # because it only ever reads the provider's own view.
+        simulate_provider_payment(target.provider_ref, target.amount_paise)
+        settled = reconciler.reconcile(target.id)
+        print(
+            f"Reconcile after payment:  provider says "
+            f"{settled.observation.provider_status!r} -> "
+            f"{settled.before.value} -> {settled.after.value}"
+        )
+        assert settled.changed and settled.after is ActionState.SETTLED
+        assert store.metrics()["confirmed_test_payment_value_paise"] == target.amount_paise
+        print(
+            f"{GREEN}Settled{RESET} {rupees(target.amount_paise)} — recorded only "
+            "because the provider said so."
+        )
 
         heading("EVIDENCE — truthful outcome metrics")
         print(json.dumps(store.metrics(), indent=2, sort_keys=True))

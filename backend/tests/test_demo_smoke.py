@@ -38,6 +38,12 @@ def test_demo_is_offline_disposable_and_cp1252_safe() -> None:
     assert "BLOCK_WINDOW_CAP_EXCEEDED" in completed.stdout
     assert "state=action_issued" in completed.stdout
     assert "BLOCK_MANDATE_REVOKED" in completed.stdout
-    assert '"confirmed_test_payment_value_paise": 0' in completed.stdout
+
+    # Settlement is reachable now, so the rehearsal must show the loop closing
+    # in the right order: reconciling an unpaid link changes nothing, and the
+    # confirmed figure moves only after the provider reports the payment.
+    assert "changed=False" in completed.stdout
+    assert "action_issued -> settled" in completed.stdout
+    assert '"confirmed_test_payment_value_paise": 48600' in completed.stdout
     assert "REHEARSAL PASSED" in completed.stdout
     assert _digest(DEFAULT_DB) == before
