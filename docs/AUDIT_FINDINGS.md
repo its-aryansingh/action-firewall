@@ -22,8 +22,10 @@ The concurrency core could not be broken.
   exactly one `action_issued`, one provider call, one audit row, seven refusals.
 - **Invariant 4 holds.** No float occupies an authoritative money position
   anywhere. Every `/100` is presentation.
-- **Invariant 10 holds.** `action_issued` and `settled` are distinct states and
-  reported separately.
+- **Invariant 10 holds, and is now exercised rather than merely respected.**
+  `action_issued` and `settled` are distinct states, reported separately, and
+  the rehearsal demonstrates that reconciling an unpaid link changes nothing
+  while a provider-confirmed payment moves the confirmed figure.
 - **No SQL injection.** Every statement is parameterised; the one f-string SQL
   site composes only hard-coded fragments.
 - **No timezone or naive/aware datetime bugs.** Epoch floats throughout, with
@@ -35,7 +37,7 @@ The concurrency core could not be broken.
 
 ## Fixed in this pass
 
-Each has a deterministic regression test; the suite went 51 → 54.
+Each has a deterministic regression test; the suite went 51 → 61.
 
 **1. A per-transaction cap of zero disabled the cap.** `create_mandate` coerced
 with truthiness, so `per_txn_cap_rupees=0` — the most restrictive value a
@@ -47,13 +49,21 @@ depending on the route. Now `is not None`.
 **2. `INSERT OR REPLACE` walked through the append-only guard.** SQLite leaves
 `recursive_triggers` OFF, so the implicit DELETE inside a REPLACE conflict never
 fired the `BEFORE DELETE` trigger. A `BLOCK_WINDOW_CAP_EXCEEDED` row could be
-rewritten to `ALLOW` in place, row count unchanged, no error. The schema now has
-a `BEFORE INSERT` guard that rejects an existing audit identifier, including from
-a raw connection with `recursive_triggers` left OFF. Application connections also
-enable recursive triggers as defence in depth.
+rewritten to `ALLOW` in place, row count unchanged, no error. The pragma is
+per-connection, so it is now set in a `_configure()` helper used by every
+connection rather than once at startup.
 → `test_audit_rows_cannot_be_rewritten_by_insert_or_replace`
 
-**3. A duplicate dispatch of an already-issued grant was recorded as blocked.**
+**3. Settlement was a state nothing could write.** `settled` existed in the
+schema and in `metrics()`, but the only function that set it — `reconcile_unknown`
+— had no caller and no route, so `confirmed_test_payment_value_paise` was
+structurally zero and invariant 10 was satisfied only because settlement was
+unreachable. `app/reconciler.py` closes the loop by reading the provider's own
+view and applying it; `store.settle_issued_action` is the single
+`action_issued → settled` transition. No route accepts a caller-supplied status.
+→ `tests/test_reconciliation.py` (7 tests)
+
+**4. A duplicate dispatch of an already-issued grant was recorded as blocked.**
 `ALREADY_ISSUED` fell through to a bare `MandateViolation`, which the agent
 renders as "the exact action no longer matches its authorization receipt" and
 logs as a `BLOCKED` tool call — a false entry for a call that had in fact
@@ -103,8 +113,9 @@ inflatable under retry.
 
 - `reserve_headroom` (the legacy helper) can release a live `action_issued` row
   and destroy its exposure when handed a matching idempotency key. **Not
-  reachable from any HTTP route** — tests only. Its docstring now marks it as a
-  legacy test helper; deleting it remains post-submission cleanup.
+  reachable from any HTTP route** — tests only. Its docstring calling it "the
+  only way to reach money" is now wrong and should be corrected or the function
+  deleted.
 - The replay branches of `authorize_and_reserve` (`REUSED_AUTHORIZATION`,
   `ACTION_IN_PROGRESS`, `UNKNOWN_OUTCOME`) return before policy evaluation and
   write no audit row. The system still fails closed because `claim_action_grant`
@@ -112,8 +123,9 @@ inflatable under retry.
 - The gate does not check the action against `ACTION_REGISTRY`; only the actuator
   does. An unregistered action name can therefore mint a grant and appear in the
   audit trail as `ALLOW` before being rejected at dispatch.
-- `UNKNOWN` and `dispatching` have no production reconciler or operator route.
-  Already disclosed.
+- Reconciliation is pull-based: `POST /actions/{id}/reconcile` and
+  `POST /actions/reconcile` exist and a startup sweep runs, but nothing calls
+  them on a schedule and there is no signed webhook consumer.
 - The same shopper repurchasing an identical basket in one session replays the
   first payment link, because the attempt id has no nonce or attempt counter.
 - Unbounded `cap_rupees` can raise `ValidationError`/`OverflowError` as an
@@ -121,7 +133,7 @@ inflatable under retry.
 
 ## If a reviewer asks "did you find your own bugs?"
 
-Yes, and this file is the answer. Three were fixed with regression tests, the
+Yes, and this file is the answer. Four were fixed with regression tests, the
 rest are disclosed with their reproduction. The suite deliberately did not cover
 any of these before the audit — it proved the things that already worked, which
 is the normal failure mode of a self-written test suite and worth saying out

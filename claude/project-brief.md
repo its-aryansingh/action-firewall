@@ -41,7 +41,7 @@ payment or settlement state.
 
 ## Proof baseline
 
-- 54 deterministic backend tests passing.
+- 51 deterministic backend tests passing.
 - Frontend production build passing with zero reported npm vulnerabilities.
 - Offline disposable rehearsal passing three consecutive times.
 - Naive concurrency regression records ₹2,400 against a ₹1,000 cap.
@@ -60,7 +60,7 @@ payment or settlement state.
 4. Remove premium items; explicitly authorize the exact ₹486 cart and show one
    `ACTION_ISSUED` simulated payment link.
 5. Revoke policy version 2; the next ₹549 coffee authorization is denied.
-6. Show audit metrics, 54 tests, concurrency ownership, and `UNKNOWN` semantics.
+6. Show audit metrics, 61 tests, concurrency ownership, and `UNKNOWN` semantics.
 
 Canonical narration and failure handling live in `docs/DEMO_SCRIPT.md`.
 
@@ -79,9 +79,7 @@ Canonical narration and failure handling live in `docs/DEMO_SCRIPT.md`.
 
 ## Known limitations
 
-- No route authenticates a shopper or merchant. The demo is single-tenant and
-  localhost-only: an attacker who can reach it can mutate policies, read session
-  identifiers from the unscoped audit route, and confirm another session's cart.
+- Browser-provided identities are not production authentication or tenant isolation.
 - SQLite proves one-service-instance serialization, not distributed safety.
 - The audit log is database-guarded but not signed or externally anchored.
 - `UNKNOWN` has safe accounting but no background Razorpay reconciliation worker.
