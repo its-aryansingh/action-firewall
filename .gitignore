@@ -10,7 +10,7 @@ node_modules/
 .next/
 out/
 
-# Env — never commit Razorpay keys
+# Env - never commit Razorpay keys
 .env
 .env.local
 !.env.example
@@ -23,3 +23,10 @@ out/
 # Claude Code machine-local state
 CLAUDE.local.md
 .claude/settings.local.json
+
+# Working material for entering the buildathon - notes about the competition,
+# not documentation of the product. Kept on disk, out of the repository.
+docs/SUBMISSION_PACK.md
+docs/COMPETITIVE_BRIEF.md
+docs/PRE_SUBMISSION_AUDIT.md
+docs/research-history/
