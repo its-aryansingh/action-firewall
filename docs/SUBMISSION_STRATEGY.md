@@ -308,7 +308,7 @@ The detailed timed script is in docs/DEMO_SCRIPT.md. The five visible beats are:
 4. Remove premium items, explicitly authorize the exact ₹486 cart, and show one
    ACTION_ISSUED payment link.
 5. Revoke the policy, deny a ₹549 action, then show the event log, metrics,
-   54 tests, and 8 → 1 dispatch ownership.
+   61 tests, and 8 → 1 dispatch ownership.
 
 The failure playbook treats a provider timeout as UNKNOWN. It never repeats a
 state-changing call merely to keep the demo moving.
@@ -320,7 +320,7 @@ state-changing call merely to keep the demo moving.
 1. Run backend tests, Python compilation, frontend build, dependency audit, and
    the offline rehearsal on the final commit.
 2. Run the offline rehearsal three consecutive times from disposable databases.
-3. Ensure every artifact agrees on 54 tests and the ₹2,034 / ₹486 / ₹549 path.
+3. Ensure every artifact agrees on 61 tests and the ₹2,034 / ₹486 / ₹549 path.
 4. Search public artifacts for stale UAP, UPI Circle, x402, FTX26,
    chargeback-liability, and “link settled” claims.
 5. Record a sub-five-minute video from the frozen offline path.

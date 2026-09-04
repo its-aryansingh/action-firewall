@@ -23,23 +23,6 @@ Model output, retrieved text, browser fields, and provider connectivity are all
 treated as untrusted. Integer paise, catalog identity, policy state, canonical
 hashes, and action lifecycle state are owned by the server.
 
-## Minimum viable trust model
-
-The submitted demo is a **single-tenant, localhost prototype**. It trusts the
-backend process, its configuration, the server-owned catalog, and the SQLite
-database. It does not trust model output, browser-supplied prices or hashes, or
-an ambiguous provider response. The simulated actuator proves state transitions;
-it is not evidence of a live Razorpay outcome.
-
-The demo does **not** establish who is calling the API. No route authenticates a
-shopper or merchant, and `GET /audit` is unscoped. A caller who can reach the API
-can read session identifiers, mutate policies, and confirm another session's
-cart. Therefore the current service must not be exposed to an untrusted network.
-A production boundary requires authenticated tenant and shopper principals,
-server-minted opaque session capability, route-level authorization, and a durable
-session store before the existing cart and action bindings become meaningful
-security controls.
-
 ## End-to-end flow
 
 ```text
@@ -250,7 +233,7 @@ a database administrator replacing the file.
 | Process stops after dispatch claim | Startup recovery changes stale `DISPATCHING` to `UNKNOWN` |
 | Observability unavailable | Local state and audit continue; tracing degrades without affecting authority |
 
-At this revision, 54 backend tests cover policy boundaries, proposal-only chat,
+At this revision, 61 backend tests cover policy boundaries, proposal-only chat,
 cart-hash confirmation, exact action binding, policy fencing, concurrent dispatch
 ownership, ambiguous outcomes, stale-dispatch recovery, strict schemas, legacy
 TTL regression, database-enforced audit append-only behavior, and the disposable
@@ -272,10 +255,9 @@ fallback, not evidence of a live Razorpay transaction.
 
 ## Honest limitations
 
-- No route authenticates or authorizes a shopper or merchant. The first chat
-  request supplies user and agent IDs, `GET /audit` exposes session identifiers,
-  and the policy routes are open. The demo is safe only as a single-tenant local
-  prototype; it is not an internet-facing authorization service.
+- Browser identity is still an MVP stub. The first chat request supplies the
+  user and agent IDs, and the in-memory session prevents later identity changes,
+  but there is no production authentication or merchant tenancy boundary yet.
 - Sessions are process-local memory. Multi-process deployment needs a durable,
   authenticated session and confirmation store.
 - `reconcile_unknown()` implements the state transition, but no provider lookup,

@@ -112,7 +112,7 @@ Ordered. Steps 1–3 are blocking; step 4 is the only optional item.
 ### 2. Record the video (§2 of `SUBMISSION_PACK.md`)
 
 One change to the storyboard given what we now know. In the **3:25–4:15 proof
-block**, do not just show `54 passed` — scroll the test *names*. Ten seconds of
+block**, do not just show `61 passed` — scroll the test *names*. Ten seconds of
 
 ```
 test_policy_edit_before_dispatch_invalidates_grant

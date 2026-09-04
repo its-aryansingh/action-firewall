@@ -127,7 +127,7 @@ npm run build
 npm audit
 ```
 
-Current verified baseline: **54 backend tests passing**, a successful production
+Current verified baseline: **61 backend tests passing**, a successful production
 frontend build, and **0 known npm audit vulnerabilities**. Re-run these commands on
 the final commit before recording or submitting.
 
@@ -241,15 +241,17 @@ reconciler below, a long-lived policy's usable headroom only decreases. `GET
 /mandates/{id}/usage` reports these as window figures; for unresolved exposure
 they are lifetime figures.
 
-**No background reconciler exists.** `UNKNOWN` has correct accounting and
-explicit reconciliation semantics, and `recover_stale_dispatches` runs once at
-startup, but nothing sweeps or resolves unknown outcomes on an ongoing basis and
-there is no operator route to do it by hand.
+**Reconciliation is pull-based, not event-driven.** `POST /actions/{id}/reconcile`
+and `POST /actions/reconcile` resolve open actions by reading the provider, and
+`recover_stale_dispatches` runs once at startup — but nothing runs them on a
+schedule and there is no signed webhook consumer. An outcome stays unresolved
+until something calls the route.
 
-**Payment-link issuance is observable; payment and settlement are not.**
-`action_issued` is recorded. Confirming a customer actually paid requires signed
-webhook or provider-state verification that is outside this demo, which is why
-`confirmed_test_payment_value_paise` reports zero.
+**Settlement is observed, never asserted.** `action_issued` records that a link
+exists. `settled` is written only by `app/reconciler.py` after it reads the
+provider's own view of the action, and no field on any route lets a caller
+declare that money moved. A provider we cannot reach leaves the state and the
+exposure exactly as they were, because not knowing is not the same as not paid.
 
 **Evidence is append-only, not tamper-proof.** The audit table rejects updates
 and deletes at the database layer, and `PRAGMA recursive_triggers=ON` closes the
