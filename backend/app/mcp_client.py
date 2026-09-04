@@ -197,7 +197,13 @@ def _claim_or_raise(canonical, grant_id: str, context: ActionContext, cart_hash:
         cart_hash=cart_hash,
     )
     if not token:
-        if reason in ("ACTION_IN_PROGRESS", "UNKNOWN_OUTCOME"):
+        # ALREADY_ISSUED belongs with the in-progress family, not with binding
+        # mismatches. The action succeeded; this is a duplicate dispatch of a
+        # spent grant. Reporting it as MandateViolation told the shopper their
+        # action "no longer matches its authorization receipt" and wrote a
+        # BLOCKED row for a call that had in fact gone through - a false entry
+        # in the one record this system exists to keep honest.
+        if reason in ("ACTION_IN_PROGRESS", "UNKNOWN_OUTCOME", "ALREADY_ISSUED"):
             raise ActionInProgress(reason)
         raise MandateViolation(reason)
     return grant, token
