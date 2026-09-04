@@ -233,7 +233,7 @@ a database administrator replacing the file.
 | Process stops after dispatch claim | Startup recovery changes stale `DISPATCHING` to `UNKNOWN` |
 | Observability unavailable | Local state and audit continue; tracing degrades without affecting authority |
 
-At this revision, 51 backend tests cover policy boundaries, proposal-only chat,
+At this revision, 54 backend tests cover policy boundaries, proposal-only chat,
 cart-hash confirmation, exact action binding, policy fencing, concurrent dispatch
 ownership, ambiguous outcomes, stale-dispatch recovery, strict schemas, legacy
 TTL regression, database-enforced audit append-only behavior, and the disposable

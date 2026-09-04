@@ -60,7 +60,7 @@ payment or settlement state.
 4. Remove premium items; explicitly authorize the exact ₹486 cart and show one
    `ACTION_ISSUED` simulated payment link.
 5. Revoke policy version 2; the next ₹549 coffee authorization is denied.
-6. Show audit metrics, 51 tests, concurrency ownership, and `UNKNOWN` semantics.
+6. Show audit metrics, 54 tests, concurrency ownership, and `UNKNOWN` semantics.
 
 Canonical narration and failure handling live in `docs/DEMO_SCRIPT.md`.
 
