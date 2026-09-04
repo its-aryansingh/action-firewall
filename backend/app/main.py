@@ -5,7 +5,7 @@ import time
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import agent, catalog, store
+from . import agent, catalog, reconciler, store
 from .config import get_settings
 from .mcp_client import get_client
 from .models import (
@@ -143,3 +143,44 @@ def mcp_tools() -> dict:
         return {"client": type(client).__name__, "tools": client.list_tools()}
     except Exception as exc:
         raise HTTPException(502, f"MCP unreachable: {exc}")
+
+
+# ---------------- Reconciliation ----------------
+def _reconciliation_payload(result) -> dict:
+    return {
+        "grant_id": result.grant_id,
+        "before": result.before.value,
+        "after": result.after.value,
+        "changed": result.changed,
+        "note": result.note,
+        "provider_reachable": result.observation.reachable,
+        "provider_status": result.observation.provider_status,
+        "amount_paid_paise": result.observation.amount_paid_paise,
+    }
+
+
+@app.post("/actions/{grant_id}/reconcile")
+def reconcile_action(grant_id: str) -> dict:
+    """Resolve one action against the provider's own record.
+
+    Takes a grant id and nothing else, deliberately. There is no field on this
+    route by which a caller can assert that a payment happened; the server goes
+    and reads the provider itself. An unreachable provider changes nothing and
+    keeps the exposure held.
+    """
+    try:
+        return _reconciliation_payload(reconciler.reconcile(grant_id))
+    except LookupError:
+        raise HTTPException(404, "Unknown action grant")
+
+
+@app.post("/actions/reconcile")
+def reconcile_open_actions(limit: int = 50) -> dict:
+    """Sweep every action still holding exposure. Idempotent and re-runnable."""
+    results = [_reconciliation_payload(r)
+               for r in reconciler.reconcile_open_actions(limit=limit)]
+    return {
+        "reconciled": len(results),
+        "changed": sum(1 for r in results if r["changed"]),
+        "results": results,
+    }

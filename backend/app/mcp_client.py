@@ -122,6 +122,46 @@ class RazorpayMCPClient:
         return _persist_issued_or_unknown(grant.id, token, result)
 
 
+    def fetch_action_status(self, provider_ref: str) -> dict:
+        """Read the provider's own view of an issued action.
+
+        Read-only and not a registered money action, so it does not pass
+        through the grant boundary: there is nothing to authorize. It is the
+        only source we accept for a settlement claim.
+        """
+        if not self.session_id:
+            self.initialize()
+        raw = self._raw_call("fetch_payment_link", {"payment_link_id": provider_ref})
+        payload = unwrap(raw)
+        return payload if isinstance(payload, dict) else {"status": "unknown"}
+
+
+#: Simulated provider-side state, keyed by payment link id. Module level
+#: because get_client() constructs a fresh client per call. Only the demo
+#: script and the tests may write to it - nothing on the HTTP surface can,
+#: which is what keeps "settled" an observation rather than an assertion.
+_SIMULATED_PROVIDER: dict[str, dict] = {}
+
+
+def simulate_provider_payment(payment_link_id: str, amount_paise: int) -> None:
+    """TEST AND DEMO ONLY. Mark a simulated payment link as paid.
+
+    Stands in for a shopper actually paying the link with the test-mode UPI
+    handle. It is deliberately a Python-level helper, not an endpoint.
+    """
+    _SIMULATED_PROVIDER[payment_link_id] = {
+        "id": payment_link_id,
+        "status": "paid",
+        "amount": amount_paise,
+        "amount_paid": amount_paise,
+        "currency": "INR",
+    }
+
+
+def reset_simulated_provider() -> None:
+    _SIMULATED_PROVIDER.clear()
+
+
 class SimulatedMCPClient:
     """Offline adapter with the same exact grant boundary as the live client."""
 
@@ -137,6 +177,13 @@ class SimulatedMCPClient:
             {"name": name, "description": f"simulated registered action {name}"}
             for name in sorted(ACTION_REGISTRY)
         ]
+
+    def fetch_action_status(self, provider_ref: str) -> dict:
+        """Mirror of the live read. Defaults to an unpaid link."""
+        return _SIMULATED_PROVIDER.get(
+            provider_ref,
+            {"id": provider_ref, "status": "created", "amount_paid": 0},
+        )
 
     def call_tool(
         self,
