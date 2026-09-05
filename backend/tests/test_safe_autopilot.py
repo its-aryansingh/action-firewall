@@ -361,3 +361,21 @@ def test_unintelligible_goal_produces_no_draft():
     ]
     assert len(drafted_events) == 0
 
+
+def test_injected_scenario_refused_outside_demo_mode(monkeypatch):
+    envelope = active_envelope()
+    monkeypatch.setenv("DEMO_MODE", "false")
+    get_settings.cache_clear()
+    with pytest.raises(ValueError, match="Demo scenarios are disabled outside DEMO_MODE"):
+        autopilot.execute(
+            AutopilotExecuteRequest(
+                envelope_id=envelope.id,
+                expected_envelope_version=envelope.version,
+                expected_envelope_hash=envelope.envelope_hash,
+                session_id="session-non-demo",
+                idempotency_key="key-non-demo",
+                scenario=AutopilotScenario.STOCK_LOSS,
+            )
+        )
+
+
