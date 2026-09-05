@@ -1,6 +1,6 @@
 # Market context — Razorpay AI Buildathon 2026
 
-**Research cut-off:** 4 September 2026
+**Research cut-off:** 5 September 2026
 **Purpose:** supporting evidence for Action Firewall. This file is not a payment,
 regulatory, or integration specification. The implementation and architecture
 documents remain authoritative for what the repository actually proves.
@@ -16,6 +16,17 @@ documents remain authoritative for what the repository actually proves.
   current primary source.
 
 ## Decision summary
+
+**[Internal proof, 5 September] Safe Autopilot Checkout is now implemented.**
+The original exact-cart flow remains at `/baseline`. The primary path adds a
+shopper-activated Purchase Envelope, deterministic catalog-fact rehydration,
+in-envelope stock-loss recovery, field-level Policy Deltas, atomic one-purchase
+reservation, envelope-bound Action Grants, application-signed receipts, and a
+provider-mode-labelled UI. The current verified evidence is 76 passing backend
+tests, a 400-case synthetic authorization corpus with zero failures in its stated
+scope, two disposable offline rehearsals, a successful frontend production
+build, and zero vulnerabilities reported by the current npm audit. These are
+repository results, not production or regulatory evidence.
 
 **[Inference] Action Firewall remains the primary Track 01 submission.** The
 published Track 01 bar asks for explainable, bounded, gated money actions, an

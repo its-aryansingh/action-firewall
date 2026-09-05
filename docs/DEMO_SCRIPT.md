@@ -1,5 +1,9 @@
 # Action Firewall — five-minute demo
 
+> **Baseline script.** This exact-cart flow remains implemented at `/baseline`
+> for comparison and regression proof. The primary submission demo is now
+> [Safe Autopilot Checkout](SAFE_AUTOPILOT_DEMO.md).
+
 This is the judge-facing path for Track 01. It demonstrates one narrow claim:
 chat may propose a cart, but only a current, exact, one-use authorization grant
 may reach the registered Razorpay action.

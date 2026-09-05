@@ -77,6 +77,8 @@ Backend:
 cd backend
 python -m pytest -q
 python -m compileall -q app tests scripts
+python scripts/evaluate_autopilot.py
+python scripts/demo_autopilot.py
 python scripts/demo.py
 ```
 

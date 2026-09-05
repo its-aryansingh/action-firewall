@@ -2,12 +2,42 @@
 
 **Razorpay AI Buildathon 2026 — Track 01: AI Growth & Agentic Commerce**
 
-> An AI agent may propose a cart. Only a deterministic, versioned,
-> shopper-defined policy may authorize one exact Razorpay action.
+> A shopper may approve one bounded purchase job. AI can recover inside it;
+> only deterministic code may authorize one exact Razorpay action.
 
 Action Firewall is an application-layer enforcement boundary for an AI-buyer
 workflow. It does not create a payment rail, replace Razorpay's own controls, or
 claim that a generated payment link is a completed payment.
+
+## Two measured product paths
+
+The repository keeps the original exact-cart flow as the control and adds Safe
+Autopilot as the primary product:
+
+| Path | Human authorization object | Change behavior |
+|---|---|---|
+| `/baseline` | Exact cart hash | Any material cart change requires another approval |
+| `/` Safe Autopilot | Versioned Purchase Envelope | A changed quote can proceed without another approval only when every envelope field still matches |
+
+The Purchase Envelope binds one merchant, INR, a maximum total, required
+catalog-tag slots, blocked categories, a saved fulfilment profile, delivery
+deadline, expiry, one purchase, and `create_payment_link`. Activation is a
+separate hash-bound user action. The model may draft the object, but cannot
+activate it, change a trusted field, or broaden it during recovery.
+
+```text
+goal -> draft envelope -> explicit activation
+  -> build quote -> rehydrate catalog facts -> verify envelope membership
+       |-- mismatch -> field-level Policy Delta; no grant; no provider call
+       `-- match ----> atomic envelope-use + spend reservation
+                      -> exact Action Grant -> one-owner dispatch
+```
+
+The exact grant additionally binds envelope ID/version/hash and quote hash. A
+unique partial database index allows at most one live lifecycle row per
+envelope. The dispatch fence re-reads both the spend policy and envelope before
+transport. Once a payment link is issued, the envelope is marked consumed; a
+network retry with the same exact attempt and bindings returns the stored state.
 
 ## Authority boundary
 
@@ -185,6 +215,8 @@ SQLite runs in WAL mode. The important tables are:
 
 - `mandates`: current application-policy records; internal legacy naming is
   retained to avoid a deadline-risking database rename;
+- `purchase_envelopes`: shopper-reviewed job authority, version/hash, status,
+  fulfilment constraints and required catalog slots;
 - `policy_revisions`: immutable version/hash snapshots;
 - `spend_ledger`: exact grants, reservations, provider references, and action
   lifecycle state;
@@ -233,11 +265,14 @@ a database administrator replacing the file.
 | Process stops after dispatch claim | Startup recovery changes stale `DISPATCHING` to `UNKNOWN` |
 | Observability unavailable | Local state and audit continue; tracing degrades without affecting authority |
 
-At this revision, 61 backend tests cover policy boundaries, proposal-only chat,
-cart-hash confirmation, exact action binding, policy fencing, concurrent dispatch
-ownership, ambiguous outcomes, stale-dispatch recovery, strict schemas, legacy
-TTL regression, database-enforced audit append-only behavior, and the disposable
-demo.
+At this revision, 76 backend tests cover policy boundaries, proposal-only chat,
+cart-hash confirmation, Purchase Envelope activation and verification, safe
+substitution, field-level refusals, exact action binding, policy and envelope
+fencing, concurrent one-envelope ownership, ambiguous outcomes, stale-dispatch
+recovery, receipt signatures, strict schemas, legacy TTL regression,
+database-enforced audit append-only behavior, and both disposable demos. A
+separate deterministic evaluator generates 400 boundary cases; its scope and
+limitations are documented in `docs/EVALUATION.md`.
 
 ## Disposable offline rehearsal
 
@@ -260,10 +295,9 @@ fallback, not evidence of a live Razorpay transaction.
   but there is no production authentication or merchant tenancy boundary yet.
 - Sessions are process-local memory. Multi-process deployment needs a durable,
   authenticated session and confirmation store.
-- `reconcile_unknown()` implements the state transition, but no provider lookup,
-  webhook ingestion, or signed event verification is wired into the demo.
-  Unknown outcomes therefore require an externally supplied authoritative
-  observation.
+- Reconciliation reads the provider through the adapter, but it is pull-based.
+  No scheduler, webhook ingestion, or signed event verification is wired into
+  the demo, so an unknown outcome stays open until the route is invoked.
 - Only `create_payment_link` is registered. The build does not demonstrate
   capture, refund, subscription, or arbitrary MCP action authorization.
 - The primary demo proves payment-link issuance, not payment settlement.
