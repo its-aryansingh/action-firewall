@@ -336,8 +336,16 @@ export default function SafeAutopilotPage() {
             <section className="card">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <p className="label">Controlled execution</p>
-                  <h2 className="mt-1 text-lg font-semibold">Choose the live-demo condition</h2>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="label">Fault injection (demo only)</p>
+                    <span className="rounded-full border border-brand/30 bg-brand/10 px-2 py-0.5 font-mono text-[11px] text-brand">
+                      provider: {result?.provider_mode ?? (health?.demo_mode ? `Simulated (${health.mcp})` : (health?.mcp ?? "simulated"))}
+                    </span>
+                  </div>
+                  <h2 className="mt-1 text-lg font-semibold">Simulate real-world faults</h2>
+                  <p className="mt-1 text-xs text-muted">
+                    These scenarios are injected by the demo operator to exercise the verifier deterministically; the endpoint refuses them outside DEMO_MODE.
+                  </p>
                 </div>
                 <button className="btn-ghost text-block" onClick={revoke} disabled={busy}>
                   Revoke now

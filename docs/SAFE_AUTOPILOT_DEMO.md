@@ -97,6 +97,11 @@ next: fresh approval
 
 **Say:**
 
+> “I'm injecting this failure deliberately, the same way you'd run a chaos test.
+> The point isn't that the merchant changed, it's what the verifier does when it
+> did — and the endpoint refuses to accept an injected scenario outside demo
+> mode.”
+>
 > “The cart can still look reasonable, but merchant identity is authority, not
 > preference. The quote is refused before a grant exists and before the
 > provider adapter is called. Recovery cannot silently widen this field.”
