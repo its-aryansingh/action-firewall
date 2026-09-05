@@ -1,6 +1,7 @@
 """FastAPI orchestrator — the only process the frontend talks to."""
 from __future__ import annotations
 import time
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,21 +26,8 @@ from .models import (
 )
 from .receipts import build_receipt, verify_receipt
 
-app = FastAPI(
-    title="Action Firewall — Policy-bound Agentic Checkout",
-    version="2.0.0",
-)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-@app.on_event("startup")
-def _startup() -> None:
+@asynccontextmanager
+async def lifespan(_: FastAPI):
     store.init_db()
     recovered = store.recover_stale_dispatches()
     s = get_settings()
@@ -49,6 +37,21 @@ def _startup() -> None:
         f"[boot] demo_mode={s.demo_mode} | catalog={len(catalog.load_catalog())} SKUs "
         f"| stale_dispatches_to_unknown={recovered}"
     )
+    yield
+
+
+app = FastAPI(
+    title="Action Firewall — Safe Autopilot Checkout",
+    version="3.0.0",
+    lifespan=lifespan,
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health")

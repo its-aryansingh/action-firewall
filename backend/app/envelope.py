@@ -156,10 +156,11 @@ def _deterministic_slots(goal: str) -> list[EnvelopeSlot]:
 def draft_envelope(req: EnvelopeDraftRequest, now: float | None = None) -> PurchaseEnvelope:
     created = time.time() if now is None else now
     slots = _llm_slots(req.goal) or _deterministic_slots(req.goal)
+    envelope_id = f"env_{uuid.uuid4().hex}"
     draft = PurchaseEnvelope(
-        id=f"env_{uuid.uuid4().hex}",
+        id=envelope_id,
         user_id=req.user_id,
-        agent_id=ENVELOPE_AGENT_ID,
+        agent_id=f"{ENVELOPE_AGENT_ID}:{envelope_id}",
         label="Safe Autopilot purchase",
         goal=req.goal,
         merchant_id=req.merchant_id,

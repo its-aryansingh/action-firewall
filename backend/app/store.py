@@ -1787,6 +1787,10 @@ def metrics(user_id: str = "user_demo") -> dict:
                 "outstanding_authorized_exposure_paise": 0,
                 "unauthorized_actuator_calls": 0,
                 "cart_policy_previews": 0,
+                "envelopes_activated": 0,
+                "envelope_quotes_allowed": 0,
+                "envelope_quotes_blocked": 0,
+                "in_envelope_recoveries": 0,
             }
         placeholders = ",".join("?" for _ in policy_ids)
         attempts = cx.execute(
@@ -1842,6 +1846,27 @@ def metrics(user_id: str = "user_demo") -> dict:
                 WHERE mandate_id IN ({placeholders}) AND event='ACTION_REJECTED'""",
             policy_ids,
         ).fetchone()["c"]
+        envelopes_activated = cx.execute(
+            f"""SELECT COUNT(*) c FROM audit_log
+                WHERE mandate_id IN ({placeholders}) AND event='ENVELOPE_ACTIVATED'""",
+            policy_ids,
+        ).fetchone()["c"]
+        envelope_quotes_allowed = cx.execute(
+            f"""SELECT COUNT(*) c FROM audit_log
+                WHERE mandate_id IN ({placeholders}) AND event='ENVELOPE_QUOTE_ALLOWED'""",
+            policy_ids,
+        ).fetchone()["c"]
+        envelope_quotes_blocked = cx.execute(
+            f"""SELECT COUNT(*) c FROM audit_log
+                WHERE mandate_id IN ({placeholders}) AND event='ENVELOPE_QUOTE_BLOCKED'""",
+            policy_ids,
+        ).fetchone()["c"]
+        envelope_recoveries = cx.execute(
+            f"""SELECT COUNT(*) c FROM audit_log
+                WHERE mandate_id IN ({placeholders})
+                  AND event='ENVELOPE_RECOVERY_APPLIED'""",
+            policy_ids,
+        ).fetchone()["c"]
     return {
         "authorization_attempts": int(attempts),
         "denied_authorizations": int(denied),
@@ -1853,4 +1878,8 @@ def metrics(user_id: str = "user_demo") -> dict:
         "outstanding_authorized_exposure_paise": int(outstanding),
         "unauthorized_actuator_calls": int(rejected),
         "cart_policy_previews": int(previews),
+        "envelopes_activated": int(envelopes_activated),
+        "envelope_quotes_allowed": int(envelope_quotes_allowed),
+        "envelope_quotes_blocked": int(envelope_quotes_blocked),
+        "in_envelope_recoveries": int(envelope_recoveries),
     }

@@ -183,6 +183,35 @@ def execute(req: AutopilotExecuteRequest) -> AutopilotExecuteResponse:
             provider_mode=provider_mode,
         )
 
+    store.log_event(
+        "ENVELOPE_QUOTE_ALLOWED",
+        session_id=req.session_id,
+        mandate_id=envelope.mandate_id,
+        code="ALLOW_ENVELOPE",
+        cart_total_paise=quote.cart.total_paise,
+        cap_paise=envelope.max_total_paise,
+        payload={
+            "envelope_id": envelope.id,
+            "quote_hash": quote.quote_hash,
+            "recovery_applied": recovered,
+        },
+    )
+    if recovered:
+        store.log_event(
+            "ENVELOPE_RECOVERY_APPLIED",
+            session_id=req.session_id,
+            mandate_id=envelope.mandate_id,
+            code="IN_ENVELOPE_SUBSTITUTION",
+            cart_total_paise=quote.cart.total_paise,
+            cap_paise=envelope.max_total_paise,
+            payload={
+                "envelope_id": envelope.id,
+                "substitutions": [
+                    item.model_dump(mode="json") for item in quote.substitutions
+                ],
+            },
+        )
+
     if not envelope.mandate_id:
         raise ValueError("ACTIVE_ENVELOPE_WITHOUT_POLICY")
     mandate = store.get_mandate(envelope.mandate_id)
