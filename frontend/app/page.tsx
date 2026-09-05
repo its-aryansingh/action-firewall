@@ -42,6 +42,14 @@ const SCENARIOS: Array<{
   },
 ];
 
+const SUGGESTED_GOALS = [
+  "Buy supplies for a pasta dinner",
+  "Restock office snacks",
+  "Breakfast run",
+  "Quick lunch run",
+  "Team coffee restock",
+];
+
 function shortHash(value: string | null | undefined): string {
   if (!value) return "—";
   return value.slice(0, 10) + "…" + value.slice(-6);
@@ -86,7 +94,20 @@ export default function SafeAutopilotPage() {
       setEnvelope(created);
       setAttemptId(newIdentity("safe_attempt"));
     } catch (caught) {
-      setError(`Could not draft the approval: ${String(caught)}`);
+      const raw = String(caught);
+      let message = raw;
+      try {
+        const jsonMatch = raw.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (parsed.detail) {
+            message = typeof parsed.detail === "string" ? parsed.detail : JSON.stringify(parsed.detail);
+          }
+        }
+      } catch {
+        // fallback
+      }
+      setError(`Could not draft the approval: ${message}`);
     } finally {
       setBusy(false);
     }
@@ -216,6 +237,25 @@ export default function SafeAutopilotPage() {
                 disabled={busy || Boolean(envelope)}
               />
             </label>
+            {!envelope && (
+              <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                <span className="text-xs text-muted">Try:</span>
+                {SUGGESTED_GOALS.map((sug) => (
+                  <button
+                    key={sug}
+                    type="button"
+                    className="rounded-full border border-edge bg-panel px-2.5 py-1 text-xs text-muted hover:border-brand/50 hover:text-ink transition-colors"
+                    onClick={() => {
+                      setGoal(sug);
+                      setError(null);
+                    }}
+                    disabled={busy}
+                  >
+                    {sug}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="mt-4 grid gap-4 sm:grid-cols-3">
               <label className="text-sm text-muted">
                 Maximum total

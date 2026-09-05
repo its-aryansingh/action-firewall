@@ -185,7 +185,9 @@ def _deterministic_slots(goal: str) -> list[EnvelopeSlot]:
         for tag in item.get("tags", [])
     }
     tokens = [token for token in re.findall(r"[a-z]+", low) if token in vocabulary]
-    tag = tokens[0] if tokens else "staple"
+    if not tokens:
+        raise ValueError("GOAL_NOT_UNDERSTOOD")
+    tag = tokens[0]
     return [
         EnvelopeSlot(
             id="requested_item",

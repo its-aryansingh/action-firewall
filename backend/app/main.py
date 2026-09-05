@@ -88,7 +88,16 @@ def reset(session_id: str) -> dict:
 # ---------------- Safe Autopilot ----------------
 @app.post("/envelopes/draft", response_model=PurchaseEnvelope)
 def draft_purchase_envelope(body: EnvelopeDraftRequest) -> PurchaseEnvelope:
-    return autopilot.create_draft(body)
+    try:
+        return autopilot.create_draft(body)
+    except ValueError as exc:
+        if "GOAL_NOT_UNDERSTOOD" in str(exc):
+            raise HTTPException(
+                422,
+                "Goal not understood. Could not derive catalog tags from the request. "
+                "Try goals like 'Buy supplies for a pasta dinner', 'Restock office snacks', or 'Breakfast run'.",
+            ) from exc
+        raise HTTPException(422, str(exc)) from exc
 
 
 @app.get("/envelopes", response_model=list[PurchaseEnvelope])

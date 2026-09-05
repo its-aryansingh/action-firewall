@@ -278,3 +278,20 @@ def test_unknown_provider_outcome_holds_one_use_and_does_not_redispatch():
         event for event in store.audit_trail() if event["event"] == "ACTION_DISPATCH_STARTED"
     ]
     assert len(started) == 1
+
+
+def test_unintelligible_goal_produces_no_draft():
+    gibberish = "xyzzy blorp qwerty 123456789 non-existent nonsense"
+    with pytest.raises(ValueError, match="GOAL_NOT_UNDERSTOOD"):
+        autopilot.create_draft(
+            EnvelopeDraftRequest(
+                goal=gibberish,
+                max_total_rupees=500,
+            )
+        )
+    assert store.list_envelopes("user_demo") == []
+    drafted_events = [
+        event for event in store.audit_trail() if event["event"] == "ENVELOPE_DRAFTED"
+    ]
+    assert len(drafted_events) == 0
+
