@@ -560,12 +560,22 @@ function ResultCard({ result }: { result: AutopilotResponse }) {
 
       {result.receipt && (
         <div className="mt-4 rounded-xl border border-edge bg-ink p-3 font-mono text-[11px] text-muted">
-          <p className="text-slate-100">Application-signed Action Receipt</p>
-          <p className="mt-2">grant {shortHash(result.receipt.grant_id)}</p>
-          <p>quote {shortHash(result.receipt.quote_hash)}</p>
-          <p>args {shortHash(result.receipt.args_hash)}</p>
-          <p>signature {shortHash(result.receipt.signature)}</p>
-          <p className="mt-2 text-[10px]">HMAC-SHA256 · demo key in DEMO_MODE</p>
+          <div className="flex items-center justify-between">
+            <p className="text-slate-100 font-medium">Application-signed Action Receipt</p>
+            <span className="rounded-full bg-allow/10 border border-allow/30 px-2 py-0.5 text-[10px] text-allow">
+              auth core valid
+            </span>
+          </div>
+          <div className="mt-2 space-y-1">
+            <p className="text-slate-300 font-sans text-xs">Authorization core (stable across settlement):</p>
+            <p className="pl-2">grant {shortHash(result.receipt.grant_id)}</p>
+            <p className="pl-2">quote {shortHash(result.receipt.quote_hash)}</p>
+            <p className="pl-2">args {shortHash(result.receipt.args_hash)}</p>
+            <p className="pl-2">auth_sig {shortHash(result.receipt.authorization_signature ?? result.receipt.signature)}</p>
+            <p className="mt-2 text-slate-300 font-sans text-xs">Status block ({result.action_status}):</p>
+            <p className="pl-2">status_sig {shortHash(result.receipt.status_signature ?? result.receipt.signature)}</p>
+          </div>
+          <p className="mt-2 text-[10px] text-muted">Dual HMAC-SHA256 · auth core survives settlement</p>
         </div>
       )}
     </section>

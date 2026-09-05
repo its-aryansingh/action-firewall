@@ -14,6 +14,7 @@ from .models import (
     ChatResponse,
     CheckoutConfirmRequest,
     ActionReceipt,
+    ActionReceiptVerification,
     AutopilotExecuteRequest,
     AutopilotExecuteResponse,
     EnvelopeActivateRequest,
@@ -155,13 +156,14 @@ def get_receipt(grant_id: str) -> ActionReceipt:
     return build_receipt(grant)
 
 
-@app.post("/receipts/{grant_id}/verify")
-def verify_action_receipt(grant_id: str, receipt: ActionReceipt) -> dict:
+@app.post("/receipts/{grant_id}/verify", response_model=ActionReceiptVerification)
+def verify_action_receipt(
+    grant_id: str, receipt: ActionReceipt
+) -> ActionReceiptVerification:
     grant = store.get_action_grant(grant_id)
     if not grant:
         raise HTTPException(404, "Unknown action grant")
-    valid = verify_receipt(receipt, grant)
-    return {"valid": valid, "grant_id": grant_id, "application_signed": True}
+    return verify_receipt(receipt, grant)
 
 
 # ---------------- Mandates ----------------

@@ -70,11 +70,19 @@ export default function AuditPage() {
       </section>
 
       <section className="card">
-        <div className="label">Application event log</div>
-        <p className="mt-1 text-xs text-muted">
-          Authorization, dispatch, issuance, denial, and unknown-outcome events
-          are recorded with the policy version and opaque action-grant ID.
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="label">Application event log & Action Receipts</div>
+            <p className="mt-1 text-xs text-muted">
+              Authorization, dispatch, issuance, denial, and settlement events
+              are recorded with opaque action-grant IDs. Every issued action carries a dual-signed receipt
+              whose immutable authorization core survives settlement.
+            </p>
+          </div>
+          <span className="rounded-full border border-brand/30 bg-brand/10 px-2.5 py-1 text-[11px] text-brand">
+            Dual HMAC-SHA256
+          </span>
+        </div>
         <div className="mt-4 overflow-x-auto">
           <table className="w-full text-left text-[12px]">
             <thead className="text-muted">

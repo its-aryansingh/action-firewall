@@ -3,7 +3,7 @@ This is deliberate: it is the first thing a Razorpay engineer looks for."""
 from __future__ import annotations
 from enum import Enum
 from typing import Any, Literal, Optional
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, computed_field, model_validator
 
 
 class Window(str, Enum):
@@ -323,6 +323,32 @@ class ActionGrant(BaseModel):
     updated_at: float
 
 
+class ReceiptAuthorization(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    grant_id: str
+    envelope_id: str | None = None
+    envelope_version: int | None = None
+    envelope_hash: str | None = None
+    policy_id: str
+    policy_version: int
+    policy_hash: str
+    action_name: str
+    args_hash: str
+    cart_hash: str
+    quote_hash: str | None = None
+    purchase_attempt_id: str
+    created_at: float
+
+
+class ReceiptStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    state: ActionState
+    provider_ref: str | None = None
+    updated_at: float
+
+
 class ActionReceipt(BaseModel):
     grant_id: str
     envelope_id: str | None = None
@@ -336,12 +362,76 @@ class ActionReceipt(BaseModel):
     cart_hash: str
     quote_hash: str | None = None
     purchase_attempt_id: str
+    created_at: float
+
     state: ActionState
     provider_ref: str | None = None
-    created_at: float
     updated_at: float
+
+    authorization_signature: str
+    status_signature: str
+    signature: str = ""
     signature_algorithm: Literal["HMAC-SHA256"] = "HMAC-SHA256"
-    signature: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            auth = data.get("authorization")
+            if isinstance(auth, dict):
+                for k, v in auth.items():
+                    data.setdefault(k, v)
+            st = data.get("status")
+            if isinstance(st, dict):
+                for k, v in st.items():
+                    data.setdefault(k, v)
+            if not data.get("signature") and data.get("authorization_signature"):
+                data["signature"] = data["authorization_signature"]
+            elif not data.get("authorization_signature") and data.get("signature"):
+                data["authorization_signature"] = data["signature"]
+            if not data.get("status_signature") and data.get("signature"):
+                data["status_signature"] = data["signature"]
+        return data
+
+    @computed_field
+    @property
+    def authorization(self) -> ReceiptAuthorization:
+        return ReceiptAuthorization(
+            grant_id=self.grant_id,
+            envelope_id=self.envelope_id,
+            envelope_version=self.envelope_version,
+            envelope_hash=self.envelope_hash,
+            policy_id=self.policy_id,
+            policy_version=self.policy_version,
+            policy_hash=self.policy_hash,
+            action_name=self.action_name,
+            args_hash=self.args_hash,
+            cart_hash=self.cart_hash,
+            quote_hash=self.quote_hash,
+            purchase_attempt_id=self.purchase_attempt_id,
+            created_at=self.created_at,
+        )
+
+    @computed_field
+    @property
+    def status(self) -> ReceiptStatus:
+        return ReceiptStatus(
+            state=self.state,
+            provider_ref=self.provider_ref,
+            updated_at=self.updated_at,
+        )
+
+
+class ActionReceiptVerification(BaseModel):
+    valid: bool
+    authorization_valid: bool
+    status_current: bool
+    status_as_of: float
+    grant_id: str
+    application_signed: bool = True
+
+    def __bool__(self) -> bool:
+        return self.authorization_valid
 
 
 class AutopilotExecuteResponse(BaseModel):
