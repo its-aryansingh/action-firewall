@@ -95,6 +95,128 @@ class DecisionCode(str, Enum):
     BLOCK_INVALID_ACTION = "BLOCK_INVALID_ACTION"
 
 
+class EnvelopeStatus(str, Enum):
+    DRAFT = "draft"
+    ACTIVE = "active"
+    CONSUMED = "consumed"
+    REVOKED = "revoked"
+
+
+class EnvelopeSlot(BaseModel):
+    """A server-normalized requirement that a quote must satisfy exactly once."""
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    label: str
+    required_tags: list[str] = Field(..., min_length=1)
+    quantity: StrictInt = Field(default=1, ge=1, le=20)
+
+
+class PurchaseEnvelope(BaseModel):
+    """One revocable shopper approval for one bounded purchase job."""
+    id: str
+    user_id: str
+    agent_id: str
+    label: str
+    goal: str
+    merchant_id: str
+    currency: Literal["INR"] = "INR"
+    max_total_paise: int = Field(..., gt=0)
+    fulfillment_profile_id: str
+    delivery_deadline: float
+    expires_at: float
+    slots: list[EnvelopeSlot] = Field(..., min_length=1)
+    blocked_categories: list[str] = Field(default_factory=list)
+    max_purchases: Literal[1] = 1
+    action_name: Literal["create_payment_link"] = "create_payment_link"
+    status: EnvelopeStatus
+    version: int = Field(..., ge=1)
+    envelope_hash: str
+    mandate_id: str | None = None
+    created_at: float
+    updated_at: float
+
+
+class EnvelopeDraftRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    goal: str = Field(..., min_length=3, max_length=280)
+    max_total_rupees: StrictInt = Field(..., ge=1, le=1_000_000)
+    merchant_id: Literal["merchant_demo"] = "merchant_demo"
+    fulfillment_profile_id: Literal["saved_office"] = "saved_office"
+    expires_in_minutes: StrictInt = Field(default=30, ge=5, le=1440)
+    delivery_in_minutes: StrictInt = Field(default=45, ge=15, le=1440)
+    user_id: str = "user_demo"
+
+
+class EnvelopeActivateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_envelope_hash: str = Field(..., min_length=64, max_length=64)
+
+
+class EnvelopeRevokeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(..., ge=1)
+
+
+class QuoteSubstitution(BaseModel):
+    slot_id: str
+    selected_sku: str
+    preferred_sku: str | None = None
+    reason: str
+
+
+class MerchantQuote(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    merchant_id: str
+    currency: Literal["INR"] = "INR"
+    fulfillment_profile_id: str
+    delivery_eta: float
+    cart: Cart
+    substitutions: list[QuoteSubstitution] = Field(default_factory=list)
+    quote_hash: str
+
+
+class PolicyDelta(BaseModel):
+    field: str
+    expected: str
+    actual: str
+    recovery: Literal["repair", "fresh_approval", "stop"]
+
+
+class EnvelopeDecision(BaseModel):
+    allowed: bool
+    code: str
+    envelope_id: str
+    envelope_version: int
+    quote_total_paise: int
+    deltas: list[PolicyDelta] = Field(default_factory=list)
+    human_message: str
+
+
+class AutopilotScenario(str, Enum):
+    NORMAL = "normal"
+    STOCK_LOSS = "stock_loss"
+    PRICE_DRIFT = "price_drift"
+    MERCHANT_DRIFT = "merchant_drift"
+    FULFILLMENT_DRIFT = "fulfillment_drift"
+    TIMEOUT_AFTER_DISPATCH = "timeout_after_dispatch"
+
+
+class AutopilotExecuteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    envelope_id: str
+    expected_envelope_version: int = Field(..., ge=1)
+    expected_envelope_hash: str = Field(..., min_length=64, max_length=64)
+    session_id: str
+    idempotency_key: str | None = None
+    scenario: AutopilotScenario = AutopilotScenario.NORMAL
+
+
 class MandateDecision(BaseModel):
     """The single object the agent is allowed to act on. If allowed is False,
     no Razorpay MCP tool is ever reached — the block is at the logic layer."""
@@ -165,6 +287,10 @@ class AuthorizationRequest(BaseModel):
     cart: Cart
     cart_hash: str
     purchase_attempt_id: str
+    envelope_id: str | None = None
+    expected_envelope_version: int | None = Field(default=None, ge=1)
+    expected_envelope_hash: str | None = None
+    quote: MerchantQuote | None = None
     ttl_seconds: int = Field(default=180, ge=1, le=900)
 
 
@@ -185,12 +311,49 @@ class ActionGrant(BaseModel):
     amount_paise: int = Field(..., ge=0)
     currency: str
     purchase_attempt_id: str
+    envelope_id: str | None = None
+    envelope_version: int | None = None
+    envelope_hash: str | None = None
+    quote_hash: str | None = None
     state: ActionState
     expires_at: float | None = None
     provider_ref: str | None = None
     result: dict[str, Any] | None = None
     created_at: float
     updated_at: float
+
+
+class ActionReceipt(BaseModel):
+    grant_id: str
+    envelope_id: str | None = None
+    envelope_version: int | None = None
+    envelope_hash: str | None = None
+    policy_id: str
+    policy_version: int
+    policy_hash: str
+    action_name: str
+    args_hash: str
+    cart_hash: str
+    quote_hash: str | None = None
+    purchase_attempt_id: str
+    state: ActionState
+    provider_ref: str | None = None
+    created_at: float
+    updated_at: float
+    signature_algorithm: Literal["HMAC-SHA256"] = "HMAC-SHA256"
+    signature: str
+
+
+class AutopilotExecuteResponse(BaseModel):
+    envelope: PurchaseEnvelope
+    quote: MerchantQuote | None = None
+    envelope_decision: EnvelopeDecision
+    action_status: ActionState | None = None
+    grant_id: str | None = None
+    payment_link: str | None = None
+    receipt: ActionReceipt | None = None
+    recovery_applied: bool = False
+    provider_mode: str
 
 
 class AuthorizationOutcome(BaseModel):

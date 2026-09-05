@@ -233,7 +233,7 @@ def _heuristic_plan(message: str, retrieved: list[dict], cart: Cart) -> PlannerO
                 "SKU-PAS-002",
                 "SKU-SAU-001",
                 "SKU-VEG-001",
-                "SKU-HER-001",
+                "SKU-VEG-004",
             ),
         }
         selected: tuple[str, ...] = ()
