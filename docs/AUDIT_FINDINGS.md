@@ -77,7 +77,7 @@ succeeded. It now raises `ActionInProgress`, which is a `MandateViolation`
 subclass, so fail-closed behaviour is unchanged.
 → `test_duplicate_dispatch_of_issued_grant_is_in_progress_not_a_violation`
 
-## Not fixed — disclosed instead
+## Remaining findings and fixes landed after this audit
 
 Now stated plainly in the README's *Honest limitations*, because the previous
 wording understated them.
@@ -92,16 +92,17 @@ designed and does not help: it proves the confirmer knows the cart, not that the
 are the shopper. **This is the finding to name yourself before a reviewer names
 it.**
 
-**The heuristic planner adds unrequested items.** On any message it cannot
-parse it falls back to adding the top four retrieved items — "what are your
-delivery hours" puts several hundred rupees in the cart. Fires with the shipped
-catalog, no adversary needed. Nothing dispatches without exact confirmation, so
-it cannot move money alone.
+**Fixed after the audit — ambiguous retrieval no longer creates a cart.** The
+deterministic planner now emits no cart operation unless it recognizes an
+explicit product or a small server-owned shopping-goal template. A regression
+test sends an informational dinner message and asserts an empty cart, no
+confirmation, and no authorization attempt.
 
-**Catalog text reaches the prompt unframed.** Product names and tags are
-concatenated into the planner's user turn with no delimiting, and a name whose
-distinctive token is a common word can pull its SKU into an unrelated message.
-Injection cannot set a price, invent a SKU, or name an action.
+**Partially fixed after the audit — catalog text is explicitly untrusted.** The
+planner prompt now labels catalog strings as data and says instruction-like
+product text must be ignored. Server-owned SKU, price and category rehydration
+still protects the action boundary. The remaining gap is empirical: arbitrary
+language drafting still needs a published multi-model prompt-injection corpus.
 
 **Unresolved exposure never ages out of the window.** Settled spend rolls off a
 weekly window; `action_issued` / `dispatching` / `unknown` do not. This is the
