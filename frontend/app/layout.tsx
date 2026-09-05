@@ -3,9 +3,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "Action Firewall — Agentic Checkout Authorization",
+  title: "Action Firewall — Safe Autopilot Checkout",
   description:
-    "Agentic commerce is an authorization problem, not a checkout problem.",
+    "One approval for the job. Zero authority beyond it.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -18,12 +18,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <span className="text-brand">Action Firewall</span>
             </Link>
             <nav className="flex gap-4 text-sm text-muted">
-              <Link href="/" className="hover:text-slate-100">Chat</Link>
-              <Link href="/mandate" className="hover:text-slate-100">Policy</Link>
+              <Link href="/" className="hover:text-slate-100">Autopilot</Link>
+              <Link href="/baseline" className="hover:text-slate-100">Baseline</Link>
+              <Link href="/mandate" className="hover:text-slate-100">Legacy policy</Link>
               <Link href="/audit" className="hover:text-slate-100">Evidence</Link>
             </nav>
             <span className="ml-auto rounded-full border border-edge px-3 py-1 text-xs text-muted">
-              Razorpay MCP-compatible actuator
+              Provider mode shown per action
             </span>
           </div>
         </header>

@@ -26,6 +26,20 @@ export default function AuditPage() {
     <div className="space-y-6">
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Stat
+          label="Purchase Envelopes activated"
+          value={metrics?.envelopes_activated ?? 0}
+        />
+        <Stat
+          label="In-envelope recoveries"
+          value={metrics?.in_envelope_recoveries ?? 0}
+          tone="allow"
+        />
+        <Stat
+          label="Out-of-envelope quotes refused"
+          value={metrics?.envelope_quotes_blocked ?? 0}
+          tone="block"
+        />
+        <Stat
           label="Explicit authorization attempts"
           value={metrics?.authorization_attempts ?? 0}
         />
