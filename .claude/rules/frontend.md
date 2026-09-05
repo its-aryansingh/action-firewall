@@ -14,6 +14,9 @@ paths:
 - User-facing language says policy, authorization, action issued, and confirmed
   payment. Do not present link creation as paid or settled.
 - Every denied, stale, in-progress, and unknown state must show one safe next action.
+- Render every authoritative Purchase Envelope field before activation. A model
+  summary or natural-language goal is never a substitute for structured approval.
+- Show a field-level Policy Delta whenever execution would require broader authority.
 - Never add a browser-side path that can mint a grant, compute authoritative prices,
   or invoke Razorpay directly.
 - Run the production build after UI or API-contract changes.

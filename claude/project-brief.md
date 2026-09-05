@@ -1,6 +1,8 @@
 # Action Firewall — authoritative project brief
 
-**Status:** submission-ready baseline handed to Claude Code on 3 September 2026
+**Status:** Safe Autopilot Checkout v2 implementation authorized on 5 September
+2026; the exact-confirmation flow remains the measured baseline until v2 passes its
+acceptance gate
 
 **Primary track:** Razorpay AI Buildathon Track 01 — AI Growth & Agentic Commerce
 
@@ -8,21 +10,27 @@
 
 ## Thesis
 
-An AI agent may propose or assemble a cart, but only a deterministic, versioned,
-shopper-defined application policy may authorize one exact Razorpay payment action.
+A shopper approves one structured, revocable Purchase Envelope for a bounded
+shopping job. An AI may plan and repair a checkout inside it, but deterministic code
+alone may prove envelope membership and derive one exact, one-use Razorpay Action
+Grant.
 
 The product is an authorization boundary, not a generic shopping chatbot and not a
 bank, NPCI, UPI, or UAP mandate implementation.
 
 ## Frozen decision
 
-Continue Action Firewall. Do not pivot to Retry Budget unless it first produces
-verified primary-source constraints, a runnable batch harness, an idempotent action
-surface, and measured incremental recovery against fixed-schedule and oracle
-baselines. A finished, inspectable Track 01 submission is stronger than a speculative
-Track 03 rebuild under deadline pressure.
+Continue Action Firewall as **Safe Autopilot Checkout**. Do not pivot tracks or
+replace the working action runtime. Preserve the exact-confirmation flow as a
+feature-flagged baseline while adding a Purchase Envelope path that removes repeated
+cart approval only when the exact final quote is deterministically inside the
+shopper-approved envelope.
 
-## Current workflow
+Retry Budget remains research-only unless it first produces verified primary-source
+constraints, a runnable batch harness, an idempotent action surface, and measured
+incremental recovery against fixed-schedule and oracle baselines.
+
+## Implemented baseline workflow
 
 ```text
 catalog retrieval -> AI cart proposal -> deterministic preview
@@ -39,6 +47,30 @@ Provider outcomes are classified as `ACTION_ISSUED`, `SETTLED`,
 `ACTION_ISSUED`; only separate authoritative provider evidence can establish later
 payment or settlement state.
 
+## V2 target workflow
+
+```text
+shopper goal -> AI drafts Purchase Envelope -> trusted structured review
+             -> explicit envelope activation (version/hash bound)
+             -> AI plans candidate against server-owned catalog facts
+             -> fresh Merchant Quote -> deterministic envelope membership check
+                 |-- valid -> atomic envelope consumption + headroom reservation
+                 |          -> exact one-use Action Grant -> one-owner dispatch
+                 `-- invalid -> deterministic Policy Delta
+                               -> policy-eligible recovery candidates
+                               -> AI ranks only eligible candidates
+                               -> re-verify or request delta-only approval
+```
+
+The human authorization object is the canonical Purchase Envelope. The machine
+authorization object remains the exact Action Grant. The model may draft, plan,
+rank, and explain; it may not activate an envelope, decide membership, define trusted
+catalog facts, mint a grant, widen a delta, or dispatch an action.
+
+The first v2 release is deliberately limited to one merchant, INR, one purchase per
+envelope, one saved fulfilment profile, a server-owned product taxonomy, and the
+registered `create_payment_link` action.
+
 ## Proof baseline
 
 - 51 deterministic backend tests passing.
@@ -52,17 +84,22 @@ payment or settlement state.
 - Provider timeout becomes `UNKNOWN`, retains exposure, and cannot auto-retry.
 - SQLite triggers reject audit-row updates and deletes.
 
-## Five-minute demo contract
+## V2 five-minute demo contract
 
-1. Show the active ₹1,000 policy.
-2. Propose the ₹486 pasta cart; prove chat made no payment call.
-3. Grow the cart to ₹2,034; explicit authorization is denied before actuation.
-4. Remove premium items; explicitly authorize the exact ₹486 cart and show one
-   `ACTION_ISSUED` simulated payment link.
-5. Revoke policy version 2; the next ₹549 coffee authorization is denied.
-6. Show audit metrics, 61 tests, concurrency ownership, and `UNKNOWN` semantics.
+1. Draft and approve one vegetarian pasta-dinner Purchase Envelope under ₹700.
+2. Plan a valid cart and derive one exact Action Grant without a second cart approval.
+3. Introduce deterministic stock or price drift; deny an invalid premium candidate
+   before transport and recover to a valid substitute inside the same envelope.
+4. Change merchant or fulfilment profile; refuse execution and display the exact
+   Policy Delta rather than silently widening authority.
+5. Show eight concurrent claims producing one dispatch owner and demonstrate
+   `UNKNOWN` retaining exposure without blind retry.
+6. Show the system evaluation against unrestricted, exact-confirmation, hard-block,
+   and envelope-plus-recovery baselines.
 
-Canonical narration and failure handling live in `docs/DEMO_SCRIPT.md`.
+Until the v2 demo is implemented and verified, `docs/DEMO_SCRIPT.md` remains the
+reliable v1 fallback. The v2 target narration is specified in
+`docs/PRODUCT_REIDEATION_2026-09-05.md`.
 
 ## Key implementation files
 
@@ -89,18 +126,16 @@ Canonical narration and failure handling live in `docs/DEMO_SCRIPT.md`.
 
 ## Next development order
 
-P0 before feature work:
-
-1. Record and verify the sub-five-minute submission video.
-2. Repeat the documented quick start from a fresh clone.
-3. Confirm the official application form, deadline, and submission fields.
-
-P1 only after P0 is frozen:
-
-1. Add a deterministic reconciliation adapter and signed-webhook fixture.
-2. Publish a machine-readable adversarial corpus and evaluation report.
-3. Demonstrate one Remote MCP test-mode link separately from the offline proof.
+1. Remove ambiguous planner mutation, frame catalog text as untrusted data, and make
+   the demo state disposable and truthfully labelled.
+2. Add canonical Purchase Envelope draft/activation and a pure membership verifier.
+3. Atomically consume one envelope occurrence and derive the existing exact grant.
+4. Add deterministic Policy Delta and policy-eligible recovery; the model may rank
+   only eligible candidates.
+5. Publish a 100-case system evaluation with four baselines and honest exceptions.
+6. Add signed Action Receipts, a verifier, and provider reconciliation fixtures.
+7. Replace the video/deck only after the new end-to-end path passes from a fresh clone.
 
 Do not add a multi-agent swarm, model router, second payment action, broad MCP
-pass-through, production deployment, or retry optimizer before the submission path
-is recorded and frozen.
+pass-through, UPI Reserve Pay simulation presented as live, or retry optimizer before
+the v2 path and evaluation are frozen.

@@ -8,7 +8,12 @@ paths:
 - Keep `mandate.verify()` pure: no database, network, clock, or environment I/O.
 - Represent money as integer paise. Reject floating-point money at boundaries.
 - Keep `/chat` proposal-only. State-changing payment work begins only in the exact
-  confirmation flow.
+  confirmation baseline or after explicit activation of a canonical Purchase
+  Envelope through the Safe Autopilot execution path.
+- Keep envelope membership verification pure. Model output may draft or rank, but
+  must never activate an envelope or decide that a quote is authorized.
+- Generate recovery choices from deterministic policy-eligible candidates and
+  re-verify the selected quote before authorization.
 - Re-read current policy and account for live exposure inside the same write
   transaction that reserves headroom.
 - Do not move idempotent replay handling behind a policy check that includes the

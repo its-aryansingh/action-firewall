@@ -15,7 +15,10 @@
 ## Non-negotiable authorization invariants
 
 1. `POST /chat` is proposal-only and cannot dispatch a payment action.
-2. Authorization requires separate confirmation of the exact current cart hash.
+2. The exact-confirmation baseline requires separate confirmation of the current cart
+   hash. Safe Autopilot instead requires explicit activation of a canonical Purchase
+   Envelope; only a final quote proven to be inside that envelope may derive an exact
+   Action Grant without another cart approval.
 3. Prices, totals, action arguments, and hashes are computed server-side.
 4. All money uses integer paise; rupees are presentation only.
 5. Current policy evaluation and headroom reservation are atomic.
@@ -29,14 +32,21 @@
 10. `ACTION_ISSUED` is not payment, capture, settlement, or recovered revenue.
 11. Audit evidence is append-only at the application database layer, not
     cryptographically immutable.
+12. LLMs may draft envelopes, plan carts, rank eligible recoveries, and explain
+    decisions. They may not activate authority, define trusted catalog facts, decide
+    envelope membership, widen policy, mint grants, or dispatch actions.
+13. An invalid candidate may be repaired only from a deterministic eligible set. If
+    no eligible candidate exists, the system must present an exact Policy Delta or
+    abort.
 
 If a requested change weakens any invariant, stop and explain the conflict before
 editing code.
 
 ## Product and evidence language
 
-- User-facing term: **shopper-defined application policy**. Existing `mandate`
-  routes, tables, and Python names are compatibility debt, not a banking claim.
+- User-facing terms: **Purchase Envelope**, **Policy Delta**, **Action Grant**, and
+  **Action Receipt**. Existing `mandate` routes, tables, and Python names are
+  compatibility debt, not a banking claim.
 - Vulcan is strategic context only. Never claim a Vulcan API, SDK, model endpoint,
   partnership, or private Razorpay access.
 - Never claim NPCI/UAP compliance, zero chargebacks, prevented fraud value, or
