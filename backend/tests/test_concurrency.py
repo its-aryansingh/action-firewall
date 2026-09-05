@@ -224,3 +224,79 @@ def test_same_session_retry_is_idempotent_end_to_end(mandate):
     assert second.tools[0].result.get("replayed") is True
     assert second.tools[0].result.get("id") == ref
     assert store.spent_in_window(mandate.id, mandate.window) == 89_900
+
+
+def test_authority_ceiling_is_atomic_under_concurrency(tmp_path, monkeypatch):
+    """N threads across separate envelopes collide at user ceiling; exactly k succeed."""
+    from app import autopilot
+    from app.mcp_client import reset_simulated_provider
+    from app.models import (
+        AutopilotExecuteRequest,
+        AutopilotScenario,
+        DecisionCode,
+        EnvelopeActivateRequest,
+        EnvelopeDraftRequest,
+        Window,
+    )
+
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "concurrency-ceiling.db"))
+    monkeypatch.setenv("DEMO_MODE", "true")
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+    get_settings.cache_clear()
+    reset_simulated_provider()
+    store.init_db()
+
+    # Ceiling is ₹1,000 (100,000 paise). Each pasta dinner job is ₹486 (48,600 paise).
+    # Exactly 2 will fit (2 * 486 = ₹972 <= ₹1,000; 3 * 486 = ₹1,458 > ₹1,000).
+    store.set_authority_ceiling("user_demo", 100_000, Window.WEEKLY)
+
+    envelopes = []
+    for i in range(THREADS):
+        draft = autopilot.create_draft(
+            EnvelopeDraftRequest(
+                goal="Buy supplies for a pasta dinner",
+                max_total_rupees=600,
+            )
+        )
+        active = autopilot.activate(
+            draft.id,
+            EnvelopeActivateRequest(expected_envelope_hash=draft.envelope_hash),
+        )
+        envelopes.append(active)
+
+    def execute_env(i):
+        env = envelopes[i]
+        return autopilot.execute(
+            AutopilotExecuteRequest(
+                envelope_id=env.id,
+                expected_envelope_version=env.version,
+                expected_envelope_hash=env.envelope_hash,
+                session_id=f"session-concurrent-{i}",
+                idempotency_key=f"key-concurrent-{i}",
+                scenario=AutopilotScenario.NORMAL,
+            )
+        )
+
+    results = _run(execute_env, n=THREADS)
+    succeeded = [
+        r
+        for r in results
+        if not isinstance(r, Exception) and r.envelope_decision.allowed
+    ]
+    denied = [
+        r
+        for r in results
+        if not isinstance(r, Exception) and not r.envelope_decision.allowed
+    ]
+
+    assert len(succeeded) == 2, f"expected 2 winners, got {len(succeeded)}"
+    assert len(denied) == 6, f"expected 6 denied, got {len(denied)}"
+    for d in denied:
+        assert d.envelope_decision.code == DecisionCode.BLOCK_USER_CEILING_EXCEEDED.value
+
+    authority = store.get_authority_view("user_demo")
+    expected_spent = sum(s.quote.cart.total_paise for s in succeeded)
+    assert authority["total_exposure_paise"] == expected_spent
+    assert authority["total_exposure_paise"] <= authority["ceiling_paise"]
+    assert authority["remaining_headroom_paise"] == authority["ceiling_paise"] - expected_spent
+

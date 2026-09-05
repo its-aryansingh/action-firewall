@@ -1,16 +1,23 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { api, inr, type AuditEvent, type Metrics } from "@/lib/api";
+import { api, inr, type AuditEvent, type AuthorityView, type Metrics } from "@/lib/api";
 
 export default function AuditPage() {
   const [rows, setRows] = useState<AuditEvent[]>([]);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
+  const [authority, setAuthority] = useState<AuthorityView | null>(null);
 
   async function load() {
     try {
-      setRows(await api.audit());
-      setMetrics(await api.metrics());
+      const [auditRows, metricData, authData] = await Promise.all([
+        api.audit(),
+        api.metrics(),
+        api.authority(),
+      ]);
+      setRows(auditRows);
+      setMetrics(metricData);
+      setAuthority(authData);
     } catch {
       // Keep the last verified snapshot visible during a transient refresh error.
     }
@@ -24,6 +31,34 @@ export default function AuditPage() {
 
   return (
     <div className="space-y-6">
+      <section className="overflow-hidden rounded-2xl border border-edge bg-panel p-5">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <div className="label">User Authority Ceiling · Cross-Envelope Fence</div>
+            <h2 className="mt-1 text-xl font-semibold">
+              {authority ? inr(authority.ceiling_paise) : "₹2,000"} / {authority?.window ?? "weekly"}
+            </h2>
+            <p className="mt-1 text-xs text-muted">
+              Aggregate hard stop spanning all Purchase Envelopes for user_demo. Enforced atomically in SQLite.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-6 text-sm">
+            <div>
+              <p className="text-xs text-muted">Total Exposure</p>
+              <p className="font-semibold text-slate-100">{authority ? inr(authority.total_exposure_paise) : "₹0"}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted">Remaining Headroom</p>
+              <p className="font-semibold text-allow">{authority ? inr(authority.remaining_headroom_paise) : "₹2,000"}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted">Active Envelopes</p>
+              <p className="font-semibold text-slate-100">{authority?.active_envelopes_count ?? 0}</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Stat
           label="Purchase Envelopes activated"

@@ -166,6 +166,11 @@ def verify_action_receipt(
     return verify_receipt(receipt, grant)
 
 
+@app.get("/authority")
+def get_authority(user_id: str = "user_demo") -> dict:
+    return store.get_authority_view(user_id)
+
+
 # ---------------- Mandates ----------------
 @app.get("/mandates", response_model=list[Mandate])
 def list_mandates(user_id: str = "user_demo") -> list[Mandate]:

@@ -116,21 +116,24 @@ Retrying one blocked cart five times reports five times the value. The demo
 figure of ₹2,583 is two distinct denials and is accurate; the metric is only
 inflatable under retry.
 
-## Not fixed — disclosed instead
+## Fixed after the audit — Cross-envelope ceiling and receipt authorization core
 
-**No ceiling spans envelopes.** Each activated Purchase Envelope mints its own
-spend fence, so five approved ₹600 jobs are five independent ₹600 caps and
-nothing aggregates them. This follows from one envelope being one human
-approval, but it means the system cannot yet answer "what is this agent's
-total outstanding authority across all jobs".
-*Reproduction:* activate five ₹600 envelopes and execute each; total issued is
-₹2,085 across 5 payment links with no policy object able to refuse.
+**User authority ceiling across envelopes.** Previously, each activated Purchase Envelope
+minted its own spend fence with no aggregate ceiling across jobs. We implemented
+`authority_ceilings` with `store.get_authority_view()` and enforced the ceiling atomically
+inside `store.authorize_and_reserve` under `BEGIN IMMEDIATE`. Any reservation that would push
+the user's committed + pending exposure over the configured ceiling is rejected with
+`BLOCK_USER_CEILING_EXCEEDED`. Concurrency tests verify that multiple parallel envelopes
+cannot exceed the user's ceiling.
+→ `tests/test_concurrency.py::test_authority_ceiling_is_atomic_under_concurrency`, `GET /authority`
 
-**A receipt attests to a state snapshot, not to the authorization.** `state`
-and `updated_at` are inside the signed body, so a receipt issued at
-`action_issued` stops verifying once the grant legitimately settles.
-*Reproduction:* capture a receipt at `action_issued`, call
-`store.settle_issued_action`, re-run `verify_receipt` — returns `False`.
+**Receipt authorization core separated from mutable status.** Previously, `state` and
+`updated_at` were inside the single signed body, causing a valid receipt issued at
+`action_issued` to fail verification once settled. We refactored `ActionReceipt` into an
+immutable `ReceiptAuthorization` (signed by `authorization_signature`) and a mutable
+`ReceiptStatus` (signed by `status_signature`). When a grant settles, its authorization core
+remains fully valid and verifiable, while status reflects settlement cleanly.
+→ `test_safe_autopilot.py::test_action_receipt_authorization_core_survives_settlement`
 
 ## Known, unfixed, lower risk
 
