@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     # App
     db_path: str = "./mandates.db"
     demo_mode: bool = True
+    action_receipt_secret: str = ""
 
     @property
     def mcp_auth_header(self) -> str:

@@ -5,17 +5,25 @@ import time
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import agent, catalog, reconciler, store
+from . import agent, autopilot, catalog, reconciler, store
 from .config import get_settings
 from .mcp_client import get_client
 from .models import (
     ChatRequest,
     ChatResponse,
     CheckoutConfirmRequest,
+    ActionReceipt,
+    AutopilotExecuteRequest,
+    AutopilotExecuteResponse,
+    EnvelopeActivateRequest,
+    EnvelopeDraftRequest,
+    EnvelopeRevokeRequest,
     Mandate,
     MandateCreate,
     MandateUpdate,
+    PurchaseEnvelope,
 )
+from .receipts import build_receipt, verify_receipt
 
 app = FastAPI(
     title="Action Firewall — Policy-bound Agentic Checkout",
@@ -72,6 +80,76 @@ def confirm_checkout(req: CheckoutConfirmRequest) -> ChatResponse:
 def reset(session_id: str) -> dict:
     agent.reset_session(session_id)
     return {"ok": True}
+
+
+# ---------------- Safe Autopilot ----------------
+@app.post("/envelopes/draft", response_model=PurchaseEnvelope)
+def draft_purchase_envelope(body: EnvelopeDraftRequest) -> PurchaseEnvelope:
+    return autopilot.create_draft(body)
+
+
+@app.get("/envelopes", response_model=list[PurchaseEnvelope])
+def list_purchase_envelopes(user_id: str = "user_demo") -> list[PurchaseEnvelope]:
+    return store.list_envelopes(user_id)
+
+
+@app.get("/envelopes/{envelope_id}", response_model=PurchaseEnvelope)
+def get_purchase_envelope(envelope_id: str) -> PurchaseEnvelope:
+    envelope = store.get_envelope(envelope_id)
+    if not envelope:
+        raise HTTPException(404, "Unknown Purchase Envelope")
+    return envelope
+
+
+@app.post("/envelopes/{envelope_id}/activate", response_model=PurchaseEnvelope)
+def activate_purchase_envelope(
+    envelope_id: str, body: EnvelopeActivateRequest
+) -> PurchaseEnvelope:
+    try:
+        return autopilot.activate(envelope_id, body)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@app.post("/envelopes/{envelope_id}/revoke", response_model=PurchaseEnvelope)
+def revoke_purchase_envelope(
+    envelope_id: str, body: EnvelopeRevokeRequest
+) -> PurchaseEnvelope:
+    try:
+        return autopilot.revoke(envelope_id, body)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@app.post("/autopilot/execute", response_model=AutopilotExecuteResponse)
+def execute_autopilot(body: AutopilotExecuteRequest) -> AutopilotExecuteResponse:
+    try:
+        return autopilot.execute(body)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@app.get("/receipts/{grant_id}", response_model=ActionReceipt)
+def get_receipt(grant_id: str) -> ActionReceipt:
+    grant = store.get_action_grant(grant_id)
+    if not grant:
+        raise HTTPException(404, "Unknown action grant")
+    return build_receipt(grant)
+
+
+@app.post("/receipts/{grant_id}/verify")
+def verify_action_receipt(grant_id: str, receipt: ActionReceipt) -> dict:
+    grant = store.get_action_grant(grant_id)
+    if not grant:
+        raise HTTPException(404, "Unknown action grant")
+    valid = verify_receipt(receipt, grant)
+    return {"valid": valid, "grant_id": grant_id, "application_signed": True}
 
 
 # ---------------- Mandates ----------------

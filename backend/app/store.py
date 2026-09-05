@@ -12,6 +12,7 @@ from .authorization import (
     policy_payload,
 )
 from .config import get_settings
+from .envelope import compute_envelope_hash
 from .models import (
     ActionContext,
     ActionGrant,
@@ -23,6 +24,9 @@ from .models import (
     MandateCreate,
     MandateDecision,
     MandateUpdate,
+    EnvelopeStatus,
+    PurchaseEnvelope,
+    EnvelopeSlot,
     Reservation,
     Window,
 )
@@ -54,6 +58,32 @@ CREATE TABLE IF NOT EXISTS policy_revisions (
     PRIMARY KEY (mandate_id, version)
 );
 
+CREATE TABLE IF NOT EXISTS purchase_envelopes (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    label TEXT NOT NULL,
+    goal TEXT NOT NULL,
+    merchant_id TEXT NOT NULL,
+    currency TEXT NOT NULL,
+    max_total_paise INTEGER NOT NULL,
+    fulfillment_profile_id TEXT NOT NULL,
+    delivery_deadline REAL NOT NULL,
+    expires_at REAL NOT NULL,
+    slots_json TEXT NOT NULL,
+    blocked_categories TEXT NOT NULL DEFAULT '[]',
+    max_purchases INTEGER NOT NULL DEFAULT 1,
+    action_name TEXT NOT NULL,
+    status TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    envelope_hash TEXT NOT NULL,
+    mandate_id TEXT,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_envelope_user
+    ON purchase_envelopes(user_id, created_at DESC);
+
 -- One row is both the headroom hold and the opaque authorization receipt.
 -- Keeping the lifecycle in one record prevents a receipt and reservation from
 -- disagreeing after a crash or concurrent retry.
@@ -78,6 +108,10 @@ CREATE TABLE IF NOT EXISTS spend_ledger (
     cart_hash TEXT,
     currency TEXT,
     purchase_attempt_id TEXT,
+    envelope_id TEXT,
+    envelope_version INTEGER,
+    envelope_hash TEXT,
+    quote_hash TEXT,
     result_json TEXT,
     error TEXT,
     dispatch_token TEXT,
@@ -89,7 +123,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_ledger_idem
     ON spend_ledger(mandate_id, idempotency_key)
     WHERE idempotency_key IS NOT NULL
       AND status NOT IN ('released','cancelled','definitive_failure');
-
 CREATE TABLE IF NOT EXISTS audit_log (
     id TEXT PRIMARY KEY,
     session_id TEXT,
@@ -192,6 +225,10 @@ def _migrate(cx: sqlite3.Connection) -> None:
         ("cart_hash", "ALTER TABLE spend_ledger ADD COLUMN cart_hash TEXT"),
         ("currency", "ALTER TABLE spend_ledger ADD COLUMN currency TEXT"),
         ("purchase_attempt_id", "ALTER TABLE spend_ledger ADD COLUMN purchase_attempt_id TEXT"),
+        ("envelope_id", "ALTER TABLE spend_ledger ADD COLUMN envelope_id TEXT"),
+        ("envelope_version", "ALTER TABLE spend_ledger ADD COLUMN envelope_version INTEGER"),
+        ("envelope_hash", "ALTER TABLE spend_ledger ADD COLUMN envelope_hash TEXT"),
+        ("quote_hash", "ALTER TABLE spend_ledger ADD COLUMN quote_hash TEXT"),
         ("result_json", "ALTER TABLE spend_ledger ADD COLUMN result_json TEXT"),
         ("error", "ALTER TABLE spend_ledger ADD COLUMN error TEXT"),
         ("dispatch_token", "ALTER TABLE spend_ledger ADD COLUMN dispatch_token TEXT"),
@@ -211,6 +248,12 @@ def _migrate(cx: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_ledger_state_expiry "
         "ON spend_ledger(status, expires_at)"
     )
+    cx.execute(
+        """CREATE UNIQUE INDEX IF NOT EXISTS idx_ledger_envelope_live
+           ON spend_ledger(envelope_id)
+           WHERE envelope_id IS NOT NULL
+             AND status NOT IN ('released','cancelled','definitive_failure')"""
+    )
     for row in cx.execute("SELECT * FROM mandates").fetchall():
         mandate = _row_to_mandate(row)
         _insert_policy_revision(cx, mandate)
@@ -228,6 +271,32 @@ def _row_to_mandate(r: sqlite3.Row) -> Mandate:
     )
 
 
+def _row_to_envelope(row: sqlite3.Row) -> PurchaseEnvelope:
+    return PurchaseEnvelope(
+        id=row["id"],
+        user_id=row["user_id"],
+        agent_id=row["agent_id"],
+        label=row["label"],
+        goal=row["goal"],
+        merchant_id=row["merchant_id"],
+        currency=row["currency"],
+        max_total_paise=row["max_total_paise"],
+        fulfillment_profile_id=row["fulfillment_profile_id"],
+        delivery_deadline=row["delivery_deadline"],
+        expires_at=row["expires_at"],
+        slots=[EnvelopeSlot.model_validate(item) for item in json.loads(row["slots_json"])],
+        blocked_categories=json.loads(row["blocked_categories"]),
+        max_purchases=row["max_purchases"],
+        action_name=row["action_name"],
+        status=EnvelopeStatus(row["status"]),
+        version=row["version"],
+        envelope_hash=row["envelope_hash"],
+        mandate_id=row["mandate_id"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
 def _insert_policy_revision(cx: sqlite3.Connection, mandate: Mandate) -> None:
     cx.execute(
         """INSERT OR IGNORE INTO policy_revisions
@@ -241,6 +310,228 @@ def _insert_policy_revision(cx: sqlite3.Connection, mandate: Mandate) -> None:
             mandate.updated_at,
         ),
     )
+
+
+def save_envelope_draft(envelope: PurchaseEnvelope) -> PurchaseEnvelope:
+    if envelope.status is not EnvelopeStatus.DRAFT:
+        raise ValueError("Only a draft envelope can be created")
+    if envelope.envelope_hash != compute_envelope_hash(envelope):
+        raise ValueError("Envelope hash does not match its canonical fields")
+    with _conn() as cx:
+        cx.execute(
+            """INSERT INTO purchase_envelopes (
+                   id,user_id,agent_id,label,goal,merchant_id,currency,
+                   max_total_paise,fulfillment_profile_id,delivery_deadline,
+                   expires_at,slots_json,blocked_categories,max_purchases,
+                   action_name,status,version,envelope_hash,mandate_id,
+                   created_at,updated_at
+               ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                envelope.id,
+                envelope.user_id,
+                envelope.agent_id,
+                envelope.label,
+                envelope.goal,
+                envelope.merchant_id,
+                envelope.currency,
+                envelope.max_total_paise,
+                envelope.fulfillment_profile_id,
+                envelope.delivery_deadline,
+                envelope.expires_at,
+                canonical_json([slot.model_dump(mode="json") for slot in envelope.slots]),
+                canonical_json(envelope.blocked_categories),
+                envelope.max_purchases,
+                envelope.action_name,
+                envelope.status.value,
+                envelope.version,
+                envelope.envelope_hash,
+                envelope.mandate_id,
+                envelope.created_at,
+                envelope.updated_at,
+            ),
+        )
+        _insert_audit_row(
+            cx,
+            event="ENVELOPE_DRAFTED",
+            session_id=None,
+            code="DRAFT",
+            cart_total_paise=0,
+            cap_paise=envelope.max_total_paise,
+            payload={
+                "envelope_id": envelope.id,
+                "envelope_hash": envelope.envelope_hash,
+                "goal": envelope.goal,
+            },
+        )
+    return get_envelope(envelope.id)  # type: ignore[return-value]
+
+
+def get_envelope(envelope_id: str) -> PurchaseEnvelope | None:
+    with _conn() as cx:
+        row = cx.execute(
+            "SELECT * FROM purchase_envelopes WHERE id=?", (envelope_id,)
+        ).fetchone()
+    return _row_to_envelope(row) if row else None
+
+
+def list_envelopes(user_id: str = "user_demo") -> list[PurchaseEnvelope]:
+    with _conn() as cx:
+        rows = cx.execute(
+            "SELECT * FROM purchase_envelopes WHERE user_id=? ORDER BY created_at DESC",
+            (user_id,),
+        ).fetchall()
+    return [_row_to_envelope(row) for row in rows]
+
+
+def activate_envelope(envelope_id: str, expected_hash: str) -> PurchaseEnvelope:
+    """Atomically activate the envelope and its underlying spend policy."""
+    now = time.time()
+    with _conn() as cx:
+        cx.execute("BEGIN IMMEDIATE")
+        row = cx.execute(
+            "SELECT * FROM purchase_envelopes WHERE id=?", (envelope_id,)
+        ).fetchone()
+        if not row:
+            raise LookupError("UNKNOWN_ENVELOPE")
+        current = _row_to_envelope(row)
+        if current.status is not EnvelopeStatus.DRAFT:
+            raise ValueError("ENVELOPE_NOT_DRAFT")
+        if current.expires_at <= now:
+            raise ValueError("ENVELOPE_EXPIRED")
+        if current.envelope_hash != expected_hash:
+            raise ValueError("ENVELOPE_HASH_CHANGED")
+        if current.envelope_hash != compute_envelope_hash(current):
+            raise ValueError("ENVELOPE_STORAGE_INTEGRITY_FAILURE")
+
+        mandate_id = f"mnd_{uuid.uuid4().hex[:12]}"
+        cx.execute(
+            "UPDATE mandates SET active=0,version=version+1,updated_at=? "
+            "WHERE user_id=? AND agent_id=? AND active=1",
+            (now, current.user_id, current.agent_id),
+        )
+        cx.execute(
+            """INSERT INTO mandates (
+                   id,user_id,agent_id,label,cap_paise,window,per_txn_cap_paise,
+                   allowed_categories,blocked_categories,active,version,created_at,updated_at
+               ) VALUES (?,?,?,?,?,'per_transaction',?,'[]',?,1,1,?,?)""",
+            (
+                mandate_id,
+                current.user_id,
+                current.agent_id,
+                "Purchase Envelope spend fence",
+                current.max_total_paise,
+                current.max_total_paise,
+                canonical_json(current.blocked_categories),
+                now,
+                now,
+            ),
+        )
+        mandate_row = cx.execute(
+            "SELECT * FROM mandates WHERE id=?", (mandate_id,)
+        ).fetchone()
+        _insert_policy_revision(cx, _row_to_mandate(mandate_row))
+
+        activated = current.model_copy(
+            update={
+                "status": EnvelopeStatus.ACTIVE,
+                "version": current.version + 1,
+                "mandate_id": mandate_id,
+                "updated_at": now,
+                "envelope_hash": "",
+            }
+        )
+        activated = activated.model_copy(
+            update={"envelope_hash": compute_envelope_hash(activated)}
+        )
+        cx.execute(
+            """UPDATE purchase_envelopes
+               SET status=?,version=?,mandate_id=?,envelope_hash=?,updated_at=?
+               WHERE id=? AND version=? AND status='draft'""",
+            (
+                activated.status.value,
+                activated.version,
+                mandate_id,
+                activated.envelope_hash,
+                now,
+                envelope_id,
+                current.version,
+            ),
+        )
+        _insert_audit_row(
+            cx,
+            event="ENVELOPE_ACTIVATED",
+            session_id=None,
+            mandate_id=mandate_id,
+            mandate_version=1,
+            code="ACTIVE",
+            cap_paise=activated.max_total_paise,
+            payload={
+                "envelope_id": activated.id,
+                "envelope_version": activated.version,
+                "envelope_hash": activated.envelope_hash,
+            },
+        )
+        return activated
+
+
+def revoke_envelope(envelope_id: str, expected_version: int) -> PurchaseEnvelope:
+    now = time.time()
+    with _conn() as cx:
+        cx.execute("BEGIN IMMEDIATE")
+        row = cx.execute(
+            "SELECT * FROM purchase_envelopes WHERE id=?", (envelope_id,)
+        ).fetchone()
+        if not row:
+            raise LookupError("UNKNOWN_ENVELOPE")
+        current = _row_to_envelope(row)
+        if current.version != expected_version:
+            raise ValueError("ENVELOPE_VERSION_CHANGED")
+        if current.status is not EnvelopeStatus.ACTIVE:
+            raise ValueError("ENVELOPE_NOT_ACTIVE")
+
+        revoked = current.model_copy(
+            update={
+                "status": EnvelopeStatus.REVOKED,
+                "version": current.version + 1,
+                "updated_at": now,
+                "envelope_hash": "",
+            }
+        )
+        revoked = revoked.model_copy(
+            update={"envelope_hash": compute_envelope_hash(revoked)}
+        )
+        cx.execute(
+            """UPDATE purchase_envelopes
+               SET status='revoked',version=?,envelope_hash=?,updated_at=?
+               WHERE id=? AND version=? AND status='active'""",
+            (
+                revoked.version,
+                revoked.envelope_hash,
+                now,
+                envelope_id,
+                current.version,
+            ),
+        )
+        if current.mandate_id:
+            cx.execute(
+                "UPDATE mandates SET active=0,version=version+1,updated_at=? WHERE id=?",
+                (now, current.mandate_id),
+            )
+            mandate_row = cx.execute(
+                "SELECT * FROM mandates WHERE id=?", (current.mandate_id,)
+            ).fetchone()
+            if mandate_row:
+                _insert_policy_revision(cx, _row_to_mandate(mandate_row))
+        _insert_audit_row(
+            cx,
+            event="ENVELOPE_REVOKED",
+            mandate_id=current.mandate_id,
+            mandate_version=None,
+            code="REVOKED",
+            cap_paise=current.max_total_paise,
+            payload={"envelope_id": envelope_id, "version": revoked.version},
+        )
+        return revoked
 
 
 def create_mandate(m: MandateCreate) -> Mandate:
@@ -461,6 +752,10 @@ def _row_to_action_grant(row: sqlite3.Row) -> ActionGrant:
         amount_paise=int(row["amount_paise"]),
         currency=row["currency"] or "",
         purchase_attempt_id=row["purchase_attempt_id"] or row["idempotency_key"] or "",
+        envelope_id=row["envelope_id"],
+        envelope_version=row["envelope_version"],
+        envelope_hash=row["envelope_hash"],
+        quote_hash=row["quote_hash"],
         state=state,
         expires_at=row["expires_at"],
         provider_ref=row["razorpay_ref"],
@@ -473,6 +768,20 @@ def _row_to_action_grant(row: sqlite3.Row) -> ActionGrant:
 def get_action_grant(grant_id: str) -> ActionGrant | None:
     with _conn() as cx:
         row = cx.execute("SELECT * FROM spend_ledger WHERE id=?", (grant_id,)).fetchone()
+    return _row_to_action_grant(row) if row else None
+
+
+def get_action_grant_for_attempt(
+    mandate_id: str, purchase_attempt_id: str
+) -> ActionGrant | None:
+    with _conn() as cx:
+        row = cx.execute(
+            """SELECT * FROM spend_ledger
+               WHERE mandate_id=? AND idempotency_key=?
+                 AND status NOT IN ('released','cancelled','definitive_failure')
+               ORDER BY created_at DESC LIMIT 1""",
+            (mandate_id, purchase_attempt_id),
+        ).fetchone()
     return _row_to_action_grant(row) if row else None
 
 
@@ -528,6 +837,10 @@ def _binding_conflicts(
         "amount_paise": amount_paise,
         "currency": currency,
         "purchase_attempt_id": request.purchase_attempt_id,
+        "envelope_id": request.envelope_id,
+        "envelope_version": request.expected_envelope_version,
+        "envelope_hash": request.expected_envelope_hash,
+        "quote_hash": request.quote.quote_hash if request.quote else None,
     }
     return [name for name, value in expected.items() if row[name] != value]
 
@@ -686,6 +999,114 @@ def authorize_and_reserve(request: AuthorizationRequest) -> AuthorizationOutcome
                 authorized=False, decision=decision, reason=invalid_reason
             )
 
+        if request.envelope_id is not None:
+            from .envelope import verify_quote
+
+            envelope_row = cx.execute(
+                "SELECT * FROM purchase_envelopes WHERE id=?", (request.envelope_id,)
+            ).fetchone()
+            envelope = _row_to_envelope(envelope_row) if envelope_row else None
+            envelope_reason = None
+            if not envelope:
+                envelope_reason = "UNKNOWN_ENVELOPE"
+            elif request.quote is None:
+                envelope_reason = "QUOTE_REQUIRED"
+            elif request.expected_envelope_version != envelope.version:
+                envelope_reason = "ENVELOPE_VERSION_CHANGED"
+            elif request.expected_envelope_hash != envelope.envelope_hash:
+                envelope_reason = "ENVELOPE_HASH_CHANGED"
+            elif envelope.envelope_hash != compute_envelope_hash(envelope):
+                envelope_reason = "ENVELOPE_STORAGE_INTEGRITY_FAILURE"
+            elif (
+                envelope.user_id != request.context.user_id
+                or envelope.agent_id != request.context.agent_id
+                or envelope.merchant_id != request.context.merchant_id
+                or envelope.mandate_id != mandate.id
+                or envelope.action_name != request.action_name
+            ):
+                envelope_reason = "ENVELOPE_CONTEXT_MISMATCH"
+            elif request.quote.cart != request.cart:
+                envelope_reason = "QUOTE_CART_MISMATCH"
+            else:
+                envelope_decision = verify_quote(envelope, request.quote, now=now)
+                if not envelope_decision.allowed:
+                    envelope_reason = envelope_decision.code
+
+            if envelope_reason:
+                decision = _action_denial(
+                    mandate,
+                    request,
+                    DecisionCode.BLOCK_INVALID_ACTION,
+                    "The final quote is outside the active Purchase Envelope.",
+                )
+                _insert_audit_row(
+                    cx,
+                    event="ENVELOPE_AUTHORIZATION_REJECTED",
+                    session_id=request.context.session_id,
+                    mandate_id=mandate.id,
+                    mandate_version=mandate.version,
+                    code=envelope_reason,
+                    cart_total_paise=amount_paise,
+                    cap_paise=envelope.max_total_paise if envelope else 0,
+                    payload={"envelope_id": request.envelope_id},
+                )
+                cx.commit()
+                return AuthorizationOutcome(
+                    authorized=False, decision=decision, reason=envelope_reason
+                )
+
+            prior_use = cx.execute(
+                """SELECT id,status FROM spend_ledger
+                   WHERE envelope_id=?
+                     AND status NOT IN ('released','cancelled','definitive_failure')
+                   ORDER BY created_at DESC LIMIT 1""",
+                (request.envelope_id,),
+            ).fetchone()
+            if prior_use:
+                decision = _action_denial(
+                    mandate,
+                    request,
+                    DecisionCode.BLOCK_INVALID_ACTION,
+                    "This one-purchase envelope has already been used or is in flight.",
+                )
+                _insert_audit_row(
+                    cx,
+                    event="ENVELOPE_AUTHORIZATION_REJECTED",
+                    session_id=request.context.session_id,
+                    mandate_id=mandate.id,
+                    mandate_version=mandate.version,
+                    code="ENVELOPE_ALREADY_USED",
+                    cart_total_paise=amount_paise,
+                    cap_paise=envelope.max_total_paise,
+                    payload={
+                        "envelope_id": request.envelope_id,
+                        "existing_grant_id": prior_use["id"],
+                        "existing_status": prior_use["status"],
+                    },
+                )
+                cx.commit()
+                return AuthorizationOutcome(
+                    authorized=False, decision=decision, reason="ENVELOPE_ALREADY_USED"
+                )
+        elif any(
+            value is not None
+            for value in (
+                request.expected_envelope_version,
+                request.expected_envelope_hash,
+                request.quote,
+            )
+        ):
+            decision = _action_denial(
+                mandate,
+                request,
+                DecisionCode.BLOCK_INVALID_ACTION,
+                "Incomplete Purchase Envelope binding.",
+            )
+            cx.commit()
+            return AuthorizationOutcome(
+                authorized=False, decision=decision, reason="INCOMPLETE_ENVELOPE_BINDING"
+            )
+
         window = mandate.window
         since = now - WINDOW_SECONDS[window]
         consumed = int(
@@ -719,12 +1140,14 @@ def authorize_and_reserve(request: AuthorizationRequest) -> AuthorizationOutcome
                    razorpay_ref,user_id,agent_id,session_id,merchant_id,
                    mandate_version,policy_hash,action_name,action_schema_hash,
                    args_json,args_hash,cart_hash,currency,purchase_attempt_id,
+                   envelope_id,envelope_version,envelope_hash,quote_hash,
                    result_json,error,dispatch_token,created_at,updated_at
                ) VALUES (
                    :id,:mandate_id,:amount_paise,'authorized',:idempotency_key,
                    :expires_at,NULL,:user_id,:agent_id,:session_id,:merchant_id,
                    :mandate_version,:policy_hash,:action_name,:action_schema_hash,
                    :args_json,:args_hash,:cart_hash,:currency,:purchase_attempt_id,
+                   :envelope_id,:envelope_version,:envelope_hash,:quote_hash,
                    NULL,NULL,NULL,:created_at,:updated_at
                )""",
             {
@@ -746,6 +1169,10 @@ def authorize_and_reserve(request: AuthorizationRequest) -> AuthorizationOutcome
                 "cart_hash": request.cart_hash,
                 "currency": currency,
                 "purchase_attempt_id": request.purchase_attempt_id,
+                "envelope_id": request.envelope_id,
+                "envelope_version": request.expected_envelope_version,
+                "envelope_hash": request.expected_envelope_hash,
+                "quote_hash": request.quote.quote_hash if request.quote else None,
                 "created_at": now,
                 "updated_at": now,
             },
@@ -767,6 +1194,10 @@ def authorize_and_reserve(request: AuthorizationRequest) -> AuthorizationOutcome
                 "cart_hash": request.cart_hash,
                 "policy_hash": revision_hash,
                 "purchase_attempt_id": request.purchase_attempt_id,
+                "envelope_id": request.envelope_id,
+                "envelope_version": request.expected_envelope_version,
+                "envelope_hash": request.expected_envelope_hash,
+                "quote_hash": request.quote.quote_hash if request.quote else None,
             },
         )
         cx.commit()
@@ -893,6 +1324,24 @@ def claim_action_grant(
             cx.commit()
             return None, None, "POLICY_CHANGED_BEFORE_DISPATCH"
 
+        if row["envelope_id"]:
+            envelope_row = cx.execute(
+                "SELECT * FROM purchase_envelopes WHERE id=?", (row["envelope_id"],)
+            ).fetchone()
+            envelope = _row_to_envelope(envelope_row) if envelope_row else None
+            if (
+                not envelope
+                or envelope.status is not EnvelopeStatus.ACTIVE
+                or envelope.version != row["envelope_version"]
+                or envelope.envelope_hash != row["envelope_hash"]
+                or compute_envelope_hash(envelope) != row["envelope_hash"]
+            ):
+                _cancel_grant_in_transaction(
+                    cx, row, "ENVELOPE_CHANGED_BEFORE_DISPATCH"
+                )
+                cx.commit()
+                return None, None, "ENVELOPE_CHANGED_BEFORE_DISPATCH"
+
         dispatch_token = f"dsp_{uuid.uuid4().hex}"
         updated = cx.execute(
             """UPDATE spend_ledger
@@ -943,6 +1392,46 @@ def mark_action_issued(
         if updated.rowcount != 1:
             raise RuntimeError("ACTION_ISSUED_TRANSITION_CONFLICT")
         row = cx.execute("SELECT * FROM spend_ledger WHERE id=?", (grant_id,)).fetchone()
+        if row["envelope_id"]:
+            envelope_row = cx.execute(
+                "SELECT * FROM purchase_envelopes WHERE id=?", (row["envelope_id"],)
+            ).fetchone()
+            if envelope_row and envelope_row["status"] == EnvelopeStatus.ACTIVE.value:
+                current = _row_to_envelope(envelope_row)
+                consumed = current.model_copy(
+                    update={
+                        "status": EnvelopeStatus.CONSUMED,
+                        "updated_at": now,
+                        "envelope_hash": "",
+                    }
+                )
+                consumed = consumed.model_copy(
+                    update={"envelope_hash": compute_envelope_hash(consumed)}
+                )
+                cx.execute(
+                    """UPDATE purchase_envelopes
+                       SET status='consumed',envelope_hash=?,updated_at=?
+                       WHERE id=? AND status='active' AND version=?""",
+                    (
+                        consumed.envelope_hash,
+                        now,
+                        consumed.id,
+                        consumed.version,
+                    ),
+                )
+                _insert_audit_row(
+                    cx,
+                    event="ENVELOPE_CONSUMED",
+                    session_id=row["session_id"],
+                    mandate_id=row["mandate_id"],
+                    mandate_version=row["mandate_version"],
+                    code="CONSUMED",
+                    cart_total_paise=row["amount_paise"],
+                    payload={
+                        "envelope_id": consumed.id,
+                        "grant_id": grant_id,
+                    },
+                )
         _insert_audit_row(
             cx,
             event="ACTION_ISSUED",
