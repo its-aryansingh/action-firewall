@@ -233,6 +233,12 @@ Pinecone plus OpenAI embeddings, the draft/planner can use an OpenAI model, and
 tracing can use Langfuse. Every dependency has a deterministic demo fallback. No
 fallback receives broader authority than the live component it replaces.
 
+Shipped evidence runs with `envelope_drafting_mode=replay` by default (offline and
+deterministic replay of recorded model outputs from `backend/tests/fixtures/llm_envelope_drafts.json`),
+exercising the full model-output schema parser and server-side tag vocabulary validation
+without requiring an OpenAI API key. Live drafting (`envelope_drafting_mode=llm`) is supported
+with `OPENAI_API_KEY`, and `envelope_drafting_mode=deterministic` is available as a fallback.
+
 ## Honest limitations
 
 - **No authentication or tenancy.** Demo routes are unauthenticated. Identity binds

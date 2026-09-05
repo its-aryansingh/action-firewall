@@ -1,5 +1,7 @@
 """Central configuration. Everything is env-driven so the demo can run
 in DEMO_MODE (no external keys) or fully live."""
+from typing import Literal
+
 from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
 import base64
@@ -34,6 +36,7 @@ class Settings(BaseSettings):
     db_path: str = "./mandates.db"
     demo_mode: bool = True
     action_receipt_secret: str = ""
+    envelope_drafting_mode: Literal["deterministic", "llm", "replay"] = "replay"
 
     @property
     def mcp_auth_header(self) -> str:
