@@ -29,6 +29,8 @@ from .models import (
     EnvelopeSlot,
     Reservation,
     Window,
+    AuthorityCeiling,
+    AuthorityView,
 )
 
 SCHEMA = """
@@ -158,6 +160,16 @@ WHEN EXISTS (SELECT 1 FROM audit_log WHERE id = NEW.id)
 BEGIN
     SELECT RAISE(ABORT, 'audit_log is append-only');
 END;
+
+CREATE TABLE IF NOT EXISTS authority_ceilings (
+    user_id TEXT PRIMARY KEY,
+    window TEXT NOT NULL,
+    ceiling_paise INTEGER NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ledger_user ON spend_ledger(user_id, created_at);
 """
 
 WINDOW_SECONDS = {
@@ -257,6 +269,13 @@ def _migrate(cx: sqlite3.Connection) -> None:
     for row in cx.execute("SELECT * FROM mandates").fetchall():
         mandate = _row_to_mandate(row)
         _insert_policy_revision(cx, mandate)
+    now = time.time()
+    cx.execute(
+        """INSERT OR IGNORE INTO authority_ceilings (
+               user_id, window, ceiling_paise, version, created_at, updated_at
+           ) VALUES ('user_demo', 'weekly', 200000, 1, ?, ?)""",
+        (now, now),
+    )
 
 
 def _row_to_mandate(r: sqlite3.Row) -> Mandate:
@@ -651,6 +670,81 @@ def spent_in_window(mandate_id: str, window: Window) -> int:
     with _conn() as cx:
         r = cx.execute(_CONSUMED_SQL, (mandate_id, since, now)).fetchone()
     return int(r["s"])
+
+
+_USER_EXPOSURE_SQL = """
+SELECT COALESCE(SUM(amount_paise),0) AS s FROM spend_ledger
+ WHERE user_id=?
+   AND ((status IN ('committed','settled') AND created_at>=?)
+        OR status IN ('action_issued','dispatching','unknown')
+        OR (status IN ('reserved','authorized') AND COALESCE(expires_at,0) > ?))
+"""
+
+
+def get_authority_ceiling(user_id: str = "user_demo") -> AuthorityCeiling | None:
+    with _conn() as cx:
+        row = cx.execute(
+            "SELECT * FROM authority_ceilings WHERE user_id=?", (user_id,)
+        ).fetchone()
+        if not row:
+            return None
+        return AuthorityCeiling(
+            user_id=row["user_id"],
+            window=Window(row["window"]),
+            ceiling_paise=int(row["ceiling_paise"]),
+            version=int(row["version"]),
+            created_at=float(row["created_at"]),
+            updated_at=float(row["updated_at"]),
+        )
+
+
+def set_authority_ceiling(
+    user_id: str, ceiling_paise: int, window: Window = Window.WEEKLY
+) -> None:
+    now = time.time()
+    with _conn() as cx:
+        cx.execute("BEGIN IMMEDIATE")
+        cx.execute(
+            """INSERT INTO authority_ceilings (user_id, window, ceiling_paise, version, created_at, updated_at)
+               VALUES (?, ?, ?, 1, ?, ?)
+               ON CONFLICT(user_id) DO UPDATE SET
+                   ceiling_paise=excluded.ceiling_paise,
+                   window=excluded.window,
+                   version=version+1,
+                   updated_at=excluded.updated_at""",
+            (user_id, window.value, ceiling_paise, now, now),
+        )
+
+
+def get_authority_view(user_id: str = "user_demo") -> dict[str, Any]:
+    now = time.time()
+    with _conn() as cx:
+        row = cx.execute(
+            "SELECT * FROM authority_ceilings WHERE user_id=?", (user_id,)
+        ).fetchone()
+        window_str = row["window"] if row else "weekly"
+        window = Window(window_str)
+        ceiling_paise = int(row["ceiling_paise"]) if row else 200000
+        since = now - WINDOW_SECONDS[window] if window != Window.PER_TXN else 0
+        exposure = int(
+            cx.execute(_USER_EXPOSURE_SQL, (user_id, since, now)).fetchone()["s"]
+        )
+        active_count = cx.execute(
+            "SELECT COUNT(*) AS c FROM purchase_envelopes WHERE user_id=? AND status='active'",
+            (user_id,),
+        ).fetchone()["c"]
+        headroom = max(0, ceiling_paise - exposure)
+        return {
+            "user_id": user_id,
+            "window": window_str,
+            "ceiling_paise": ceiling_paise,
+            "ceiling_rupees": ceiling_paise / 100.0,
+            "total_exposure_paise": exposure,
+            "total_exposure_rupees": exposure / 100.0,
+            "remaining_headroom_paise": headroom,
+            "remaining_headroom_rupees": headroom / 100.0,
+            "active_envelopes_count": int(active_count),
+        }
 
 
 def reserve_headroom(mandate_id: str, amount_paise: int, idempotency_key: str,
@@ -1129,6 +1223,59 @@ def authorize_and_reserve(request: AuthorizationRequest) -> AuthorizationOutcome
             return AuthorizationOutcome(
                 authorized=False, decision=decision, reason=decision.code.value
             )
+
+        # Cross-mandate user authority ceiling check inside the transaction
+        ceiling_row = cx.execute(
+            "SELECT * FROM authority_ceilings WHERE user_id=?",
+            (request.context.user_id,),
+        ).fetchone()
+        if ceiling_row:
+            c_window = Window(ceiling_row["window"])
+            ceiling_paise = int(ceiling_row["ceiling_paise"])
+            since_c = now - WINDOW_SECONDS[c_window] if c_window != Window.PER_TXN else 0
+            user_exposure = int(
+                cx.execute(
+                    _USER_EXPOSURE_SQL, (request.context.user_id, since_c, now)
+                ).fetchone()["s"]
+            )
+            if user_exposure + amount_paise > ceiling_paise:
+                ceiling_decision = MandateDecision(
+                    allowed=False,
+                    code=DecisionCode.BLOCK_USER_CEILING_EXCEEDED,
+                    mandate_id=mandate.id,
+                    mandate_version=mandate.version,
+                    cart_total_paise=amount_paise,
+                    cap_paise=ceiling_paise,
+                    already_spent_paise=user_exposure,
+                    headroom_paise=max(0, ceiling_paise - user_exposure),
+                    human_message=(
+                        f"The requested amount of ₹{amount_paise / 100:.2f} exceeds your "
+                        f"aggregate user authority ceiling of ₹{ceiling_paise / 100:.2f} ({ceiling_row['window']}). "
+                        f"Current exposure: ₹{user_exposure / 100:.2f}."
+                    ),
+                )
+                _insert_audit_row(
+                    cx,
+                    event="AUTHORIZATION_ATTEMPT",
+                    session_id=request.context.session_id,
+                    mandate_id=mandate.id,
+                    mandate_version=mandate.version,
+                    code=DecisionCode.BLOCK_USER_CEILING_EXCEEDED.value,
+                    cart_total_paise=amount_paise,
+                    cap_paise=ceiling_paise,
+                    payload={
+                        "user_id": request.context.user_id,
+                        "ceiling_paise": ceiling_paise,
+                        "user_exposure_paise": user_exposure,
+                        "requested_paise": amount_paise,
+                    },
+                )
+                cx.commit()
+                return AuthorizationOutcome(
+                    authorized=False,
+                    decision=ceiling_decision,
+                    reason=DecisionCode.BLOCK_USER_CEILING_EXCEEDED.value,
+                )
 
         revision_hash = policy_hash(mandate)
         _insert_policy_revision(cx, mandate)

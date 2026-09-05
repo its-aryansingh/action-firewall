@@ -93,6 +93,7 @@ class DecisionCode(str, Enum):
     BLOCK_STALE_POLICY_VERSION = "BLOCK_STALE_POLICY_VERSION"
     BLOCK_CART_CHANGED = "BLOCK_CART_CHANGED"
     BLOCK_INVALID_ACTION = "BLOCK_INVALID_ACTION"
+    BLOCK_USER_CEILING_EXCEEDED = "BLOCK_USER_CEILING_EXCEEDED"
 
 
 class EnvelopeStatus(str, Enum):
@@ -513,3 +514,25 @@ class MandateUpdate(BaseModel):
     active: Optional[bool] = None
     allowed_categories: Optional[list[str]] = None
     blocked_categories: Optional[list[str]] = None
+
+
+class AuthorityCeiling(BaseModel):
+    user_id: str
+    window: Window = Window.WEEKLY
+    ceiling_paise: int
+    version: int = 1
+    created_at: float
+    updated_at: float
+
+
+class AuthorityView(BaseModel):
+    user_id: str
+    window: str
+    ceiling_paise: int
+    ceiling_rupees: float
+    total_exposure_paise: int
+    total_exposure_rupees: float
+    remaining_headroom_paise: int
+    remaining_headroom_rupees: float
+    active_envelopes_count: int
+

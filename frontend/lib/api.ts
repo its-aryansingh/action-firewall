@@ -59,6 +59,18 @@ export type Metrics = {
   generated_at: number;
 };
 
+export type AuthorityView = {
+  user_id: string;
+  window: string;
+  ceiling_paise: number;
+  ceiling_rupees: number;
+  total_exposure_paise: number;
+  total_exposure_rupees: number;
+  remaining_headroom_paise: number;
+  remaining_headroom_rupees: number;
+  active_envelopes_count: number;
+};
+
 export type AuditEvent = {
   id: string;
   session_id: string | null;
@@ -324,6 +336,11 @@ export const api = {
     fetch(`${API}/audit${session_id ? `?session_id=${session_id}` : ""}`, {
       cache: "no-store",
     }).then(j<AuditEvent[]>),
+
+  authority: (user_id: string = "user_demo") =>
+    fetch(`${API}/authority?user_id=${encodeURIComponent(user_id)}`, {
+      cache: "no-store",
+    }).then(j<AuthorityView>),
 };
 
 export const inr = (paise: number) =>
