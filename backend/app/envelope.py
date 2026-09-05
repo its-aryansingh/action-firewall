@@ -224,6 +224,10 @@ def build_quote(
                         reason="Preferred SKU unavailable; selected next eligible catalog item.",
                     )
                 )
+            else:
+                # Preferred SKU unavailable and no alternative candidate exists.
+                # Refuse to silently keep the unavailable preferred SKU.
+                continue
         used.add(selected["sku"])
         price = int(selected["price_paise"])
         if scenario is AutopilotScenario.PRICE_DRIFT and not lines:
