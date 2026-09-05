@@ -116,6 +116,22 @@ Retrying one blocked cart five times reports five times the value. The demo
 figure of ₹2,583 is two distinct denials and is accurate; the metric is only
 inflatable under retry.
 
+## Not fixed — disclosed instead
+
+**No ceiling spans envelopes.** Each activated Purchase Envelope mints its own
+spend fence, so five approved ₹600 jobs are five independent ₹600 caps and
+nothing aggregates them. This follows from one envelope being one human
+approval, but it means the system cannot yet answer "what is this agent's
+total outstanding authority across all jobs".
+*Reproduction:* activate five ₹600 envelopes and execute each; total issued is
+₹2,085 across 5 payment links with no policy object able to refuse.
+
+**A receipt attests to a state snapshot, not to the authorization.** `state`
+and `updated_at` are inside the signed body, so a receipt issued at
+`action_issued` stops verifying once the grant legitimately settles.
+*Reproduction:* capture a receipt at `action_issued`, call
+`store.settle_issued_action`, re-run `verify_receipt` — returns `False`.
+
 ## Known, unfixed, lower risk
 
 - `reserve_headroom` (the legacy helper) can release a live `action_issued` row
