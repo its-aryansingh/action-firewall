@@ -8,8 +8,8 @@ Run from `backend/`:
 python scripts/evaluate_autopilot.py
 ```
 
-The 5 September 2026 run produced **400/400 passing deterministic cases** across
-50 fixed seeds and eight case families:
+The 5 September 2026 run produced **650/650 passing deterministic cases** across
+50 fixed seeds, 10 goal fixtures (104 distinct carts exercised), and 13 case families:
 
 | Family | Expected result | Pass rate |
 |---|---|---:|
@@ -21,12 +21,19 @@ The 5 September 2026 run produced **400/400 passing deterministic cases** across
 | Extra blocked gift card | refuse at category and slot boundary | 100% |
 | Tampered catalog price | refuse because server catalog facts differ | 100% |
 | Expired envelope | refuse with expiry delta | 100% |
+| Unsatisfiable slot | refuse with `slots.<id>` delta | 100% |
+| Duplicate slot fill | refuse with unmatched cart line delta | 100% |
+| Quantity mismatch | refuse with line quantity / slot delta | 100% |
+| Tampered quote hash | refuse with `quote_hash` delta | 100% |
+| Substitution exhausted | refuse stock loss on single-candidate slot | 100% |
 
 Aggregate results were:
 
 - in-bound quote acceptance: **100% (100/100)**;
-- out-of-bound quote blocking: **100% (300/300)**;
+- out-of-bound quote blocking: **100% (550/550)**;
 - stock-loss recovery inside the same authority: **100% (50/50)**;
+- distinct carts exercised: **104**;
+- goal families evaluated: **10** (all 100%);
 - unexpected authorizations in this corpus: **0**.
 
 The backend integration suite separately verifies database state, HTTP

@@ -113,11 +113,11 @@ The current suite has **76 passing backend tests**. It includes:
 
 ### Generated authorization corpus
 
-`python scripts/evaluate_autopilot.py` generates **400 deterministic cases** from
-50 fixed seeds across eight families. The verified 5 September 2026 run reported:
+`python scripts/evaluate_autopilot.py` generates **650 deterministic cases** from
+50 fixed seeds across 13 families and 10 goal fixtures (104 distinct carts). The verified 5 September 2026 run reported:
 
 - 100/100 in-envelope quotes accepted;
-- 300/300 boundary violations blocked;
+- 550/550 boundary violations blocked;
 - 50/50 stock-loss cases recovered inside the same envelope;
 - zero unexpected authorizations in that corpus.
 
@@ -143,7 +143,7 @@ The five-minute path is designed around one useful recovery and one hard refusal
    simulated payment link without another approval.
 4. Start a new job; change the merchant; show a field-level refusal before any grant.
 5. Show the timeout-to-`UNKNOWN` path and exact retry suppression.
-6. Open `/audit` and finish on the 400-case evaluator plus concurrency test.
+6. Open `/audit` and finish on the 650-case evaluator plus concurrency test.
 
 Full script: [docs/SAFE_AUTOPILOT_DEMO.md](docs/SAFE_AUTOPILOT_DEMO.md).
 
