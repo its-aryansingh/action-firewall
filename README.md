@@ -254,6 +254,14 @@ fallback receives broader authority than the live component it replaces.
 - **No AP2 compliance claim.** The Purchase Envelope is AP2-shaped in its separation
   of human intent from exact machine action, but no conformance program is claimed.
 - **No Vulcan runtime claim.** Alignment is architectural and product-adjacent only.
+- **No ceiling spans envelopes.** Each activated Purchase Envelope mints its own
+  spend fence, so five approved ₹600 jobs are five independent ₹600 caps and
+  nothing aggregates them. This follows from one envelope being one human
+  approval, but it means the system cannot yet answer "what is this agent's
+  total outstanding authority across all jobs".
+- **A receipt attests to a state snapshot, not to the authorization.** `state`
+  and `updated_at` are inside the signed body, so a receipt issued at
+  `action_issued` stops verifying once the grant legitimately settles.
 
 ## Production hardening path
 
