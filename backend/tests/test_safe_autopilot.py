@@ -154,6 +154,36 @@ def test_valid_quote_issues_one_action_consumes_envelope_and_signs_receipt():
     assert len(issued) == 1
 
 
+def test_receipt_authorization_core_survives_settlement_and_status_is_superseded():
+    envelope = active_envelope()
+    result = execute(envelope, key="receipt-settle", session="receipt-settle-session")
+    assert result.receipt and result.grant_id
+    grant = store.get_action_grant(result.grant_id)
+    assert grant
+
+    initial_verification = verify_receipt(result.receipt, grant)
+    assert initial_verification.authorization_valid is True
+    assert initial_verification.status_current is True
+    assert initial_verification.valid is True
+    assert bool(initial_verification) is True
+
+    # Provider confirms settlement: grant state transitions to SETTLED
+    settled_grant = store.settle_issued_action(
+        result.grant_id,
+        provider_ref="pay_test_settle_123",
+        result={"status": "paid"},
+    )
+    assert settled_grant.state is ActionState.SETTLED
+
+    # The receipt issued at ACTION_ISSUED still has a valid authorization core,
+    # but its status block is now superseded.
+    post_settle_verification = verify_receipt(result.receipt, settled_grant)
+    assert post_settle_verification.authorization_valid is True
+    assert post_settle_verification.status_current is False
+    assert post_settle_verification.valid is True
+    assert bool(post_settle_verification) is True
+
+
 def test_tampered_action_receipt_does_not_verify():
     envelope = active_envelope()
     result = execute(envelope, key="receipt-tamper", session="receipt-session")
@@ -161,9 +191,45 @@ def test_tampered_action_receipt_does_not_verify():
     grant = store.get_action_grant(result.grant_id)
     assert grant
 
-    tampered = result.receipt.model_copy(update={"cart_hash": "0" * 64})
+    # Tampering cart_hash fails authorization core
+    tampered_cart = result.receipt.model_copy(update={"cart_hash": "0" * 64})
+    v_cart = verify_receipt(tampered_cart, grant)
+    assert v_cart.authorization_valid is False
+    assert not v_cart
 
-    assert not verify_receipt(tampered, grant)
+    # Tampering quote_hash fails authorization core
+    tampered_quote = result.receipt.model_copy(update={"quote_hash": "f" * 64})
+    v_quote = verify_receipt(tampered_quote, grant)
+    assert v_quote.authorization_valid is False
+    assert not v_quote
+
+    # Tampering created_at fails authorization core
+    tampered_time = result.receipt.model_copy(update={"created_at": 1234567.0})
+    v_time = verify_receipt(tampered_time, grant)
+    assert v_time.authorization_valid is False
+    assert not v_time
+
+    # Tampering status signature fails status verification
+    tampered_status_sig = result.receipt.model_copy(update={"status_signature": "0" * 64})
+    v_stat = verify_receipt(tampered_status_sig, grant)
+    assert v_stat.status_current is False
+
+
+def test_receipt_cross_grant_binding_fails():
+    env1 = active_envelope(500)
+    env2 = active_envelope(600)
+
+    res1 = execute(env1, key="grant-a", session="session-a")
+    res2 = execute(env2, key="grant-b", session="session-b")
+    assert res1.receipt and res2.receipt
+    grant2 = store.get_action_grant(res2.grant_id)
+
+    # Receipt from grant 1 tested against grant 2 must fail
+    v = verify_receipt(res1.receipt, grant2)
+    assert v.authorization_valid is False
+    assert v.valid is False
+    assert not v
+
 
 
 def test_concurrent_distinct_attempts_under_one_envelope_issue_once():

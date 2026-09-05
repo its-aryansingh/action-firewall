@@ -137,7 +137,42 @@ export type EnvelopeDecision = {
   human_message: string;
 };
 
+export type ReceiptAuthorization = {
+  grant_id: string;
+  envelope_id: string | null;
+  envelope_version: number | null;
+  envelope_hash: string | null;
+  policy_id: string;
+  policy_version: number;
+  policy_hash: string;
+  action_name: string;
+  args_hash: string;
+  cart_hash: string;
+  quote_hash: string | null;
+  purchase_attempt_id: string;
+  created_at: number;
+};
+
+export type ReceiptStatus = {
+  state: ChatResponse["action_status"];
+  provider_ref: string | null;
+  updated_at: number;
+};
+
+export type ActionReceiptVerification = {
+  valid: boolean;
+  authorization_valid: boolean;
+  status_current: boolean;
+  status_as_of: number;
+  grant_id: string;
+  application_signed: boolean;
+};
+
 export type ActionReceipt = {
+  authorization?: ReceiptAuthorization;
+  status?: ReceiptStatus;
+  authorization_signature?: string;
+  status_signature?: string;
   grant_id: string;
   envelope_id: string | null;
   envelope_version: number | null;
@@ -277,6 +312,13 @@ export const api = {
     ),
 
   metrics: () => fetch(`${API}/metrics`, { cache: "no-store" }).then(j<Metrics>),
+
+  verifyReceipt: (grant_id: string, receipt: ActionReceipt) =>
+    fetch(`${API}/receipts/${grant_id}/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(receipt),
+    }).then(j<ActionReceiptVerification>),
 
   audit: (session_id?: string) =>
     fetch(`${API}/audit${session_id ? `?session_id=${session_id}` : ""}`, {
