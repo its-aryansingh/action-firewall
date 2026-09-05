@@ -5,7 +5,7 @@
 ## Start here
 
 - Work from the repository root.
-- Read `README.md`, `docs/ARCHITECTURE.md`, and `docs/BUILD_PLAN.md` before
+- Read `README.md`, `docs/ARCHITECTURE.md`, and `docs/EVALUATION.md` before
   changing the authorization path.
 - Treat the imported project brief as the authoritative product specification.
 - Extend the existing Action Firewall direction. Do not restart ideation, pivot
