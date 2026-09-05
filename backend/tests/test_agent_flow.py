@@ -59,6 +59,19 @@ def test_chat_is_proposal_only_even_with_checkout_language():
     reset_session(session_id)
 
 
+def test_ambiguous_retrieval_does_not_create_purchase_intent():
+    store.create_mandate(MandateCreate(cap_rupees=100_000))
+    session_id = uuid.uuid4().hex
+
+    response = chat(session_id, "Tell me something interesting about dinner")
+
+    assert response.cart.lines == []
+    assert response.confirmation_required is False
+    assert response.tools == []
+    assert store.metrics()["authorization_attempts"] == 0
+    reset_session(session_id)
+
+
 def test_blocked_confirmation_makes_no_mcp_call():
     store.create_mandate(MandateCreate(cap_rupees=1))
     session_id = uuid.uuid4().hex
