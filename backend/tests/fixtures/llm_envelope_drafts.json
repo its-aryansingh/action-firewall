@@ -1,0 +1,308 @@
+{
+  "ae301b4107331d32ecb8b14fe5c52fe4808b391802d07004e8c06b4a84224e4f": {
+    "goal": "Buy supplies for a pasta dinner",
+    "slots": [
+      {
+        "id": "pasta",
+        "label": "Pasta",
+        "required_tags": [
+          "pasta",
+          "staple"
+        ],
+        "quantity": 1
+      },
+      {
+        "id": "sauce",
+        "label": "Tomato pasta sauce",
+        "required_tags": [
+          "pasta",
+          "sauce"
+        ],
+        "quantity": 1
+      },
+      {
+        "id": "herb",
+        "label": "Fresh Italian herb",
+        "required_tags": [
+          "italian",
+          "fresh",
+          "herb"
+        ],
+        "quantity": 1
+      }
+    ]
+  },
+  "e482e8b9c5ee365aba3ed8b9d41ee0326cbdbaa6773077cbac16d99c38b68ccc": {
+    "goal": "Buy supplies for a pasta dinner",
+    "slots": [
+      {
+        "id": "pasta",
+        "label": "Pasta",
+        "required_tags": [
+          "pasta",
+          "staple"
+        ],
+        "quantity": 1
+      },
+      {
+        "id": "sauce",
+        "label": "Tomato pasta sauce",
+        "required_tags": [
+          "pasta",
+          "sauce"
+        ],
+        "quantity": 1
+      },
+      {
+        "id": "herb",
+        "label": "Fresh Italian herb",
+        "required_tags": [
+          "italian",
+          "fresh",
+          "herb"
+        ],
+        "quantity": 1
+      }
+    ]
+  },
+  "b27ff88810dacfcaa3eff6c0d681feb9a81576a8b5a4f52a222b6d61d3299d91": {
+    "goal": "pasta dinner",
+    "slots": [
+      {
+        "id": "pasta",
+        "label": "Pasta",
+        "required_tags": [
+          "pasta",
+          "staple"
+        ],
+        "quantity": 1
+      },
+      {
+        "id": "sauce",
+        "label": "Tomato pasta sauce",
+        "required_tags": [
+          "pasta",
+          "sauce"
+        ],
+        "quantity": 1
+      },
+      {
+        "id": "herb",
+        "label": "Fresh Italian herb",
+        "required_tags": [
+          "italian",
+          "fresh",
+          "herb"
+        ],
+        "quantity": 1
+      }
+    ]
+  },
+  "21e31cbcf79ee75b23f8ba0df6738f9de9bd3d517ace8eec2fbaf7637e1fea2d": {
+    "goal": "breakfast run",
+    "slots": [
+      {
+        "id": "bread",
+        "label": "Bread",
+        "required_tags": [
+          "bread"
+        ],
+        "quantity": 1
+      },
+      {
+        "id": "dairy",
+        "label": "Dairy",
+        "required_tags": [
+          "dairy"
+        ],
+        "quantity": 1
+      },
+      {
+        "id": "beverage",
+        "label": "Beverage",
+        "required_tags": [
+          "beverage"
+        ],
+        "quantity": 1
+      }
+    ]
+  },
+  "40f09346114477df67b83d0c0b70170fbb57e4c2a1e726d1c4f99d2fc7dc3d62": {
+    "goal": "office snacks",
+    "slots": [
+      {
+        "id": "snack",
+        "label": "Snack",
+        "required_tags": [
+          "snack"
+        ],
+        "quantity": 1
+      },
+      {
+        "id": "beverage",
+        "label": "Beverage",
+        "required_tags": [
+          "beverage"
+        ],
+        "quantity": 1
+      }
+    ]
+  },
+  "71782209e8051ccc3060374fdf09e0fbc8914cb99f3d8fc608c33bc30fe0f17d": {
+    "goal": "cleaning restock",
+    "slots": [
+      {
+        "id": "cleaning",
+        "label": "Cleaning",
+        "required_tags": [
+          "cleaning"
+        ],
+        "quantity": 1
+      },
+      {
+        "id": "household",
+        "label": "Household",
+        "required_tags": [
+          "household"
+        ],
+        "quantity": 1
+      }
+    ]
+  },
+  "54abb1ec0c896bdbc76a28848d84cb6de071d9aa0a7d8f188c5b5a5e72c5ef78": {
+    "goal": "bathroom restock",
+    "slots": [
+      {
+        "id": "bath",
+        "label": "Bath",
+        "required_tags": [
+          "bath"
+        ],
+        "quantity": 1
+      },
+      {
+        "id": "personal",
+        "label": "Personal care",
+        "required_tags": [
+          "personal"
+        ],
+        "quantity": 1
+      }
+    ]
+  },
+  "32bc056abc40d954d4bc34bb48c9c46e0efaeed3776bd9dccabd5b11c6f196f3": {
+    "goal": "indian pantry",
+    "slots": [
+      {
+        "id": "indian",
+        "label": "Indian staple",
+        "required_tags": [
+          "indian"
+        ],
+        "quantity": 1
+      },
+      {
+        "id": "bulk",
+        "label": "Bulk grocery",
+        "required_tags": [
+          "bulk"
+        ],
+        "quantity": 1
+      },
+      {
+        "id": "oil",
+        "label": "Cooking oil",
+        "required_tags": [
+          "oil",
+          "cooking"
+        ],
+        "quantity": 1
+      }
+    ]
+  },
+  "a6b24422f5fcb35117801ea0ceffe2933e1f1306b6df0821def72261c8b2e8f4": {
+    "goal": "fresh produce box",
+    "slots": [
+      {
+        "id": "produce",
+        "label": "Fresh vegetables",
+        "required_tags": [
+          "fresh",
+          "vegetable"
+        ],
+        "quantity": 1
+      },
+      {
+        "id": "healthy",
+        "label": "Healthy produce",
+        "required_tags": [
+          "healthy"
+        ],
+        "quantity": 1
+      }
+    ]
+  },
+  "260c5cf7ed01593ee47245e4328f360df6ca9c9ec2dcd3d67cab03971240b82c": {
+    "goal": "cheese board",
+    "slots": [
+      {
+        "id": "cheese",
+        "label": "Cheese",
+        "required_tags": [
+          "cheese"
+        ],
+        "quantity": 1
+      },
+      {
+        "id": "bakery",
+        "label": "Bakery",
+        "required_tags": [
+          "bakery"
+        ],
+        "quantity": 1
+      }
+    ]
+  },
+  "a247483c2a7721cd25e5e840735fa468cf8b10ca7f946eb00a7321b80ef41070": {
+    "goal": "protein top-up",
+    "slots": [
+      {
+        "id": "protein",
+        "label": "Protein",
+        "required_tags": [
+          "protein"
+        ],
+        "quantity": 1
+      },
+      {
+        "id": "dairy",
+        "label": "Dairy",
+        "required_tags": [
+          "dairy"
+        ],
+        "quantity": 1
+      }
+    ]
+  },
+  "68aa7c4a256df01db805b42279b58527a074df3bf4125f3f9d9214511f79fe2a": {
+    "goal": "desk gadgets",
+    "slots": [
+      {
+        "id": "electronics",
+        "label": "Electronics",
+        "required_tags": [
+          "electronics"
+        ],
+        "quantity": 1
+      },
+      {
+        "id": "gadget",
+        "label": "Desk gadget",
+        "required_tags": [
+          "gadget"
+        ],
+        "quantity": 1
+      }
+    ]
+  }
+}

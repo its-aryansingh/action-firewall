@@ -89,7 +89,8 @@ def test_generated_authorization_corpus_is_reproducible() -> None:
     )
 
     assert completed.returncode == 0, completed.stderr
-    assert '"total_cases": 400' in completed.stdout
+    assert '"total_cases": 650' in completed.stdout
+    assert '"distinct_carts_exercised": 104' in completed.stdout
     assert '"breach_block_rate": 1.0' in completed.stdout
     assert '"stock_loss_recovery_rate": 1.0' in completed.stdout
     assert '"failures": []' in completed.stdout

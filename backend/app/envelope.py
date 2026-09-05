@@ -6,10 +6,12 @@ here without model judgment.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import time
 import uuid
+from pathlib import Path
 
 from pydantic import ValidationError
 
@@ -75,9 +77,51 @@ def compute_quote_hash(quote: MerchantQuote) -> str:
     return digest(quote_payload(quote))
 
 
+FIXTURE_PATH = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "llm_envelope_drafts.json"
+
+
+def validate_slots(slots: list[EnvelopeSlot] | None) -> list[EnvelopeSlot] | None:
+    """Strictly validate slots from any drafter before creating an envelope draft."""
+    if not slots or not (1 <= len(slots) <= 4):
+        return None
+    vocabulary = {
+        tag.lower()
+        for item in catalog.load_catalog()
+        for tag in item.get("tags", [])
+    }
+    validated: list[EnvelopeSlot] = []
+    for slot in slots:
+        if not (1 <= slot.quantity <= 100):
+            return None
+        if not slot.required_tags:
+            return None
+        for tag in slot.required_tags:
+            if tag.lower() not in vocabulary:
+                return None
+        validated.append(slot)
+    return validated
+
+
+def _replay_slots(goal: str) -> list[EnvelopeSlot] | None:
+    if not FIXTURE_PATH.exists():
+        return None
+    try:
+        with open(FIXTURE_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        h_norm = hashlib.sha256(goal.strip().lower().encode("utf-8")).hexdigest()
+        h_raw = hashlib.sha256(goal.encode("utf-8")).hexdigest()
+        entry = data.get(h_norm) or data.get(h_raw)
+        if not entry:
+            return None
+        raw_slots = [EnvelopeSlot.model_validate(item) for item in entry.get("slots", [])]
+        return validate_slots(raw_slots)
+    except Exception:
+        return None
+
+
 def _llm_slots(goal: str) -> list[EnvelopeSlot] | None:
     settings = get_settings()
-    if not settings.openai_api_key or settings.demo_mode:
+    if not settings.openai_api_key:
         return None
     tag_vocabulary = sorted(
         {tag for item in catalog.load_catalog() for tag in item.get("tags", [])}
@@ -111,13 +155,11 @@ def _llm_slots(goal: str) -> list[EnvelopeSlot] | None:
         )
         raw = json.loads(response.choices[0].message.content)
         slots = [EnvelopeSlot.model_validate(item) for item in raw.get("slots", [])]
-        if 1 <= len(slots) <= 4:
-            return slots
+        return validate_slots(slots)
     except (ValidationError, ValueError, TypeError, json.JSONDecodeError, KeyError):
         return None
     except Exception:
         return None
-    return None
 
 
 def _deterministic_slots(goal: str) -> list[EnvelopeSlot]:
@@ -155,7 +197,22 @@ def _deterministic_slots(goal: str) -> list[EnvelopeSlot]:
 
 def draft_envelope(req: EnvelopeDraftRequest, now: float | None = None) -> PurchaseEnvelope:
     created = time.time() if now is None else now
-    slots = _llm_slots(req.goal) or _deterministic_slots(req.goal)
+    settings = get_settings()
+    mode = settings.envelope_drafting_mode
+    slots: list[EnvelopeSlot] | None = None
+    if mode == "deterministic":
+        slots = _deterministic_slots(req.goal)
+    elif mode == "llm":
+        slots = _llm_slots(req.goal) or _deterministic_slots(req.goal)
+    elif mode == "replay":
+        slots = _replay_slots(req.goal) or _deterministic_slots(req.goal)
+    else:
+        slots = _deterministic_slots(req.goal)
+
+    validated = validate_slots(slots)
+    if not validated:
+        raise ValueError("INVALID_ENVELOPE_SLOTS")
+    slots = validated
     envelope_id = f"env_{uuid.uuid4().hex}"
     draft = PurchaseEnvelope(
         id=envelope_id,
