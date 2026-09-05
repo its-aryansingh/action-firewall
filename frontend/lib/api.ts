@@ -52,6 +52,10 @@ export type Metrics = {
   outstanding_authorized_exposure_paise: number;
   unauthorized_actuator_calls: number;
   cart_policy_previews: number;
+  envelopes_activated: number;
+  envelope_quotes_allowed: number;
+  envelope_quotes_blocked: number;
+  in_envelope_recoveries: number;
   generated_at: number;
 };
 
@@ -68,12 +72,167 @@ export type AuditEvent = {
   created_at: number;
 };
 
+export type EnvelopeSlot = {
+  id: string;
+  label: string;
+  required_tags: string[];
+  quantity: number;
+};
+
+export type PurchaseEnvelope = {
+  id: string;
+  user_id: string;
+  agent_id: string;
+  label: string;
+  goal: string;
+  merchant_id: string;
+  currency: "INR";
+  max_total_paise: number;
+  fulfillment_profile_id: string;
+  delivery_deadline: number;
+  expires_at: number;
+  slots: EnvelopeSlot[];
+  blocked_categories: string[];
+  max_purchases: 1;
+  action_name: "create_payment_link";
+  status: "draft" | "active" | "consumed" | "revoked";
+  version: number;
+  envelope_hash: string;
+  mandate_id: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
+export type QuoteSubstitution = {
+  slot_id: string;
+  selected_sku: string;
+  preferred_sku: string | null;
+  reason: string;
+};
+
+export type MerchantQuote = {
+  merchant_id: string;
+  currency: "INR";
+  fulfillment_profile_id: string;
+  delivery_eta: number;
+  cart: Cart;
+  substitutions: QuoteSubstitution[];
+  quote_hash: string;
+};
+
+export type PolicyDelta = {
+  field: string;
+  expected: string;
+  actual: string;
+  recovery: "repair" | "fresh_approval" | "stop";
+};
+
+export type EnvelopeDecision = {
+  allowed: boolean;
+  code: string;
+  envelope_id: string;
+  envelope_version: number;
+  quote_total_paise: number;
+  deltas: PolicyDelta[];
+  human_message: string;
+};
+
+export type ActionReceipt = {
+  grant_id: string;
+  envelope_id: string | null;
+  envelope_version: number | null;
+  envelope_hash: string | null;
+  policy_id: string;
+  policy_version: number;
+  policy_hash: string;
+  action_name: string;
+  args_hash: string;
+  cart_hash: string;
+  quote_hash: string | null;
+  purchase_attempt_id: string;
+  state: ChatResponse["action_status"];
+  provider_ref: string | null;
+  created_at: number;
+  updated_at: number;
+  signature_algorithm: "HMAC-SHA256";
+  signature: string;
+};
+
+export type AutopilotScenario =
+  | "normal"
+  | "stock_loss"
+  | "price_drift"
+  | "merchant_drift"
+  | "fulfillment_drift"
+  | "timeout_after_dispatch";
+
+export type AutopilotResponse = {
+  envelope: PurchaseEnvelope;
+  quote: MerchantQuote | null;
+  envelope_decision: EnvelopeDecision;
+  action_status: ChatResponse["action_status"];
+  grant_id: string | null;
+  payment_link: string | null;
+  receipt: ActionReceipt | null;
+  recovery_applied: boolean;
+  provider_mode: string;
+};
+
+export type Health = {
+  ok: boolean;
+  demo_mode: boolean;
+  catalog_size: number;
+  mcp: string;
+};
+
 async function j<T>(r: Response): Promise<T> {
   if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
   return r.json() as Promise<T>;
 }
 
 export const api = {
+  health: () => fetch(`${API}/health`, { cache: "no-store" }).then(j<Health>),
+
+  draftEnvelope: (goal: string, max_total_rupees: number) =>
+    fetch(`${API}/envelopes/draft`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ goal, max_total_rupees }),
+    }).then(j<PurchaseEnvelope>),
+
+  activateEnvelope: (id: string, expected_envelope_hash: string) =>
+    fetch(`${API}/envelopes/${id}/activate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expected_envelope_hash }),
+    }).then(j<PurchaseEnvelope>),
+
+  revokeEnvelope: (id: string, expected_version: number) =>
+    fetch(`${API}/envelopes/${id}/revoke`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expected_version }),
+    }).then(j<PurchaseEnvelope>),
+
+  executeAutopilot: (
+    envelope: PurchaseEnvelope,
+    session_id: string,
+    idempotency_key: string,
+    scenario: AutopilotScenario,
+  ) =>
+    fetch(`${API}/autopilot/execute`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        envelope_id: envelope.id,
+        expected_envelope_version: envelope.version,
+        expected_envelope_hash: envelope.envelope_hash,
+        session_id,
+        idempotency_key,
+        scenario,
+      }),
+    }).then(j<AutopilotResponse>),
+
   chat: (session_id: string, message: string) =>
     fetch(`${API}/chat`, {
       method: "POST",
