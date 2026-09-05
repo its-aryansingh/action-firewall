@@ -96,7 +96,7 @@ later provider observation can record `SETTLED`.
 
 ### Integration tests
 
-The current suite has **76 passing backend tests**. It includes:
+The current suite has **102 passing backend tests**. It includes:
 
 - pure spend-policy boundaries and integer-paise arithmetic;
 - proposal-only chat and strict planner schemas;
