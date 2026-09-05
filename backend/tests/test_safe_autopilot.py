@@ -103,6 +103,18 @@ def test_stock_loss_recovers_only_inside_the_same_envelope():
     assert recovered.cart.total_paise <= envelope.max_total_paise
 
 
+def test_activating_another_job_does_not_revoke_the_first_job():
+    first = active_envelope()
+    second = active_envelope()
+
+    first_policy = store.get_mandate(first.mandate_id)
+    second_policy = store.get_mandate(second.mandate_id)
+
+    assert first.agent_id != second.agent_id
+    assert first_policy and first_policy.active
+    assert second_policy and second_policy.active
+
+
 @pytest.mark.parametrize(
     ("scenario", "field"),
     [
@@ -140,6 +152,18 @@ def test_valid_quote_issues_one_action_consumes_envelope_and_signs_receipt():
     assert retry.envelope_decision.code == "REPLAYED_RESULT"
     issued = [event for event in store.audit_trail() if event["event"] == "ACTION_ISSUED"]
     assert len(issued) == 1
+
+
+def test_tampered_action_receipt_does_not_verify():
+    envelope = active_envelope()
+    result = execute(envelope, key="receipt-tamper", session="receipt-session")
+    assert result.receipt and result.grant_id
+    grant = store.get_action_grant(result.grant_id)
+    assert grant
+
+    tampered = result.receipt.model_copy(update={"cart_hash": "0" * 64})
+
+    assert not verify_receipt(tampered, grant)
 
 
 def test_concurrent_distinct_attempts_under_one_envelope_issue_once():
