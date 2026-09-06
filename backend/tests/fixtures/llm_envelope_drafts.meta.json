@@ -1,0 +1,7 @@
+{
+  "artifact": "llm_envelope_drafts.json",
+  "provenance": "legacy repository fixture",
+  "model": "unknown",
+  "captured_at": "unknown",
+  "claim_boundary": "Deterministic replay only. This fixture is not evidence of current live-model quality."
+}

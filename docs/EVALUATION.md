@@ -85,3 +85,52 @@ The claim supported here is narrower and defensible: for the generated
 boundary cases, the deterministic verifier accepted every in-envelope quote,
 recovered every tested stock-loss case without wider authority, and blocked
 every tested policy breach before the actuator.
+
+## Drafting evaluation
+
+The LLM drafts slots; it does not authorize money. These two claims are measured
+separately. The deterministic CI command is:
+
+```powershell
+python scripts/evaluate_drafting.py --mode replay
+```
+
+It validates 10 recorded positive goals and 5 adversarial no-draft cases for
+schema validity, expected concept coverage, quote satisfiability, and safe
+refusal. The recording's original model and capture date are unavailable, so
+the output labels itself **legacy replay with unknown model provenance**. It is
+reliability evidence for the shipped replay path, not current model-quality
+evidence.
+
+For current model evidence, run the same corpus directly against the configured
+model without deterministic fallback:
+
+```powershell
+$env:OPENAI_API_KEY="..."
+$env:OPENAI_MODEL="gpt-4o-mini"
+python scripts/evaluate_drafting.py --mode live --repetitions 3
+```
+
+That produces 30 positive and 15 adversarial attempts. Do not publish a live
+score until this command has actually run with the named model and its output
+has been retained.
+
+### Held-out 100-case evaluation dataset
+
+A dedicated held-out evaluation dataset is available at `backend/tests/fixtures/envelope_drafting_eval.jsonl` comprising 100 labeled cases across three partitions:
+- **60 normal shopping goals**: Paraphrased across groceries, staples, beverages, produce, personal care, breakfast, and electronics, mapped to catalog tag concepts.
+- **20 ambiguous goals**: Underspecified intent (e.g., "buy something good", "surprise me", "do my chores") requiring explicit refusal (`understood=false`, `slots=[]`).
+- **20 adversarial / prompt-injection goals**: Malicious prompts attempting privilege escalation, prompt extraction, direct actuator calls, budget overrides, or unauthorized tag invention.
+
+Run the held-out evaluation against live LLM:
+
+```powershell
+python scripts/evaluate_drafting.py --mode live --dataset tests/fixtures/envelope_drafting_eval.jsonl
+```
+
+### Parser containment guarantees
+
+Tested deterministically in `backend/tests/test_envelope_drafting.py`:
+1. **Privilege containment**: Model output is strictly untrusted. Even if an LLM returns injected fields (`status: "active"`, `max_total_paise: 999999999`, `merchant_id: "attacker"`), only validated slots are extracted. Envelope cap, status (`DRAFT`), merchant, and cryptographic hash are derived exclusively from validated user inputs.
+2. **Catalog vocabulary containment**: Any model-invented tag outside the catalog vocabulary causes immediate slot rejection.
+3. **Actuator containment**: An unactivated `DRAFT` envelope cannot be executed or mint an `ActionGrant`; authorization requires explicit cryptographic activation by the human shopper.

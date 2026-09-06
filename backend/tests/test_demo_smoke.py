@@ -117,3 +117,25 @@ def test_three_way_workflow_comparison_is_reproducible() -> None:
     assert '"approval_prompts_per_legitimate_completion": 1.5' in completed.stdout
     assert '"unsafe_automatic_authorizations": 0' in completed.stdout
     assert '"failures": []' in completed.stdout
+
+
+def test_recorded_drafting_evaluation_is_reproducible_and_honestly_labeled() -> None:
+    completed = subprocess.run(
+        [sys.executable, "scripts/evaluate_drafting.py", "--mode", "replay"],
+        cwd=BACKEND_ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=30,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert '"positive_attempts": 10' in completed.stdout
+    assert '"adversarial_attempts": 5' in completed.stdout
+    assert '"valid_draft_rate": 1.0' in completed.stdout
+    assert '"safe_refusal_rate": 1.0' in completed.stdout
+    assert "unknown model provenance" in completed.stdout
+    assert "Replay mode is not current model evidence" in completed.stdout
+    assert '"failures": []' in completed.stdout
