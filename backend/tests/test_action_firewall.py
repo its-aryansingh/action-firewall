@@ -98,6 +98,71 @@ def make_authorization(
     return store.authorize_and_reserve(request), canonical, context
 
 
+@pytest.mark.parametrize(
+    ("action_name", "schema_hash", "args_mutation", "reason"),
+    [
+        ("refund_payment", "0" * 64, {}, "ACTION_NOT_REGISTERED"),
+        (
+            "create_payment_link",
+            "0" * 64,
+            {},
+            "ACTION_SCHEMA_MISMATCH",
+        ),
+        (
+            "create_payment_link",
+            None,
+            {"unexpected": "field"},
+            "ACTION_ARGUMENTS_INVALID",
+        ),
+    ],
+)
+def test_atomic_gate_rejects_unregistered_or_malformed_actions_before_grant(
+    clean_db, action_name, schema_hash, args_mutation, reason
+):
+    mandate = store.create_mandate(MandateCreate(cap_rupees=1_000))
+    cart = make_cart()
+    attempt_id = f"registry-{uuid.uuid4().hex}"
+    canonical = canonicalize_action(
+        "create_payment_link",
+        {
+            "amount": cart.total_paise,
+            "currency": "INR",
+            "description": "Registry boundary test",
+            "accept_partial": False,
+            "reference_id": attempt_id,
+            "notes": {},
+        },
+    )
+    args = {**canonical.args, **args_mutation}
+    request = AuthorizationRequest(
+        context=ActionContext(
+            user_id=mandate.user_id,
+            agent_id=mandate.agent_id,
+            session_id="registry-session",
+        ),
+        mandate_id=mandate.id,
+        expected_mandate_version=mandate.version,
+        action_name=action_name,
+        action_schema_hash=schema_hash or canonical.schema_hash,
+        args=args,
+        cart=cart,
+        cart_hash=cart_hash(cart),
+        purchase_attempt_id=attempt_id,
+    )
+
+    outcome = store.authorize_and_reserve(request)
+
+    assert outcome.authorized is False
+    assert outcome.grant is None
+    assert outcome.reason == reason
+    events = store.audit_trail("registry-session")
+    assert len(events) == 1
+    assert events[0]["event"] == "AUTHORIZATION_REJECTED"
+    assert events[0]["code"] == reason
+    with sqlite3.connect(get_settings().db_path) as cx:
+        assert cx.execute("SELECT COUNT(*) FROM spend_ledger").fetchone()[0] == 0
+
+
 def test_audit_rows_cannot_be_updated(clean_db):
     store.log_event("TEST_EVENT", session_id="audit-session", code="ORIGINAL")
     audit_id = store.audit_trail("audit-session")[0]["id"]
