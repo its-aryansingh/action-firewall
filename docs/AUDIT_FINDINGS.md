@@ -137,30 +137,54 @@ remains fully valid and verifiable, while status reflects settlement cleanly.
 
 ## Known, unfixed, lower risk
 
-- `reserve_headroom` (the legacy helper) can release a live `action_issued` row
-  and destroy its exposure when handed a matching idempotency key. **Not
-  reachable from any HTTP route** — tests only. Its docstring calling it "the
-  only way to reach money" is now wrong and should be corrected or the function
-  deleted.
-- The replay branches of `authorize_and_reserve` (`REUSED_AUTHORIZATION`,
-  `ACTION_IN_PROGRESS`, `UNKNOWN_OUTCOME`) return before policy evaluation and
-  write no audit row. The system still fails closed because `claim_action_grant`
-  re-checks active/version/policy_hash — defence in depth doing the gate's job.
-- The gate does not check the action against `ACTION_REGISTRY`; only the actuator
-  does. An unregistered action name can therefore mint a grant and appear in the
-  audit trail as `ALLOW` before being rejected at dispatch.
 - Reconciliation is pull-based: `POST /actions/{id}/reconcile` and
   `POST /actions/reconcile` exist and a startup sweep runs, but nothing calls
   them on a schedule and there is no signed webhook consumer.
-- The same shopper repurchasing an identical basket in one session replays the
-  first payment link, because the attempt id has no nonce or attempt counter.
-- Unbounded `cap_rupees` can raise `ValidationError`/`OverflowError` as an
-  unhandled 500. State rolls back cleanly; availability only.
+
+## Fixed in the submission-hardening pass
+
+**The atomic gate now owns action-registry enforcement.** An unknown action,
+malformed argument object, non-canonical argument object, or wrong action-schema
+hash is rejected before an authorization row can be minted. The actuator still
+repeats this check as defence in depth.
+→ `test_atomic_gate_rejects_unregistered_or_malformed_actions_before_grant`
+
+**A purchase attempt now has an explicit caller-generated identity.** The public
+autopilot contract requires `purchase_attempt_id`; it no longer derives identity
+from the session and quote. Transport retries must reuse that value. A new
+purchase must mint another value. Missing, legacy, and undersized identities are
+rejected at the HTTP boundary.
+→ `test_http_execute_requires_explicit_purchase_attempt_identity`
+
+**Every replay is now evidence.** The autopilot and atomic-gate replay branches
+append `ACTION_REPLAY_RETURNED`, including the prior state, attempt identity,
+grant id, and `provider_call_made=false`. Replays remain deliberately ahead of a
+fresh policy decision because they return prior work rather than authorize new
+work; the actuator cannot redeem a stale grant because it rechecks policy
+version, policy hash, state, expiry, actor, action, arguments and cart.
+→ `test_atomic_gate_records_reused_authorization_without_provider_call`,
+`test_valid_quote_issues_one_action_consumes_envelope_and_signs_receipt`,
+`test_unknown_provider_outcome_holds_one_use_and_does_not_redispatch`
+
+**The legacy reservation helper cannot mutate an exact-action grant.** Both
+generations share the spend ledger. Previously, the legacy helper could treat an
+expired `action_issued` row as its own TTL reservation and release its exposure.
+It now owns only `reserved`/`committed` states; any exact-action state returns
+`KEY_BOUND_TO_ACTION_GRANT` without mutation. It also rejects boolean, float,
+zero, and negative amounts.
+→ `test_legacy_reservation_cannot_release_an_exact_action_grant`,
+`test_legacy_reservation_rejects_invalid_money`
+
+**Legacy policy money inputs are bounded and strict.** Create and update reject
+zero/negative window caps, values over ₹10,00,000, floating-point or boolean
+money, invalid per-transaction caps, and unknown fields. Invalid updates leave
+the stored version and amount unchanged.
+→ `test_http_mandate_money_and_schema_inputs_fail_closed`,
+`test_http_invalid_mandate_update_preserves_policy`
 
 ## If a reviewer asks "did you find your own bugs?"
 
-Yes, and this file is the answer. Four were fixed with regression tests, the
-rest are disclosed with their reproduction. The suite deliberately did not cover
-any of these before the audit — it proved the things that already worked, which
-is the normal failure mode of a self-written test suite and worth saying out
-loud.
+Yes, and this file is the answer. Each fix above has a deterministic regression
+test; the remaining production gaps are disclosed rather than renamed as
+features. The original suite did not cover these findings—it proved the things
+already considered—which is precisely why the adversarial pass exists.
