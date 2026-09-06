@@ -203,6 +203,8 @@ def test_unactivated_draft_cannot_execute_or_mint_grant():
     """An unactivated draft envelope cannot execute an action or mint an ActionGrant."""
     from app import autopilot, store
 
+    store.init_db()
+
     # Create a draft envelope directly
     draft = draft_envelope(
         EnvelopeDraftRequest(
