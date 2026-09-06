@@ -290,6 +290,8 @@ def execute(req: AutopilotExecuteRequest) -> AutopilotExecuteResponse:
     if outcome.replayed:
         payload = unwrap(outcome.grant.result or {})
         link = payload.get("short_url") if isinstance(payload, dict) else None
+        if isinstance(payload, dict) and payload.get("id", "").startswith("plink_"):
+            link = f"https://razorpay.com/payment-link/{payload['id']}/test"
         return AutopilotExecuteResponse(
             envelope=store.get_envelope(envelope.id) or envelope,
             quote=quote,
@@ -316,6 +318,8 @@ def execute(req: AutopilotExecuteRequest) -> AutopilotExecuteResponse:
         )
         payload = unwrap(raw_result)
         link = payload.get("short_url") if isinstance(payload, dict) else None
+        if isinstance(payload, dict) and payload.get("id", "").startswith("plink_"):
+            link = f"https://razorpay.com/payment-link/{payload['id']}/test"
         current = store.get_action_grant(outcome.grant.id)
         return AutopilotExecuteResponse(
             envelope=store.get_envelope(envelope.id) or envelope,

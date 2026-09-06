@@ -577,9 +577,14 @@ function ResultCard({ result }: { result: AutopilotResponse }) {
           href={result.payment_link}
           target="_blank"
           rel="noreferrer"
-          className="btn mt-4 inline-block"
+          className={
+            "mt-4 inline-block font-medium rounded-xl px-5 py-2.5 transition " +
+            (result.provider_mode?.toLowerCase().includes("razorpay")
+              ? "bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/20"
+              : "btn")
+          }
         >
-          {result.provider_mode === "RazorpayClient" ? "Open Razorpay Payment Link" : "Open simulated Razorpay link"}
+          {result.provider_mode?.toLowerCase().includes("razorpay") ? "Open Razorpay Payment Link ↗" : "Open simulated Razorpay link ↗"}
         </a>
       )}
 
