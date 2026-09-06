@@ -23,8 +23,9 @@ def get_langfuse():
         return None
     try:
         from langfuse import Langfuse
+        host = s.langfuse_base_url or s.langfuse_host or "https://cloud.langfuse.com"
         _client = Langfuse(public_key=s.langfuse_public_key,
-                           secret_key=s.langfuse_secret_key, host=s.langfuse_host)
+                           secret_key=s.langfuse_secret_key, host=host)
         return _client
     except Exception as exc:  # pragma: no cover
         print(f"[langfuse] disabled: {exc}")
