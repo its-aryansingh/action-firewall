@@ -15,6 +15,13 @@ from pathlib import Path
 
 
 def _require_test_credentials() -> None:
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+        load_dotenv()
+    except Exception:
+        pass
     key_id = os.environ.get("RAZORPAY_KEY_ID", "")
     has_auth = bool(
         os.environ.get("RAZORPAY_MCP_TOKEN")
