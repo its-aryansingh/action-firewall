@@ -37,12 +37,19 @@ a simulated provider and must be labeled as such.
 > destination, deadline, expiry, one use—and gives the AI zero authority beyond
 > those fields.”
 
-Point to the control-boundary panel: AI drafts and ranks; code verifies; AI
-cannot activate or widen; the actuator accepts one exact grant.
+Point to the benchmark first: 100/100 legitimate jobs completed without action-time
+intervention, 50/50 eligible stock losses recovered, and 0/150 unsafe drift attempts
+automatically authorized. Label it as a synthetic workflow benchmark.
+
+Then point to the live authorization path: AI drafts; the shopper activates; code
+verifies; the actuator accepts one exact grant.
 
 ## 0:30–1:20 — activate bounded authority
 
-Keep the default goal and ₹600 maximum. Click **Generate approval draft**.
+Use **Speak purchase intent** when `OPENAI_API_KEY` is configured, or the clearly
+labeled **Use device voice** fallback. Say “Buy supplies for a pasta dinner.” Point
+out that the transcript only edits the goal field. Keep the ₹600 maximum and click
+**Generate approval draft**.
 
 Point to:
 
@@ -57,7 +64,8 @@ Click **Approve this envelope once**.
 
 **Say:**
 
-> “The model may translate language into this draft, but this click is the
+> “Voice and model output stop at editable intent. The model may translate
+> language into this draft, but this click is the
 > activation event. The server versions and hashes the complete envelope and
 > creates the exact spend fence. The model cannot perform this transition.”
 
@@ -137,7 +145,7 @@ unknown value metrics.
 
 **Say:**
 
-> “The evaluator passes 650 generated boundary cases across 10 goal families. The 146-test integration suite
+> “The evaluator passes 650 generated boundary cases across 10 goal families. The 147-test integration suite
 > drives eight concurrent attempts under one envelope to one issued action,
 > reproduces revocation between authorization and dispatch, and proves UNKNOWN
 > suppresses redispatch. Vulcan can decide what is likely to work. Action
@@ -159,6 +167,8 @@ Stop.
 
 - Browser/backend problem: run `python scripts/demo_autopilot.py` and label the
   provider simulated.
+- Voice permission or provider problem: type the same intent. Voice is an input
+  convenience, not part of the authorization trust boundary.
 - Model/Pinecone failure: continue with the deterministic fallback. Degraded
   intelligence never widens authority.
 - Unexpected provider response: preserve the attempt ID, show `UNKNOWN`, and
