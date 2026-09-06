@@ -123,6 +123,22 @@ def execute(req: AutopilotExecuteRequest) -> AutopilotExecuteResponse:
                 else "The exact action is already in flight; it was not dispatched again."
             ),
         )
+        store.log_event(
+            "ACTION_REPLAY_RETURNED",
+            session_id=req.session_id,
+            mandate_id=envelope.mandate_id,
+            mandate_version=prior.mandate_version,
+            code=replay_decision.code,
+            cart_total_paise=quote.cart.total_paise,
+            cap_paise=envelope.max_total_paise,
+            payload={
+                "grant_id": prior.id,
+                "purchase_attempt_id": attempt_id,
+                "original_state": prior.state.value,
+                "provider_call_made": False,
+                "surface": "autopilot",
+            },
+        )
         return AutopilotExecuteResponse(
             envelope=envelope,
             quote=quote,
