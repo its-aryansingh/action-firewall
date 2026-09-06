@@ -94,3 +94,26 @@ def test_generated_authorization_corpus_is_reproducible() -> None:
     assert '"breach_block_rate": 1.0' in completed.stdout
     assert '"stock_loss_recovery_rate": 1.0' in completed.stdout
     assert '"failures": []' in completed.stdout
+
+
+def test_three_way_workflow_comparison_is_reproducible() -> None:
+    completed = subprocess.run(
+        [sys.executable, "scripts/evaluate_workflows.py"],
+        cwd=BACKEND_ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=30,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert '"legitimate_jobs": 100' in completed.stdout
+    assert '"unsafe_drift_attempts": 150' in completed.stdout
+    assert '"completed_without_action_time_intervention": 50' in completed.stdout
+    assert '"completed_without_action_time_intervention": 100' in completed.stdout
+    assert '"eligible_stock_loss_recovered_without_reapproval": 50' in completed.stdout
+    assert '"approval_prompts_per_legitimate_completion": 1.5' in completed.stdout
+    assert '"unsafe_automatic_authorizations": 0' in completed.stdout
+    assert '"failures": []' in completed.stdout

@@ -49,6 +49,30 @@ Envelope requires one approval when the replacement SKU remains inside every
 approved field. This is a **modeled workflow count**, not measured user time or
 conversion uplift.
 
+The repository also includes a reproducible three-way workflow comparison:
+
+```powershell
+python scripts/evaluate_workflows.py
+```
+
+Across 100 legitimate synthetic jobs (50 unchanged and 50 eligible stock-loss
+changes), the modeled results are:
+
+| Workflow | Completes without action-time intervention | Eligible stock loss recovered without reapproval | Approval prompts per legitimate completion |
+|---|---:|---:|---:|
+| Manual checkout | 0/100 | 0/50 | 1.0 |
+| Exact-cart approval | 50/100 | 0/50 | 1.5 |
+| Purchase Envelope | 100/100 | 50/50 | 1.0 |
+
+The same run injects 150 unsafe price, merchant, and fulfilment drifts. Exact-cart
+approval and Purchase Envelope both produce zero automatic authorizations for
+those drifts. Manual checkout is not treated as an autonomous authorization
+system, so its unsafe-automatic-action count is zero by definition.
+
+These are modeled workflow counts using the repository's real cart hashing and
+envelope verifier. They are not measured completion time, conversion, revenue,
+or production payment success.
+
 ## What this evidence does not prove
 
 This corpus is synthetic and uses the repository's 35-item fixed-price demo
