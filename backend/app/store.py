@@ -941,6 +941,11 @@ def _binding_conflicts(
 
 def authorize_and_reserve(request: AuthorizationRequest) -> AuthorizationOutcome:
     """Atomically evaluate the complete policy and mint one exact action grant."""
+    from .actions import (
+        ActionNotRegistered,
+        InvalidActionArguments,
+        canonicalize_action,
+    )
     from .mandate import verify
 
     now = time.time()
@@ -976,6 +981,44 @@ def authorize_and_reserve(request: AuthorizationRequest) -> AuthorizationOutcome
             cx.commit()
             return AuthorizationOutcome(
                 authorized=False, decision=decision, reason="UNKNOWN_POLICY"
+            )
+
+        registry_reason = None
+        try:
+            registered_action = canonicalize_action(request.action_name, request.args)
+        except ActionNotRegistered:
+            registry_reason = "ACTION_NOT_REGISTERED"
+        except InvalidActionArguments:
+            registry_reason = "ACTION_ARGUMENTS_INVALID"
+        else:
+            if request.action_schema_hash != registered_action.schema_hash:
+                registry_reason = "ACTION_SCHEMA_MISMATCH"
+            elif request.args != registered_action.args:
+                registry_reason = "ACTION_ARGUMENTS_NOT_CANONICAL"
+
+        if registry_reason:
+            decision = _action_denial(
+                mandate,
+                request,
+                DecisionCode.BLOCK_INVALID_ACTION,
+                "The requested action is not registered with its exact approved schema.",
+            )
+            _insert_audit_row(
+                cx,
+                event="AUTHORIZATION_REJECTED",
+                session_id=request.context.session_id,
+                mandate_id=mandate.id,
+                mandate_version=mandate.version,
+                code=registry_reason,
+                cart_total_paise=amount_paise,
+                cap_paise=mandate.cap_paise,
+                payload={"action": request.action_name},
+            )
+            cx.commit()
+            return AuthorizationOutcome(
+                authorized=False,
+                decision=decision,
+                reason=registry_reason,
             )
 
         prior = cx.execute(
