@@ -173,7 +173,19 @@ export default function SafeAutopilotPage() {
       <section className="overflow-hidden rounded-3xl border border-brand/30 bg-gradient-to-br from-brand/15 via-panel to-ink p-7 shadow-2xl shadow-brand/5">
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-full border border-brand/40 bg-brand/10 px-3 py-1 text-xs font-medium text-brand">
-            Track 01 · AI Growth & Agentic Commerce
+            Track 01 · Safe Autopilot Checkout
+          </span>
+          <span
+            className={
+              "rounded-full border px-3 py-1 text-xs font-semibold tracking-wide " +
+              (health?.payment_provider === "razorpay_mcp"
+                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
+                : "border-brand/40 bg-brand/10 text-brand")
+            }
+          >
+            {health?.payment_provider === "razorpay_mcp"
+              ? "RAZORPAY TEST MODE"
+              : "SIMULATED PROVIDER"}
           </span>
           <span
             className={
@@ -183,9 +195,7 @@ export default function SafeAutopilotPage() {
                 : "border-edge text-muted")
             }
           >
-            {health?.ok
-              ? `${health.payment_provider.toUpperCase()} actuator · ${health.mcp}`
-              : "backend status unavailable"}
+            {health?.ok ? `MCP ${health.mcp}` : "offline"}
           </span>
         </div>
         <div className="mt-6 max-w-4xl">
@@ -195,8 +205,7 @@ export default function SafeAutopilotPage() {
             <span className="block text-brand">Zero authority beyond it.</span>
           </h1>
           <p className="mt-4 max-w-3xl text-sm leading-6 text-muted sm:text-base">
-            AI may plan and recover a purchase. Only a deterministic, versioned
-            Purchase Envelope can authorize the final Razorpay action.
+            Product unavailable → eligible substitute → still inside the approved job → checkout continues without another approval.
           </p>
         </div>
       </section>
@@ -312,11 +321,18 @@ export default function SafeAutopilotPage() {
                 </div>
               </div>
 
-              <div className="mt-5 rounded-xl border border-edge bg-ink p-3 font-mono text-[11px] text-muted">
-                <div>version {envelope.version}</div>
-                <div>envelope {shortHash(envelope.envelope_hash)}</div>
-                <div>expires {new Date(envelope.expires_at * 1000).toLocaleTimeString()}</div>
-              </div>
+              <details className="mt-5 rounded-xl border border-edge bg-ink/60 p-3 text-[11px] text-muted group">
+                <summary className="cursor-pointer font-sans font-medium text-slate-300 hover:text-white flex items-center justify-between">
+                  <span>Technical evidence (cryptographic digests & identity)</span>
+                  <span className="text-xs text-muted group-open:rotate-180 transition-transform">▼</span>
+                </summary>
+                <div className="mt-2 space-y-1 font-mono pt-2 border-t border-edge/40">
+                  <div>version: {envelope.version}</div>
+                  <div>envelope_hash: {envelope.envelope_hash}</div>
+                  <div>mandate_id: {envelope.mandate_id ?? "unassigned (mints on activation)"}</div>
+                  <div>expires: {new Date(envelope.expires_at * 1000).toLocaleTimeString()}</div>
+                </div>
+              </details>
 
               {envelope.status === "draft" && (
                 <div className="mt-5 flex flex-wrap items-center gap-3">
@@ -518,8 +534,10 @@ function ResultCard({ result }: { result: AutopilotResponse }) {
       </div>
 
       {result.recovery_applied && (
-        <div className="mt-3 rounded-xl border border-allow/30 bg-allow/10 p-3 text-xs text-allow">
-          In-envelope recovery applied. No new approval was required.
+        <div className="mt-3 rounded-xl border border-allow/40 bg-allow/10 p-3.5 text-xs text-allow">
+          <p className="font-semibold text-allow">
+            Spaghetti became unavailable. Replaced with Penne. Final total {inr(result.envelope_decision.quote_total_paise)} of {inr(result.envelope.max_total_paise)}. No new approval required.
+          </p>
         </div>
       )}
 
@@ -561,19 +579,22 @@ function ResultCard({ result }: { result: AutopilotResponse }) {
           rel="noreferrer"
           className="btn mt-4 inline-block"
         >
-          Open simulated Razorpay link
+          {result.provider_mode === "RazorpayClient" ? "Open Razorpay Payment Link" : "Open simulated Razorpay link"}
         </a>
       )}
 
       {result.receipt && (
-        <div className="mt-4 rounded-xl border border-edge bg-ink p-3 font-mono text-[11px] text-muted">
-          <div className="flex items-center justify-between">
-            <p className="text-slate-100 font-medium">Application-signed Action Receipt</p>
-            <span className="rounded-full bg-allow/10 border border-allow/30 px-2 py-0.5 text-[10px] text-allow">
-              auth core valid
+        <details className="mt-4 rounded-xl border border-edge bg-ink/60 p-3 font-mono text-[11px] text-muted group">
+          <summary className="cursor-pointer font-sans font-medium text-slate-200 hover:text-white flex items-center justify-between">
+            <span className="flex items-center gap-2">
+              <span>Technical evidence · Action Receipt</span>
+              <span className="rounded-full bg-allow/10 border border-allow/30 px-2 py-0.5 text-[10px] text-allow">
+                auth core valid
+              </span>
             </span>
-          </div>
-          <div className="mt-2 space-y-1">
+            <span className="text-xs text-muted group-open:rotate-180 transition-transform">▼</span>
+          </summary>
+          <div className="mt-3 space-y-1 pt-2 border-t border-edge/40">
             <p className="text-slate-300 font-sans text-xs">Authorization core (stable across settlement):</p>
             <p className="pl-2">grant {shortHash(result.receipt.grant_id)}</p>
             <p className="pl-2">quote {shortHash(result.receipt.quote_hash)}</p>
@@ -581,9 +602,9 @@ function ResultCard({ result }: { result: AutopilotResponse }) {
             <p className="pl-2">auth_sig {shortHash(result.receipt.authorization_signature ?? result.receipt.signature)}</p>
             <p className="mt-2 text-slate-300 font-sans text-xs">Status block ({result.action_status}):</p>
             <p className="pl-2">status_sig {shortHash(result.receipt.status_signature ?? result.receipt.signature)}</p>
+            <p className="mt-2 text-[10px] text-muted">Dual HMAC-SHA256 · auth core survives settlement</p>
           </div>
-          <p className="mt-2 text-[10px] text-muted">Dual HMAC-SHA256 · auth core survives settlement</p>
-        </div>
+        </details>
       )}
     </section>
   );
