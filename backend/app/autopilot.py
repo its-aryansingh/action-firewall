@@ -1,8 +1,6 @@
 """Safe Autopilot orchestration above the existing exact-action runtime."""
 from __future__ import annotations
 
-import hashlib
-
 from . import store
 from .actions import canonicalize_action
 from .authorization import cart_hash
@@ -81,13 +79,6 @@ def _binding_denial(
     )
 
 
-def _attempt_id(req: AutopilotExecuteRequest, quote_hash: str) -> str:
-    if req.idempotency_key:
-        return req.idempotency_key
-    raw = f"{req.session_id}:{req.envelope_id}:{req.scenario.value}:{quote_hash}"
-    return "autopilot-" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:40]
-
-
 def execute(req: AutopilotExecuteRequest) -> AutopilotExecuteResponse:
     settings = get_settings()
     if req.scenario is not AutopilotScenario.NORMAL and not settings.demo_mode:
@@ -99,7 +90,7 @@ def execute(req: AutopilotExecuteRequest) -> AutopilotExecuteResponse:
     provider = get_client()
     provider_mode = type(provider).__name__
     quote, recovered = build_quote(envelope, req.scenario)
-    attempt_id = _attempt_id(req, quote.quote_hash)
+    attempt_id = req.purchase_attempt_id
     prior = (
         store.get_action_grant_for_attempt(envelope.mandate_id, attempt_id)
         if envelope.mandate_id

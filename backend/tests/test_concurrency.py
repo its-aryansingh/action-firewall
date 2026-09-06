@@ -272,7 +272,7 @@ def test_authority_ceiling_is_atomic_under_concurrency(tmp_path, monkeypatch):
                 expected_envelope_version=env.version,
                 expected_envelope_hash=env.envelope_hash,
                 session_id=f"session-concurrent-{i}",
-                idempotency_key=f"key-concurrent-{i}",
+                purchase_attempt_id=f"key-concurrent-{i}",
                 scenario=AutopilotScenario.NORMAL,
             )
         )
@@ -299,4 +299,3 @@ def test_authority_ceiling_is_atomic_under_concurrency(tmp_path, monkeypatch):
     assert authority["total_exposure_paise"] == expected_spent
     assert authority["total_exposure_paise"] <= authority["ceiling_paise"]
     assert authority["remaining_headroom_paise"] == authority["ceiling_paise"] - expected_spent
-

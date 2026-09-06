@@ -58,7 +58,7 @@ def execute(envelope, *, scenario=AutopilotScenario.NORMAL, key=None, session=No
             expected_envelope_version=envelope.version,
             expected_envelope_hash=envelope.envelope_hash,
             session_id=session or f"session-{uuid.uuid4().hex}",
-            idempotency_key=key,
+            purchase_attempt_id=key or f"attempt-{uuid.uuid4().hex}",
             scenario=scenario,
         )
     )
@@ -219,8 +219,8 @@ def test_receipt_cross_grant_binding_fails():
     env1 = active_envelope(500)
     env2 = active_envelope(600)
 
-    res1 = execute(env1, key="grant-a", session="session-a")
-    res2 = execute(env2, key="grant-b", session="session-b")
+    res1 = execute(env1, key="grant-attempt-a", session="session-a")
+    res2 = execute(env2, key="grant-attempt-b", session="session-b")
     assert res1.receipt and res2.receipt
     grant2 = store.get_action_grant(res2.grant_id)
 
@@ -373,7 +373,7 @@ def test_injected_scenario_refused_outside_demo_mode(monkeypatch):
                 expected_envelope_version=envelope.version,
                 expected_envelope_hash=envelope.envelope_hash,
                 session_id="session-non-demo",
-                idempotency_key="key-non-demo",
+                purchase_attempt_id="key-non-demo",
                 scenario=AutopilotScenario.STOCK_LOSS,
             )
         )

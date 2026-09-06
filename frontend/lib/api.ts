@@ -264,7 +264,7 @@ export const api = {
   executeAutopilot: (
     envelope: PurchaseEnvelope,
     session_id: string,
-    idempotency_key: string,
+    purchase_attempt_id: string,
     scenario: AutopilotScenario,
   ) =>
     fetch(`${API}/autopilot/execute`, {
@@ -275,7 +275,7 @@ export const api = {
         expected_envelope_version: envelope.version,
         expected_envelope_hash: envelope.envelope_hash,
         session_id,
-        idempotency_key,
+        purchase_attempt_id,
         scenario,
       }),
     }).then(j<AutopilotResponse>),

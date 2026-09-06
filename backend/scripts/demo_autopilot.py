@@ -70,7 +70,7 @@ def execute(envelope, scenario: AutopilotScenario, key: str, session: str):
             expected_envelope_version=envelope.version,
             expected_envelope_hash=envelope.envelope_hash,
             session_id=session,
-            idempotency_key=key,
+            purchase_attempt_id=key,
             scenario=scenario,
         )
     )
