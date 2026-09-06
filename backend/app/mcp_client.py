@@ -301,8 +301,13 @@ def unwrap(result: dict) -> Any:
 
 def get_client():
     settings = get_settings()
-    if settings.demo_mode or not (
-        settings.razorpay_mcp_token or settings.razorpay_key_secret
-    ):
+    if settings.payment_provider == "simulated":
         return SimulatedMCPClient()
+    has_token = bool(settings.razorpay_mcp_token)
+    has_key_pair = bool(settings.razorpay_key_id and settings.razorpay_key_secret)
+    if not (has_token or has_key_pair):
+        raise RuntimeError(
+            "PAYMENT_PROVIDER=razorpay_mcp requires RAZORPAY_MCP_TOKEN or "
+            "both RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET"
+        )
     return RazorpayMCPClient()

@@ -35,7 +35,9 @@ async def lifespan(_: FastAPI):
     if not store.get_active_mandate("user_demo", "agent_groceries"):
         store.create_mandate(MandateCreate(cap_rupees=1000))
     print(
-        f"[boot] demo_mode={s.demo_mode} | catalog={len(catalog.load_catalog())} SKUs "
+        f"[boot] payment_provider={s.payment_provider} "
+        f"| catalog_retrieval={s.catalog_retrieval_mode} "
+        f"| drafting={s.envelope_drafting_mode} "
         f"| stale_dispatches_to_unknown={recovered}"
     )
     yield
@@ -60,6 +62,10 @@ def health() -> dict:
     s = get_settings()
     return {"ok": True, "demo_mode": s.demo_mode,
             "catalog_size": len(catalog.load_catalog()),
+            "payment_provider": s.payment_provider,
+            "catalog_retrieval_mode": s.catalog_retrieval_mode,
+            "envelope_drafting_mode": s.envelope_drafting_mode,
+            "fault_injection_enabled": s.fault_injection_enabled,
             "mcp": type(get_client()).__name__}
 
 

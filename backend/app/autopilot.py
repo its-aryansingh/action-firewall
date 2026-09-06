@@ -81,8 +81,11 @@ def _binding_denial(
 
 def execute(req: AutopilotExecuteRequest) -> AutopilotExecuteResponse:
     settings = get_settings()
-    if req.scenario is not AutopilotScenario.NORMAL and not settings.demo_mode:
-        raise ValueError("Demo scenarios are disabled outside DEMO_MODE")
+    if req.scenario is not AutopilotScenario.NORMAL:
+        if not settings.fault_injection_enabled:
+            raise ValueError("Fault injection is disabled")
+        if settings.payment_provider != "simulated":
+            raise ValueError("Fault injection cannot target a live payment provider")
     envelope = store.get_envelope(req.envelope_id)
     if not envelope:
         raise LookupError("UNKNOWN_ENVELOPE")

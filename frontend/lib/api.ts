@@ -229,6 +229,10 @@ export type Health = {
   ok: boolean;
   demo_mode: boolean;
   catalog_size: number;
+  payment_provider: "simulated" | "razorpay_mcp";
+  catalog_retrieval_mode: "keyword" | "pinecone";
+  envelope_drafting_mode: "deterministic" | "llm" | "replay";
+  fault_injection_enabled: boolean;
   mcp: string;
 };
 

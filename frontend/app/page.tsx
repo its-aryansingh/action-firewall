@@ -73,7 +73,7 @@ export default function SafeAutopilotPage() {
 
   useEffect(() => {
     setSessionId(newIdentity("safe_session"));
-    setAttemptId(newIdentity("safe_attempt"));
+    setAttemptId(newIdentity("att"));
     api.health().then(setHealth).catch(() => setHealth(null));
   }, []);
 
@@ -92,7 +92,7 @@ export default function SafeAutopilotPage() {
     try {
       const created = await api.draftEnvelope(goal.trim(), rupees);
       setEnvelope(created);
-      setAttemptId(newIdentity("safe_attempt"));
+      setAttemptId(newIdentity("att"));
     } catch (caught) {
       const raw = String(caught);
       let message = raw;
@@ -165,7 +165,7 @@ export default function SafeAutopilotPage() {
     setEnvelope(null);
     setResult(null);
     setError(null);
-    setAttemptId(newIdentity("safe_attempt"));
+    setAttemptId(newIdentity("att"));
   }
 
   return (
@@ -184,7 +184,7 @@ export default function SafeAutopilotPage() {
             }
           >
             {health?.ok
-              ? `${health.demo_mode ? "SIMULATED" : "LIVE"} actuator · ${health.mcp}`
+              ? `${health.payment_provider.toUpperCase()} actuator · ${health.mcp}`
               : "backend status unavailable"}
           </span>
         </div>
@@ -338,12 +338,12 @@ export default function SafeAutopilotPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="label">Fault injection (demo only)</p>
                     <span className="rounded-full border border-brand/30 bg-brand/10 px-2 py-0.5 font-mono text-[11px] text-brand">
-                      provider: {result?.provider_mode ?? (health?.demo_mode ? `Simulated (${health.mcp})` : (health?.mcp ?? "simulated"))}
+                      provider: {result?.provider_mode ?? health?.payment_provider ?? "simulated"}
                     </span>
                   </div>
                   <h2 className="mt-1 text-lg font-semibold">Simulate real-world faults</h2>
                   <p className="mt-1 text-xs text-muted">
-                    These scenarios are injected by the demo operator to exercise the verifier deterministically; the endpoint refuses them outside DEMO_MODE.
+                    These scenarios are operator-injected and accepted only when fault injection is enabled with the simulated provider.
                   </p>
                 </div>
                 <button className="btn-ghost text-block" onClick={revoke} disabled={busy}>
@@ -364,7 +364,7 @@ export default function SafeAutopilotPage() {
                     }
                     onClick={() => {
                       setScenario(item.id);
-                      setAttemptId(newIdentity("safe_attempt"));
+                      setAttemptId(newIdentity("att"));
                     }}
                     disabled={busy}
                   >

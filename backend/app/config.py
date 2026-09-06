@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     db_path: str = "./mandates.db"
     demo_mode: bool = True
     action_receipt_secret: str = ""
+    payment_provider: Literal["simulated", "razorpay_mcp"] = "simulated"
+    catalog_retrieval_mode: Literal["keyword", "pinecone"] = "keyword"
+    fault_injection_enabled: bool = True
     envelope_drafting_mode: Literal["deterministic", "llm", "replay"] = "replay"
 
     @property

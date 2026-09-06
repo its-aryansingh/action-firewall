@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, ValidationError, model_validator
 
 from .authorization import action_args_hash, digest
 
@@ -20,12 +20,18 @@ class InvalidActionArguments(ValueError):
 class CreatePaymentLinkArgs(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    amount: StrictInt = Field(..., gt=0)
+    amount: StrictInt = Field(..., ge=100, le=100_000_000)
     currency: Literal["INR"]
     description: str = Field(..., min_length=1, max_length=255)
     accept_partial: Literal[False]
-    reference_id: str = Field(..., min_length=1, max_length=64)
-    notes: dict[str, str] = Field(default_factory=dict)
+    reference_id: str = Field(..., min_length=1, max_length=40)
+    notes: dict[str, str] = Field(default_factory=dict, max_length=15)
+
+    @model_validator(mode="after")
+    def validate_note_values(self) -> "CreatePaymentLinkArgs":
+        if any(len(value) > 256 for value in self.notes.values()):
+            raise ValueError("Payment Link note values must be at most 256 characters")
+        return self
 
 
 @dataclass(frozen=True)
@@ -56,7 +62,7 @@ class CanonicalAction:
 ACTION_REGISTRY: dict[str, ActionSpec] = {
     "create_payment_link": ActionSpec(
         name="create_payment_link",
-        version="create_payment_link@1",
+        version="create_payment_link@2",
         arguments_model=CreatePaymentLinkArgs,
     ),
 }
