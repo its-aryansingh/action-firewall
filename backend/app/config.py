@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     openai_base_url: str = ""
     openai_model: str = "gpt-4o-mini"
     openai_embed_model: str = "text-embedding-3-small"
+    openai_transcription_model: str = "gpt-4o-mini-transcribe"
+    voice_max_audio_bytes: int = 6_000_000
 
     # Pinecone
     pinecone_api_key: str = ""

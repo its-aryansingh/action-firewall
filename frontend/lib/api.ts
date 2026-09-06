@@ -232,8 +232,17 @@ export type Health = {
   payment_provider: "simulated" | "razorpay_mcp";
   catalog_retrieval_mode: "keyword" | "pinecone";
   envelope_drafting_mode: "deterministic" | "llm" | "replay";
+  voice_ai_configured: boolean;
+  voice_transcription_model: string;
   fault_injection_enabled: boolean;
   mcp: string;
+};
+
+export type VoiceTranscription = {
+  text: string;
+  provider: "openai";
+  model: string;
+  draft_only: true;
 };
 
 async function j<T>(r: Response): Promise<T> {
@@ -243,6 +252,13 @@ async function j<T>(r: Response): Promise<T> {
 
 export const api = {
   health: () => fetch(`${API}/health`, { cache: "no-store" }).then(j<Health>),
+
+  transcribeVoice: (audio: Blob) =>
+    fetch(`${API}/voice/transcribe`, {
+      method: "POST",
+      headers: { "Content-Type": audio.type || "audio/webm" },
+      body: audio,
+    }).then(j<VoiceTranscription>),
 
   draftEnvelope: (goal: string, max_total_rupees: number) =>
     fetch(`${API}/envelopes/draft`, {
