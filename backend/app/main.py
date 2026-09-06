@@ -50,9 +50,11 @@ app = FastAPI(
     version="3.0.0",
     lifespan=lifespan,
 )
+_frontend_origin = get_settings().frontend_origin.rstrip("/")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=[_frontend_origin] if _frontend_origin else [],
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

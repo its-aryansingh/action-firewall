@@ -38,6 +38,7 @@ class Settings(BaseSettings):
 
     # App
     db_path: str = "./mandates.db"
+    frontend_origin: str = "http://localhost:3000"
     demo_mode: bool = True
     action_receipt_secret: str = ""
     payment_provider: Literal["simulated", "razorpay_mcp"] = "simulated"

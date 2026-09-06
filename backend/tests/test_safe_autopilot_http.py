@@ -36,6 +36,19 @@ def activate_envelope(client: TestClient, draft: dict) -> dict:
     return res.json()
 
 
+def test_local_demo_ports_receive_cors_headers(client: TestClient):
+    response = client.options(
+        "/health",
+        headers={
+            "Origin": "http://localhost:3001",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:3001"
+
+
 @pytest.mark.parametrize(
     "body",
     [
