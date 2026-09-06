@@ -10,11 +10,16 @@ node_modules/
 .next/
 out/
 
-# Env - never commit Razorpay keys
+# Env - never commit keys, tokens, or secrets
 .env
-.env.local
+.env.*
+*.env
+**/.env
+**/.env.*
 !.env.example
 !.env.local.example
+!backend/.env.example
+!frontend/.env.example
 
 # Misc
 .DS_Store
