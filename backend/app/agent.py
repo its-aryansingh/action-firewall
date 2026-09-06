@@ -122,7 +122,10 @@ def _llm_plan(
     try:
         from openai import OpenAI
 
-        client = OpenAI(api_key=settings.openai_api_key)
+        kwargs = {"api_key": settings.openai_api_key}
+        if settings.openai_base_url:
+            kwargs["base_url"] = settings.openai_base_url
+        client = OpenAI(**kwargs)
         context = {
             "retrieved_catalog": [
                 {

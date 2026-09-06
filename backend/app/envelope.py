@@ -129,7 +129,10 @@ def _llm_slots(goal: str) -> list[EnvelopeSlot] | None:
     try:
         from openai import OpenAI
 
-        client = OpenAI(api_key=settings.openai_api_key)
+        kwargs = {"api_key": settings.openai_api_key}
+        if settings.openai_base_url:
+            kwargs["base_url"] = settings.openai_base_url
+        client = OpenAI(**kwargs)
         response = client.chat.completions.create(
             model=settings.openai_model,
             temperature=0,
