@@ -323,7 +323,7 @@ def build_deck():
                "Synthetic authorization-correctness evidence, not inflated conversion claims.")
 
     add_card(s8, Inches(0.8), Inches(2.4), Inches(2.7), Inches(2.6),
-             "102", "Backend tests passing\n\nExact suite: policy limits, envelopes, receipts, HTTP contracts, and concurrency.",
+             "146", "Backend tests passing\n\nExact suite: policy limits, envelopes, receipts, HTTP contracts, and concurrency.",
              title_color=C_GREEN, border_color=C_GREEN)
     add_card(s8, Inches(3.8), Inches(2.4), Inches(2.7), Inches(2.6),
              "650", "Generated boundary cases\n\n10 goal families, 104 distinct carts across 13 adversarial drift families (100% pass).",
@@ -373,7 +373,7 @@ def build_deck():
 
     add_card(s10, Inches(0.8), Inches(2.8), Inches(11.7), Inches(2.2),
              "Verified System Properties",
-             "• 102 passing backend tests covering pure spend policy, envelope drafts, concurrency, and reconciliation\n"
+             "• 146 passing backend tests covering pure spend policy, envelope drafts, concurrency, and reconciliation\n"
              "• 650 synthetic evaluation cases across 10 goal families (104 distinct carts, 100% boundary pass rate)\n"
              "• Dual HMAC-SHA256 Action Receipts preserving authorization proof across grant settlement\n"
              "• Cross-envelope User Authority Ceiling enforced atomically under SQLite BEGIN IMMEDIATE\n"
@@ -382,7 +382,7 @@ def build_deck():
 
     add_card(s10, Inches(0.8), Inches(5.3), Inches(11.7), Inches(0.9),
              "Submission Status",
-             "pytest → 102 passed · 650 eval cases · npm audit → 0 · offline rehearsals → passed",
+             "pytest → 146 passed · 650 eval cases · npm audit → 0 · offline rehearsals → passed",
              title_color=C_BLUE, bg_color=C_PANEL2)
 
     add_footer(s10, "Track 01: AI Growth & Agentic Commerce", "Aryan Singh · Razorpay AI Buildathon 2026")

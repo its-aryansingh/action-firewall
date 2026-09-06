@@ -300,7 +300,7 @@
       <p class="lead">An AI may plan and recover a purchase. Only a deterministic, versioned Purchase Envelope can authorize the final Razorpay action.</p>
     </main>
     <footer class="footer">
-      <span class="mono">Razorpay MCP-compatible actuator · deterministic policy · 142 tests · offline demo</span>
+      <span class="mono">Razorpay MCP-compatible actuator · deterministic policy · 146 tests · offline demo</span>
       <span>Aryan Singh</span>
     </footer>
   </section>
@@ -485,7 +485,7 @@ ReceiptStatus (mutable lifecycle)
       <h2>Deterministic properties, verified on this machine.</h2>
       <p class="lead">Synthetic authorization-correctness evidence, not inflated conversion claims.</p>
       <div class="grid-4">
-        <article class="card"><div class="stat green">142</div><h3>Backend tests passing</h3><p>Exact suite: policy limits, envelopes, receipts, HTTP contracts, and concurrency.</p></article>
+        <article class="card"><div class="stat green">146</div><h3>Backend tests passing</h3><p>Exact suite: policy limits, envelopes, receipts, HTTP contracts, and concurrency.</p></article>
         <article class="card"><div class="stat blue">650</div><h3>Generated boundary cases</h3><p>10 goal families, 104 distinct carts across 13 adversarial drift families (100% pass).</p></article>
         <article class="card"><div class="stat red">550/550</div><h3>Violations blocked</h3><p>Price, merchant, category, destination, and tampering breaches fail closed.</p></article>
         <article class="card"><div class="stat green">8 → 1</div><h3>Concurrent claims to calls</h3><p>Eight parallel attempts under one envelope; exactly one issued action.</p></article>
@@ -520,7 +520,7 @@ ReceiptStatus (mutable lifecycle)
     <main class="content">
       <h1>One approval for the job.<br><span class="blue">Zero authority beyond it.</span></h1>
       <p class="lead">Action Firewall turns Razorpay agentic checkout into a bounded, reviewable application control plane.</p>
-      <div class="pill mono"><span class="dot"></span>pytest → 142 passed · 650 eval cases · npm audit → 0 · offline rehearsals → passed</div>
+      <div class="pill mono"><span class="dot"></span>pytest → 146 passed · 650 eval cases · npm audit → 0 · offline rehearsals → passed</div>
     </main>
     <footer class="footer">
       <span>Aryan Singh · Razorpay AI Buildathon 2026</span>
