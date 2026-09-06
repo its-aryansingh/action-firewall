@@ -498,19 +498,27 @@ class ChatResponse(BaseModel):
 
 
 class MandateCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     user_id: str = "user_demo"
     agent_id: str = "agent_groceries"
     label: str = "AI Groceries Agent"
-    cap_rupees: int = 1000
+    cap_rupees: StrictInt = Field(default=1000, ge=1, le=1_000_000)
     window: Window = Window.WEEKLY
-    per_txn_cap_rupees: Optional[int] = None
+    per_txn_cap_rupees: Optional[StrictInt] = Field(
+        default=None, ge=0, le=1_000_000
+    )
     allowed_categories: list[str] = Field(default_factory=list)
     blocked_categories: list[str] = Field(default_factory=list)
 
 
 class MandateUpdate(BaseModel):
-    cap_rupees: Optional[int] = None
-    per_txn_cap_rupees: Optional[int] = None
+    model_config = ConfigDict(extra="forbid")
+
+    cap_rupees: Optional[StrictInt] = Field(default=None, ge=1, le=1_000_000)
+    per_txn_cap_rupees: Optional[StrictInt] = Field(
+        default=None, ge=0, le=1_000_000
+    )
     active: Optional[bool] = None
     allowed_categories: Optional[list[str]] = None
     blocked_categories: Optional[list[str]] = None

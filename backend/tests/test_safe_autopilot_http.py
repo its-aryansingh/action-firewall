@@ -36,6 +36,54 @@ def activate_envelope(client: TestClient, draft: dict) -> dict:
     return res.json()
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"cap_rupees": 0},
+        {"cap_rupees": -1},
+        {"cap_rupees": 1_000_001},
+        {"cap_rupees": True},
+        {"cap_rupees": 500.5},
+        {"cap_rupees": 500, "per_txn_cap_rupees": -1},
+        {"cap_rupees": 500, "per_txn_cap_rupees": 1_000_001},
+        {"cap_rupees": 500, "per_txn_cap_rupees": False},
+        {"cap_rupees": 500, "unknown_policy_field": "allow"},
+    ],
+)
+def test_http_mandate_money_and_schema_inputs_fail_closed(
+    client: TestClient, body: dict[str, object]
+):
+    before = [mandate.id for mandate in store.list_mandates("user_demo")]
+    res = client.post("/mandates", json=body)
+
+    assert res.status_code == 422
+    assert [mandate.id for mandate in store.list_mandates("user_demo")] == before
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"cap_rupees": 0},
+        {"cap_rupees": 1_000_001},
+        {"cap_rupees": True},
+        {"per_txn_cap_rupees": -1},
+        {"per_txn_cap_rupees": 1_000_001},
+        {"unexpected": "ignore-me"},
+    ],
+)
+def test_http_invalid_mandate_update_preserves_policy(
+    client: TestClient, body: dict[str, object]
+):
+    created = client.post("/mandates", json={"cap_rupees": 750}).json()
+    res = client.patch(f"/mandates/{created['id']}", json=body)
+
+    assert res.status_code == 422
+    unchanged = store.get_mandate(created["id"])
+    assert unchanged is not None
+    assert unchanged.cap_paise == 75_000
+    assert unchanged.version == 1
+
+
 def test_http_draft_activate_execute_and_verify_receipt(client: TestClient):
     draft = create_draft(client, "Buy supplies for a pasta dinner", 600)
     active = activate_envelope(client, draft)
