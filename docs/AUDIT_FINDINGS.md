@@ -1,14 +1,14 @@
 # Adversarial audit findings
 
-I built most of this system with AI assistants, so I do not treat my own test
-suite as evidence that it works. A suite you wrote alongside the code proves the
-things you already thought of; it is the wrong instrument for finding what you
-missed.
+I did not treat the implementation's own test suite as sufficient evidence that
+the system works. A suite written alongside the code naturally emphasizes the
+cases already considered during implementation, so it is the wrong instrument
+for discovering what was missed.
 
-So I ran two adversarial review passes over the authorization core and the
-request path, pointed at the eleven invariants in `CLAUDE.md` and told to break
-them rather than confirm them. Every finding below was **reproduced** with a
-script before it was written down. Nothing here is inferred from reading.
+So I ran two adversarial review passes over the authorization core and request
+path, targeting the eleven documented authorization invariants and trying to
+break them rather than confirm them. Every finding below was **reproduced** with
+a script before it was written down. Nothing here is inferred from reading.
 
 This file stays in the repository on purpose. A project whose whole claim is
 "our statements are exact" should be able to show the list of places its
