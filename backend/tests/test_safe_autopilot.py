@@ -152,6 +152,20 @@ def test_valid_quote_issues_one_action_consumes_envelope_and_signs_receipt():
     assert retry.envelope_decision.code == "REPLAYED_RESULT"
     issued = [event for event in store.audit_trail() if event["event"] == "ACTION_ISSUED"]
     assert len(issued) == 1
+    replayed = [
+        event
+        for event in store.audit_trail(session)
+        if event["event"] == "ACTION_REPLAY_RETURNED"
+    ]
+    assert len(replayed) == 1
+    assert replayed[0]["code"] == "REPLAYED_RESULT"
+    assert replayed[0]["payload"] == {
+        "grant_id": first.grant_id,
+        "purchase_attempt_id": key,
+        "original_state": "action_issued",
+        "provider_call_made": False,
+        "surface": "autopilot",
+    }
 
 
 def test_receipt_authorization_core_survives_settlement_and_status_is_superseded():
@@ -344,6 +358,15 @@ def test_unknown_provider_outcome_holds_one_use_and_does_not_redispatch():
         event for event in store.audit_trail() if event["event"] == "ACTION_DISPATCH_STARTED"
     ]
     assert len(started) == 1
+    replayed = [
+        event
+        for event in store.audit_trail(session)
+        if event["event"] == "ACTION_REPLAY_RETURNED"
+    ]
+    assert len(replayed) == 1
+    assert replayed[0]["code"] == "ACTION_ALREADY_IN_PROGRESS"
+    assert replayed[0]["payload"]["original_state"] == "unknown"
+    assert replayed[0]["payload"]["provider_call_made"] is False
 
 
 def test_unintelligible_goal_produces_no_draft():

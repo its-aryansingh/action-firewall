@@ -163,6 +163,46 @@ def test_atomic_gate_rejects_unregistered_or_malformed_actions_before_grant(
         assert cx.execute("SELECT COUNT(*) FROM spend_ledger").fetchone()[0] == 0
 
 
+def test_atomic_gate_records_reused_authorization_without_provider_call(clean_db):
+    mandate = store.create_mandate(MandateCreate(cap_rupees=1_000))
+    cart = make_cart()
+    attempt_id = "gate-replay-attempt"
+    first, canonical, context = make_authorization(
+        mandate=mandate,
+        cart=cart,
+        attempt_id=attempt_id,
+        session_id="gate-replay-session",
+    )
+    assert first.authorized and first.grant
+
+    replay = store.authorize_and_reserve(
+        AuthorizationRequest(
+            context=context,
+            mandate_id=mandate.id,
+            expected_mandate_version=mandate.version,
+            action_name=canonical.name,
+            action_schema_hash=canonical.schema_hash,
+            args=canonical.args,
+            cart=cart,
+            cart_hash=cart_hash(cart),
+            purchase_attempt_id=attempt_id,
+        )
+    )
+
+    assert replay.authorized is True
+    assert replay.grant and replay.grant.id == first.grant.id
+    assert replay.reason == "REUSED_AUTHORIZATION"
+    events = [
+        event
+        for event in store.audit_trail("gate-replay-session")
+        if event["event"] == "ACTION_REPLAY_RETURNED"
+    ]
+    assert len(events) == 1
+    assert events[0]["code"] == "REUSED_AUTHORIZATION"
+    assert events[0]["payload"]["provider_call_made"] is False
+    assert events[0]["payload"]["surface"] == "authorization_gate"
+
+
 def test_audit_rows_cannot_be_updated(clean_db):
     store.log_event("TEST_EVENT", session_id="audit-session", code="ORIGINAL")
     audit_id = store.audit_trail("audit-session")[0]["id"]

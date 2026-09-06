@@ -939,6 +939,32 @@ def _binding_conflicts(
     return [name for name, value in expected.items() if row[name] != value]
 
 
+def _insert_replay_audit(
+    cx: sqlite3.Connection,
+    mandate: Mandate,
+    request: AuthorizationRequest,
+    grant: ActionGrant,
+    reason: str,
+) -> None:
+    _insert_audit_row(
+        cx,
+        event="ACTION_REPLAY_RETURNED",
+        session_id=request.context.session_id,
+        mandate_id=mandate.id,
+        mandate_version=mandate.version,
+        code=reason,
+        cart_total_paise=request.cart.total_paise,
+        cap_paise=mandate.cap_paise,
+        payload={
+            "grant_id": grant.id,
+            "purchase_attempt_id": request.purchase_attempt_id,
+            "original_state": grant.state.value,
+            "provider_call_made": False,
+            "surface": "authorization_gate",
+        },
+    )
+
+
 def authorize_and_reserve(request: AuthorizationRequest) -> AuthorizationOutcome:
     """Atomically evaluate the complete policy and mint one exact action grant."""
     from .actions import (
@@ -1060,6 +1086,7 @@ def authorize_and_reserve(request: AuthorizationRequest) -> AuthorizationOutcome
             status = str(prior["status"])
             grant = _row_to_action_grant(prior)
             if status in ("committed", "action_issued", "settled"):
+                _insert_replay_audit(cx, mandate, request, grant, "REPLAYED_RESULT")
                 cx.commit()
                 return AuthorizationOutcome(
                     authorized=True,
@@ -1069,15 +1096,20 @@ def authorize_and_reserve(request: AuthorizationRequest) -> AuthorizationOutcome
                     reason="REPLAYED_RESULT",
                 )
             if status in ("dispatching", "unknown"):
+                replay_reason = (
+                    "UNKNOWN_OUTCOME" if status == "unknown" else "ACTION_IN_PROGRESS"
+                )
+                _insert_replay_audit(cx, mandate, request, grant, replay_reason)
                 cx.commit()
                 return AuthorizationOutcome(
                     authorized=False,
                     decision=_replay_decision(mandate, request),
                     grant=grant,
                     in_progress=True,
-                    reason="UNKNOWN_OUTCOME" if status == "unknown" else "ACTION_IN_PROGRESS",
+                    reason=replay_reason,
                 )
             if status in ("reserved", "authorized") and (prior["expires_at"] or 0) > now:
+                _insert_replay_audit(cx, mandate, request, grant, "REUSED_AUTHORIZATION")
                 cx.commit()
                 return AuthorizationOutcome(
                     authorized=True,
