@@ -213,8 +213,8 @@ class AutopilotExecuteRequest(BaseModel):
     envelope_id: str
     expected_envelope_version: int = Field(..., ge=1)
     expected_envelope_hash: str = Field(..., min_length=64, max_length=64)
-    session_id: str
-    idempotency_key: str | None = None
+    session_id: str = Field(..., min_length=8, max_length=128)
+    purchase_attempt_id: str = Field(..., min_length=8, max_length=128)
     scenario: AutopilotScenario = AutopilotScenario.NORMAL
 
 

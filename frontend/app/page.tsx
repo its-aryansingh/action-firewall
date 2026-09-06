@@ -165,7 +165,6 @@ export default function SafeAutopilotPage() {
     setEnvelope(null);
     setResult(null);
     setError(null);
-    setSessionId(newIdentity("safe_session"));
     setAttemptId(newIdentity("safe_attempt"));
   }
 

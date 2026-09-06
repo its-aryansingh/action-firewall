@@ -48,7 +48,7 @@ def test_http_draft_activate_execute_and_verify_receipt(client: TestClient):
             "expected_envelope_version": active["version"],
             "expected_envelope_hash": active["envelope_hash"],
             "session_id": "http-demo-session",
-            "idempotency_key": "http-demo-attempt",
+            "purchase_attempt_id": "http-demo-attempt",
             "scenario": "stock_loss",
         },
     )
@@ -118,11 +118,40 @@ def test_http_execute_unknown_envelope_returns_404(client: TestClient):
             "expected_envelope_version": 1,
             "expected_envelope_hash": "a" * 64,
             "session_id": "session-unknown",
-            "idempotency_key": "attempt-unknown",
+            "purchase_attempt_id": "attempt-unknown",
             "scenario": "normal",
         },
     )
     assert res.status_code == 404
+    assert not any(e["event"] == "ACTION_ISSUED" for e in store.audit_trail())
+
+
+@pytest.mark.parametrize(
+    "attempt_fields",
+    [
+        {},
+        {"idempotency_key": "legacy-derived-identity"},
+        {"purchase_attempt_id": "short"},
+    ],
+)
+def test_http_execute_requires_explicit_purchase_attempt_identity(
+    client: TestClient, attempt_fields: dict[str, str]
+):
+    draft = create_draft(client)
+    active = activate_envelope(client, draft)
+    res = client.post(
+        "/autopilot/execute",
+        json={
+            "envelope_id": active["id"],
+            "expected_envelope_version": active["version"],
+            "expected_envelope_hash": active["envelope_hash"],
+            "session_id": "session-explicit-attempt",
+            "scenario": "normal",
+            **attempt_fields,
+        },
+    )
+
+    assert res.status_code == 422
     assert not any(e["event"] == "ACTION_ISSUED" for e in store.audit_trail())
 
 
@@ -137,7 +166,7 @@ def test_http_execute_stale_envelope_version_returns_binding_denial(client: Test
             "expected_envelope_version": 1,
             "expected_envelope_hash": active["envelope_hash"],
             "session_id": "session-stale",
-            "idempotency_key": "attempt-stale",
+            "purchase_attempt_id": "attempt-stale",
             "scenario": "normal",
         },
     )
@@ -158,7 +187,7 @@ def test_http_execute_unactivated_draft_returns_denial(client: TestClient):
             "expected_envelope_version": draft["version"],
             "expected_envelope_hash": draft["envelope_hash"],
             "session_id": "session-draft",
-            "idempotency_key": "attempt-draft",
+            "purchase_attempt_id": "attempt-draft",
             "scenario": "normal",
         },
     )
@@ -181,7 +210,7 @@ def test_http_execute_consumed_envelope_with_new_key_returns_denial(client: Test
             "expected_envelope_version": active["version"],
             "expected_envelope_hash": active["envelope_hash"],
             "session_id": "session-consume",
-            "idempotency_key": "attempt-1",
+            "purchase_attempt_id": "attempt-1",
             "scenario": "normal",
         },
     )
@@ -199,7 +228,7 @@ def test_http_execute_consumed_envelope_with_new_key_returns_denial(client: Test
             "expected_envelope_version": consumed["version"],
             "expected_envelope_hash": consumed["envelope_hash"],
             "session_id": "session-consume",
-            "idempotency_key": "attempt-2",
+            "purchase_attempt_id": "attempt-2",
             "scenario": "normal",
         },
     )
@@ -229,7 +258,7 @@ def test_http_execute_revoked_envelope_returns_denial(client: TestClient):
             "expected_envelope_version": revoked["version"],
             "expected_envelope_hash": revoked["envelope_hash"],
             "session_id": "session-revoked",
-            "idempotency_key": "attempt-revoked",
+            "purchase_attempt_id": "attempt-revoked",
             "scenario": "normal",
         },
     )
@@ -250,7 +279,7 @@ def test_http_execute_merchant_drift_returns_field_delta(client: TestClient):
             "expected_envelope_version": active["version"],
             "expected_envelope_hash": active["envelope_hash"],
             "session_id": "session-drift",
-            "idempotency_key": "attempt-drift",
+            "purchase_attempt_id": "attempt-drift",
             "scenario": "merchant_drift",
         },
     )
@@ -277,7 +306,7 @@ def test_http_execute_invalid_scenario_enum_returns_422(client: TestClient):
             "expected_envelope_version": active["version"],
             "expected_envelope_hash": active["envelope_hash"],
             "session_id": "session-invalid",
-            "idempotency_key": "attempt-invalid",
+            "purchase_attempt_id": "attempt-invalid",
             "scenario": "unsupported_scenario_injection",
         },
     )
@@ -344,4 +373,3 @@ def test_http_verify_receipt_unknown_grant_returns_404(client: TestClient):
     res = client.post("/receipts/act_unknown999/verify", json=dummy_receipt)
     assert res.status_code == 404
     assert not any(e["event"] == "ACTION_ISSUED" for e in store.audit_trail())
-
