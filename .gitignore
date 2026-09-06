@@ -20,10 +20,6 @@ out/
 .DS_Store
 .pytest_cache/
 
-# Claude Code machine-local state
-CLAUDE.local.md
-.claude/settings.local.json
-
 # Working material for entering the buildathon - notes about the competition,
 # not documentation of the product. Kept on disk, out of the repository.
 docs/SUBMISSION_PACK.md
