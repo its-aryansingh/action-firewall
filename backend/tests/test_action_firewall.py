@@ -121,7 +121,7 @@ def test_atomic_gate_rejects_unregistered_or_malformed_actions_before_grant(
 ):
     mandate = store.create_mandate(MandateCreate(cap_rupees=1_000))
     cart = make_cart()
-    attempt_id = f"registry-{uuid.uuid4().hex}"
+    attempt_id = f"reg-{uuid.uuid4().hex}"
     canonical = canonicalize_action(
         "create_payment_link",
         {
@@ -527,6 +527,31 @@ def test_action_schema_rejects_extra_or_coerced_arguments():
                 "unexpected": "field",
             },
         )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        {"amount": 99},
+        {"amount": 100_000_001},
+        {"reference_id": "r" * 41},
+        {"notes": {f"key-{index}": "value" for index in range(16)}},
+        {"notes": {"too-long": "v" * 257}},
+    ],
+)
+def test_payment_link_action_matches_razorpay_boundary_limits(mutation):
+    args = {
+        "amount": 100,
+        "currency": "INR",
+        "description": "Boundary test",
+        "accept_partial": False,
+        "reference_id": "reference-allowed",
+        "notes": {},
+        **mutation,
+    }
+
+    with pytest.raises(Exception):
+        canonicalize_action("create_payment_link", args)
 
 
 def test_expired_legacy_reservation_cannot_commit_late(clean_db):

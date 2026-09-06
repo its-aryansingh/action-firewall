@@ -11,7 +11,13 @@ from app.actions import canonicalize_action
 from app.authorization import cart_hash
 from app.config import get_settings
 from app.envelope import build_quote, verify_quote
-from app.mcp_client import MandateViolation, SimulatedMCPClient, reset_simulated_provider
+from app.mcp_client import (
+    MandateViolation,
+    RazorpayMCPClient,
+    SimulatedMCPClient,
+    get_client,
+    reset_simulated_provider,
+)
 from app.models import (
     ActionContext,
     ActionState,
@@ -385,11 +391,12 @@ def test_unintelligible_goal_produces_no_draft():
     assert len(drafted_events) == 0
 
 
-def test_injected_scenario_refused_outside_demo_mode(monkeypatch):
+def test_fault_injection_switch_is_independent_of_demo_mode(monkeypatch):
     envelope = active_envelope()
-    monkeypatch.setenv("DEMO_MODE", "false")
+    monkeypatch.setenv("DEMO_MODE", "true")
+    monkeypatch.setenv("FAULT_INJECTION_ENABLED", "false")
     get_settings.cache_clear()
-    with pytest.raises(ValueError, match="Demo scenarios are disabled outside DEMO_MODE"):
+    with pytest.raises(ValueError, match="Fault injection is disabled"):
         autopilot.execute(
             AutopilotExecuteRequest(
                 envelope_id=envelope.id,
@@ -400,5 +407,42 @@ def test_injected_scenario_refused_outside_demo_mode(monkeypatch):
                 scenario=AutopilotScenario.STOCK_LOSS,
             )
         )
+
+
+def test_fault_injection_can_never_target_live_provider(monkeypatch):
+    envelope = active_envelope()
+    monkeypatch.setenv("PAYMENT_PROVIDER", "razorpay_mcp")
+    monkeypatch.setenv("RAZORPAY_KEY_ID", "rzp_test_config_only")
+    monkeypatch.setenv("RAZORPAY_KEY_SECRET", "not-a-real-secret")
+    monkeypatch.setenv("FAULT_INJECTION_ENABLED", "true")
+    get_settings.cache_clear()
+
+    with pytest.raises(ValueError, match="cannot target a live payment provider"):
+        execute(envelope, scenario=AutopilotScenario.STOCK_LOSS)
+
+
+def test_payment_provider_selection_is_not_derived_from_demo_mode(monkeypatch):
+    monkeypatch.setenv("DEMO_MODE", "false")
+    monkeypatch.setenv("PAYMENT_PROVIDER", "simulated")
+    get_settings.cache_clear()
+    assert isinstance(get_client(), SimulatedMCPClient)
+
+    monkeypatch.setenv("DEMO_MODE", "true")
+    monkeypatch.setenv("PAYMENT_PROVIDER", "razorpay_mcp")
+    monkeypatch.setenv("RAZORPAY_KEY_ID", "rzp_test_config_only")
+    monkeypatch.setenv("RAZORPAY_KEY_SECRET", "not-a-real-secret")
+    get_settings.cache_clear()
+    assert isinstance(get_client(), RazorpayMCPClient)
+
+
+def test_live_provider_selection_fails_closed_without_credentials(monkeypatch):
+    monkeypatch.setenv("PAYMENT_PROVIDER", "razorpay_mcp")
+    monkeypatch.setenv("RAZORPAY_KEY_ID", "")
+    monkeypatch.setenv("RAZORPAY_KEY_SECRET", "")
+    monkeypatch.setenv("RAZORPAY_MCP_TOKEN", "")
+    get_settings.cache_clear()
+
+    with pytest.raises(RuntimeError, match="requires RAZORPAY_MCP_TOKEN"):
+        get_client()
 
 

@@ -94,7 +94,11 @@ def _keyword_search(query: str, top_k: int) -> list[dict]:
 def search(query: str, top_k: int = 6) -> list[dict]:
     """Returns catalog rows ready to become CartLines."""
     s = get_settings()
-    if s.pinecone_api_key and s.openai_api_key and not s.demo_mode:
+    if (
+        s.catalog_retrieval_mode == "pinecone"
+        and s.pinecone_api_key
+        and s.openai_api_key
+    ):
         try:
             vec = _embed([query])[0]
             res = _pinecone_index().query(vector=vec, top_k=top_k, include_metadata=True)

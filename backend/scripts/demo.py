@@ -22,6 +22,10 @@ if hasattr(sys.stdout, "reconfigure"):
 _TEMP_DIR = tempfile.TemporaryDirectory(prefix="action-firewall-demo-")
 os.environ["DB_PATH"] = str(Path(_TEMP_DIR.name) / "demo.db")
 os.environ["DEMO_MODE"] = "true"
+os.environ["PAYMENT_PROVIDER"] = "simulated"
+os.environ["CATALOG_RETRIEVAL_MODE"] = "keyword"
+os.environ["ENVELOPE_DRAFTING_MODE"] = "replay"
+os.environ["FAULT_INJECTION_ENABLED"] = "true"
 for secret_name in (
     "OPENAI_API_KEY",
     "PINECONE_API_KEY",
