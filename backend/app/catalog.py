@@ -46,15 +46,18 @@ def _embed(texts: list[str]) -> list[list[float]]:
 
 
 def _pinecone_index():
+    import time
     from pinecone import Pinecone, ServerlessSpec
     s = get_settings()
     pc = Pinecone(api_key=s.pinecone_api_key)
-    existing = {i["name"] for i in pc.list_indexes()}
+    existing = {getattr(i, "name", i["name"] if isinstance(i, dict) else str(i)) for i in pc.list_indexes()}
     if s.pinecone_index not in existing:
         pc.create_index(
             name=s.pinecone_index, dimension=1536, metric="cosine",
             spec=ServerlessSpec(cloud=s.pinecone_cloud, region=s.pinecone_region),
         )
+        while not pc.describe_index(s.pinecone_index).status.get("ready", False):
+            time.sleep(1)
     return pc.Index(s.pinecone_index)
 
 
