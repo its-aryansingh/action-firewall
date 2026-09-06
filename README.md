@@ -4,7 +4,7 @@
 
 > One approval for the job. Zero authority beyond it.
 
-Action Firewall lets an AI buyer recover from ordinary checkout changes without
+Action Firewall lets a shopper speak or type a purchase goal and lets an AI buyer recover from ordinary checkout changes without
 giving the model reusable payment authority. The shopper approves one structured,
 revocable **Purchase Envelope**. AI may draft the envelope, plan the cart, rank
 eligible alternatives, and explain the outcome. Only deterministic code can verify
@@ -96,7 +96,7 @@ later provider observation can record `SETTLED`.
 
 ### Integration tests
 
-The current suite has **146 passing backend tests**. It includes:
+The current suite has **147 passing backend tests**. It includes:
 
 - pure spend-policy boundaries and integer-paise arithmetic;
 - proposal-only chat and strict planner schemas;
@@ -110,6 +110,7 @@ The current suite has **146 passing backend tests**. It includes:
 - timeout-to-`UNKNOWN`, stale-dispatch recovery and reconciliation;
 - append-only SQLite audit enforcement;
 - application-signed Action Receipt verification.
+- server-side voice input boundaries, media validation, and provider-error redaction.
 
 ### Generated authorization corpus
 
@@ -137,7 +138,7 @@ external timestamp, or tamper-proof ledger.
 
 The five-minute path is designed around one useful recovery and one hard refusal:
 
-1. Describe “Buy supplies for a pasta dinner” with a ₹600 maximum.
+1. Speak or type “Buy supplies for a pasta dinner” with a ₹600 maximum. Voice only fills editable intent.
 2. Review and activate the complete envelope once.
 3. Simulate stock loss; show a deterministic eligible substitution and one issued
    simulated payment link without another approval.
@@ -153,6 +154,9 @@ The original exact-cart demonstration remains documented in
 ## Quick start
 
 The default `DEMO_MODE=true` path requires no credentials and makes no network calls.
+In this mode, supported browsers offer device speech input. Add `OPENAI_API_KEY`
+to demonstrate server-side AI transcription with `gpt-4o-mini-transcribe`; audio
+is bounded to 6 MB, is not persisted, and can only become draft goal text.
 
 ```powershell
 # Terminal 1
@@ -189,6 +193,7 @@ npm run build
 
 | Route | Purpose |
 |---|---|
+| `POST /voice/transcribe` | Convert bounded audio into editable purchase intent; never creates authority |
 | `POST /envelopes/draft` | Turn a goal and maximum into a reviewable draft |
 | `POST /envelopes/{id}/activate` | Hash-bound explicit shopper activation |
 | `POST /envelopes/{id}/revoke` | Version-bound instant application revocation |
@@ -211,14 +216,16 @@ backend/
   app/store.py          versioned policies, atomic grants, one-use ledger and audit
   app/mcp_client.py     closed simulated/live Razorpay action adapter
   app/receipts.py       application-signed Action Receipts
+  app/voice.py          bounded OpenAI voice-to-intent adapter
   app/agent.py          preserved exact-cart baseline and model/fallback planner
   tests/                boundary, concurrency, lifecycle and regression proof
   scripts/
     demo_autopilot.py   disposable primary five-minute rehearsal
-    evaluate_autopilot.py reproducible 400-case authorization corpus
+    evaluate_autopilot.py reproducible 650-case authorization corpus
     demo.py             preserved exact-cart baseline rehearsal
 frontend/
   app/page.tsx          primary Safe Autopilot product flow
+  components/VoiceIntentInput.tsx AI transcription plus keyless speech fallback
   app/baseline/page.tsx exact-cart control
   app/audit/page.tsx    event evidence and observed metrics
 data/catalog.json       fixed-price, server-owned demo catalog
@@ -230,7 +237,8 @@ docs/                   architecture, evaluation, demo and research evidence
 With test credentials and `DEMO_MODE=false`, the registered
 `create_payment_link` action can use Razorpay Remote MCP, catalog retrieval can use
 Pinecone plus OpenAI embeddings, the draft/planner can use an OpenAI model, and
-tracing can use Langfuse. Every dependency has a deterministic demo fallback. No
+voice intent can use OpenAI transcription; tracing can use Langfuse. Every dependency
+has a bounded demo fallback. No
 fallback receives broader authority than the live component it replaces.
 
 Shipped evidence runs with `envelope_drafting_mode=replay` by default (offline and
