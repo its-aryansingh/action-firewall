@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { VoiceIntentInput } from "@/components/VoiceIntentInput";
 import {
   api,
   inr,
@@ -236,6 +237,18 @@ export default function SafeAutopilotPage() {
                 </button>
               )}
             </div>
+            {!envelope && (
+              <div className="mt-5">
+                <VoiceIntentInput
+                  aiConfigured={Boolean(health?.voice_ai_configured)}
+                  disabled={busy}
+                  onTranscript={(transcript) => {
+                    setGoal(transcript);
+                    setError(null);
+                  }}
+                />
+              </div>
+            )}
             <label className="mt-5 block text-sm text-muted">
               Goal
               <textarea

@@ -3,10 +3,11 @@ from __future__ import annotations
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.concurrency import run_in_threadpool
 
-from . import agent, autopilot, catalog, reconciler, store
+from . import agent, autopilot, catalog, reconciler, store, voice
 from .config import get_settings
 from .mcp_client import get_client
 from .models import (
@@ -24,6 +25,7 @@ from .models import (
     MandateCreate,
     MandateUpdate,
     PurchaseEnvelope,
+    VoiceTranscription,
 )
 from .receipts import build_receipt, verify_receipt
 
@@ -65,6 +67,8 @@ def health() -> dict:
             "payment_provider": s.payment_provider,
             "catalog_retrieval_mode": s.catalog_retrieval_mode,
             "envelope_drafting_mode": s.envelope_drafting_mode,
+            "voice_ai_configured": bool(s.openai_api_key),
+            "voice_transcription_model": s.openai_transcription_model,
             "fault_injection_enabled": s.fault_injection_enabled,
             "mcp": type(get_client()).__name__}
 
@@ -93,6 +97,21 @@ def reset(session_id: str) -> dict:
 
 
 # ---------------- Safe Autopilot ----------------
+@app.post("/voice/transcribe", response_model=VoiceTranscription)
+async def transcribe_purchase_intent(request: Request) -> VoiceTranscription:
+    """Transcribe audio into editable goal text without creating authority."""
+    try:
+        return await run_in_threadpool(
+            voice.transcribe_audio,
+            await request.body(),
+            request.headers.get("content-type", "application/octet-stream"),
+        )
+    except voice.VoiceInputError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except voice.VoiceServiceUnavailable as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+
 @app.post("/envelopes/draft", response_model=PurchaseEnvelope)
 def draft_purchase_envelope(body: EnvelopeDraftRequest) -> PurchaseEnvelope:
     try:

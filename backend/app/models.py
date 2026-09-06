@@ -150,6 +150,15 @@ class EnvelopeDraftRequest(BaseModel):
     user_id: str = "user_demo"
 
 
+class VoiceTranscription(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(..., min_length=1, max_length=280)
+    provider: Literal["openai"] = "openai"
+    model: str
+    draft_only: Literal[True] = True
+
+
 class EnvelopeActivateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
