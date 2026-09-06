@@ -749,18 +749,27 @@ def get_authority_view(user_id: str = "user_demo") -> dict[str, Any]:
 
 def reserve_headroom(mandate_id: str, amount_paise: int, idempotency_key: str,
                      ttl_seconds: int | None = None) -> Reservation:
-    """Atomically claim headroom under a mandate. The only way to reach money.
+    """Atomically claim headroom for the legacy chat checkout path.
 
     Runs the re-check and the write inside one BEGIN IMMEDIATE transaction, so
     two concurrent turns cannot both observe the same free headroom. Returns a
     Reservation; callers must branch only on `.granted`.
 
-    `idempotency_key` makes retries safe: the same key returns the same
-    reservation, and a key whose work already committed replays the stored
-    Razorpay reference instead of charging again.
+    Safe Autopilot uses authorize_and_reserve instead. Because both generations
+    share one ledger, this helper must never reinterpret or expire an exact
+    action-grant row.
     """
     ttl = RESERVATION_TTL_SECONDS if ttl_seconds is None else ttl_seconds
     now = time.time()
+    if isinstance(amount_paise, bool) or not isinstance(amount_paise, int) or amount_paise <= 0:
+        return Reservation(granted=False, mandate_id=mandate_id, reason="INVALID_AMOUNT")
+    if not isinstance(idempotency_key, str) or not idempotency_key.strip():
+        return Reservation(
+            granted=False,
+            mandate_id=mandate_id,
+            amount_paise=amount_paise,
+            reason="INVALID_IDEMPOTENCY_KEY",
+        )
     cx = _configure(sqlite3.connect(get_settings().db_path, timeout=15.0))
     try:
         cx.execute("BEGIN IMMEDIATE")               # take the write lock up front
@@ -786,14 +795,28 @@ def reserve_headroom(mandate_id: str, amount_paise: int, idempotency_key: str,
                                    amount_paise=prior["amount_paise"], replayed=True,
                                    razorpay_ref=prior["razorpay_ref"],
                                    reason="REPLAYED_COMMITTED")
-            if (prior["expires_at"] or 0) > now:
+            if prior["status"] == "reserved" and (prior["expires_at"] or 0) > now:
                 cx.commit()
                 return Reservation(granted=True, id=prior["id"], mandate_id=mandate_id,
                                    amount_paise=prior["amount_paise"],
                                    reason="REPLAYED_RESERVED")
-            # Expired: free it so this key can be retried cleanly.
-            cx.execute("UPDATE spend_ledger SET status='released', expires_at=NULL "
-                       "WHERE id=?", (prior["id"],))
+            if prior["status"] == "reserved":
+                # Only this legacy helper owns `reserved`; exact grants use
+                # `authorized` and must remain under their own state machine.
+                cx.execute(
+                    "UPDATE spend_ledger SET status='released', expires_at=NULL "
+                    "WHERE id=? AND status='reserved'",
+                    (prior["id"],),
+                )
+            else:
+                cx.commit()
+                return Reservation(
+                    granted=False,
+                    id=prior["id"],
+                    mandate_id=mandate_id,
+                    amount_paise=prior["amount_paise"],
+                    reason="KEY_BOUND_TO_ACTION_GRANT",
+                )
 
         window = Window(m["window"])
         since = now - WINDOW_SECONDS[window]

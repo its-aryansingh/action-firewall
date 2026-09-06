@@ -623,3 +623,47 @@ def test_duplicate_dispatch_of_issued_grant_is_in_progress_not_a_violation(clean
     assert "ALREADY_ISSUED" in str(excinfo.value)
     assert len(client.calls) == 1, "the provider must still be called exactly once"
     assert store.get_action_grant(outcome.grant.id).state is ActionState.ACTION_ISSUED
+
+
+def test_legacy_reservation_cannot_release_an_exact_action_grant(clean_db):
+    mandate = store.create_mandate(MandateCreate(cap_rupees=1_000))
+    attempt_id = "shared-ledger-attempt"
+    outcome, canonical, context = make_authorization(
+        mandate=mandate,
+        attempt_id=attempt_id,
+        session_id="shared-ledger-session",
+    )
+    assert outcome.grant
+    SimulatedMCPClient().call_tool(
+        canonical.name,
+        canonical.args,
+        outcome.grant.id,
+        context,
+        outcome.grant.cart_hash,
+    )
+    with store._conn() as cx:
+        cx.execute(
+            "UPDATE spend_ledger SET expires_at=0 WHERE id=?",
+            (outcome.grant.id,),
+        )
+
+    legacy = store.reserve_headroom(
+        mandate.id,
+        outcome.grant.amount_paise,
+        attempt_id,
+    )
+
+    assert legacy.granted is False
+    assert legacy.reason == "KEY_BOUND_TO_ACTION_GRANT"
+    assert store.get_action_grant(outcome.grant.id).state is ActionState.ACTION_ISSUED
+
+
+@pytest.mark.parametrize("amount", [0, -1, True, 1.5])
+def test_legacy_reservation_rejects_invalid_money(clean_db, amount):
+    mandate = store.create_mandate(MandateCreate(cap_rupees=1_000))
+
+    result = store.reserve_headroom(mandate.id, amount, "invalid-amount-attempt")
+
+    assert result.granted is False
+    assert result.reason == "INVALID_AMOUNT"
+    assert store.spent_in_window(mandate.id, mandate.window) == 0
