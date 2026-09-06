@@ -37,7 +37,10 @@ def _doc_text(p: dict) -> str:
 def _embed(texts: list[str]) -> list[list[float]]:
     from openai import OpenAI
     s = get_settings()
-    client = OpenAI(api_key=s.openai_api_key)
+    kwargs = {"api_key": s.openai_api_key}
+    if s.openai_base_url:
+        kwargs["base_url"] = s.openai_base_url
+    client = OpenAI(**kwargs)
     resp = client.embeddings.create(model=s.openai_embed_model, input=texts)
     return [d.embedding for d in resp.data]
 
