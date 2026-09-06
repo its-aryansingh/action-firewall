@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { VoiceIntentInput } from "@/components/VoiceIntentInput";
 import {
   api,
@@ -17,6 +18,12 @@ const SCENARIOS: Array<{
   detail: string;
   tone: "safe" | "risk";
 }> = [
+  {
+    id: "normal",
+    label: "Approved quote → checkout",
+    detail: "Build the quote, verify every bound, then issue one exact payment action.",
+    tone: "safe",
+  },
   {
     id: "stock_loss",
     label: "Stock loss → safe substitute",
@@ -71,11 +78,19 @@ export default function SafeAutopilotPage() {
   const [attemptId, setAttemptId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const workflowRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setSessionId(newIdentity("safe_session"));
     setAttemptId(newIdentity("att"));
-    api.health().then(setHealth).catch(() => setHealth(null));
+    api.health()
+      .then((current) => {
+        setHealth(current);
+        if (current.payment_provider === "razorpay_mcp" || !current.fault_injection_enabled) {
+          setScenario("normal");
+        }
+      })
+      .catch(() => setHealth(null));
   }, []);
 
   const step = !envelope ? 1 : envelope.status === "draft" ? 2 : 3;
@@ -171,43 +186,70 @@ export default function SafeAutopilotPage() {
 
   return (
     <div className="space-y-7">
-      <section className="overflow-hidden rounded-3xl border border-brand/30 bg-gradient-to-br from-brand/15 via-panel to-ink p-7 shadow-2xl shadow-brand/5">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded-full border border-brand/40 bg-brand/10 px-3 py-1 text-xs font-medium text-brand">
-            Track 01 · Safe Autopilot Checkout
-          </span>
-          <span
-            className={
-              "rounded-full border px-3 py-1 text-xs font-semibold tracking-wide " +
-              (health?.payment_provider === "razorpay_mcp"
-                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
-                : "border-brand/40 bg-brand/10 text-brand")
-            }
-          >
-            {health?.payment_provider === "razorpay_mcp"
-              ? "RAZORPAY TEST MODE"
-              : "SIMULATED PROVIDER"}
-          </span>
-          <span
-            className={
-              "rounded-full border px-3 py-1 text-xs " +
-              (health?.ok
-                ? "border-allow/40 bg-allow/10 text-allow"
-                : "border-edge text-muted")
-            }
-          >
-            {health?.ok ? `MCP ${health.mcp}` : "offline"}
-          </span>
-        </div>
-        <div className="mt-6 max-w-4xl">
-          <p className="label text-brand">Safe Autopilot Checkout</p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-5xl">
-            One approval for the job.
-            <span className="block text-brand">Zero authority beyond it.</span>
-          </h1>
-          <p className="mt-4 max-w-3xl text-sm leading-6 text-muted sm:text-base">
-            Product unavailable → eligible substitute → still inside the approved job → checkout continues without another approval.
-          </p>
+      <section className="hero-shell">
+        <div className="hero-orb hero-orb-one" />
+        <div className="hero-orb hero-orb-two" />
+        <div className="relative grid gap-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)] lg:items-end">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="status-pill border-brand/40 bg-brand/10 text-brand">
+                Razorpay Buildathon · Track 01
+              </span>
+              <span
+                className={
+                  "status-pill font-semibold " +
+                  (health?.payment_provider === "razorpay_mcp"
+                    ? "border-allow/40 bg-allow/10 text-allow"
+                    : "border-edge bg-ink/50 text-muted")
+                }
+              >
+                {health?.payment_provider === "razorpay_mcp"
+                  ? "RAZORPAY TEST MODE"
+                  : "SAFE DEMO MODE"}
+              </span>
+            </div>
+            <p className="mt-7 text-xs font-semibold uppercase tracking-[0.22em] text-brand">
+              Agentic checkout authorization
+            </p>
+            <h1 className="mt-3 max-w-3xl text-4xl font-semibold leading-[1.05] tracking-[-0.035em] sm:text-6xl">
+              Let AI finish the purchase.
+              <span className="mt-1 block text-gradient">Never let it expand permission.</span>
+            </h1>
+            <p className="mt-5 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">
+              A shopper approves one bounded job. The AI may recover from stock changes,
+              but deterministic code alone decides whether one exact Razorpay action may run.
+            </p>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <button
+                className="btn btn-primary min-h-11"
+                onClick={() => workflowRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+              >
+                Run the 90-second proof
+              </button>
+              <Link href="/audit" className="btn-ghost inline-flex min-h-11 items-center">
+                Inspect live evidence
+              </Link>
+            </div>
+          </div>
+
+          <div className="proof-panel">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="label">Controlled workflow benchmark</p>
+                <p className="mt-1 text-sm font-medium text-slate-200">Useful autonomy, bounded risk</p>
+              </div>
+              <span className="live-dot"><i /> REPRODUCIBLE</span>
+            </div>
+            <div className="mt-5 grid grid-cols-3 gap-2">
+              <ProofMetric value="100/100" label="jobs completed" tone="brand" />
+              <ProofMetric value="50/50" label="stock recoveries" tone="allow" />
+              <ProofMetric value="0/150" label="unsafe actions" tone="allow" />
+            </div>
+            <p className="mt-4 text-[10px] leading-4 text-muted">
+              Synthetic catalog benchmark. These are authorization and workflow results—not
+              production conversion, GMV, or payment-success claims.
+            </p>
+          </div>
         </div>
       </section>
 
@@ -223,7 +265,7 @@ export default function SafeAutopilotPage() {
         </div>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(340px,0.8fr)]">
+      <div className="scroll-mt-24 grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(340px,0.8fr)]" ref={workflowRef}>
         <div className="space-y-6">
           <section className="card">
             <div className="flex items-center justify-between gap-3">
@@ -365,14 +407,22 @@ export default function SafeAutopilotPage() {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="label">Fault injection (demo only)</p>
+                    <p className="label">
+                      {health?.payment_provider === "razorpay_mcp" ? "Live test checkout" : "Judge proof lab"}
+                    </p>
                     <span className="rounded-full border border-brand/30 bg-brand/10 px-2 py-0.5 font-mono text-[11px] text-brand">
                       provider: {result?.provider_mode ?? health?.payment_provider ?? "simulated"}
                     </span>
                   </div>
-                  <h2 className="mt-1 text-lg font-semibold">Simulate real-world faults</h2>
+                  <h2 className="mt-1 text-lg font-semibold">
+                    {health?.payment_provider === "razorpay_mcp"
+                      ? "Issue one verified Razorpay test action"
+                      : "Prove recovery and refusal behavior"}
+                  </h2>
                   <p className="mt-1 text-xs text-muted">
-                    These scenarios are operator-injected and accepted only when fault injection is enabled with the simulated provider.
+                    {health?.payment_provider === "razorpay_mcp"
+                      ? "Fault injection is locked in live mode. Only the approved quote can reach Razorpay."
+                      : "Each scenario changes a controlled quote fact, then runs the same deterministic gate."}
                   </p>
                 </div>
                 <button className="btn-ghost text-block" onClick={revoke} disabled={busy}>
@@ -389,13 +439,20 @@ export default function SafeAutopilotPage() {
                         ? item.tone === "safe"
                           ? "border-allow bg-allow/10"
                           : "border-block bg-block/10"
-                        : "border-edge bg-ink hover:border-brand")
+                        : "border-edge bg-ink hover:border-brand") +
+                      ((health?.payment_provider === "razorpay_mcp" || !health?.fault_injection_enabled) && item.id !== "normal"
+                        ? " cursor-not-allowed opacity-[0.35]"
+                        : "")
                     }
                     onClick={() => {
                       setScenario(item.id);
                       setAttemptId(newIdentity("att"));
                     }}
-                    disabled={busy}
+                    disabled={
+                      busy ||
+                      ((health?.payment_provider === "razorpay_mcp" || !health?.fault_injection_enabled) &&
+                        item.id !== "normal")
+                    }
                   >
                     <span className="text-sm font-medium">{item.label}</span>
                     <span className="mt-1 block text-xs leading-5 text-muted">
@@ -412,10 +469,29 @@ export default function SafeAutopilotPage() {
         </div>
 
         <aside className="space-y-6">
-          <BoundaryCard />
+          <BoundaryCard envelope={envelope} result={result} busy={busy} />
           {result ? <ResultCard result={result} /> : <WaitingCard />}
         </aside>
       </div>
+    </div>
+  );
+}
+
+function ProofMetric({
+  value,
+  label,
+  tone,
+}: {
+  value: string;
+  label: string;
+  tone: "brand" | "allow";
+}) {
+  return (
+    <div className="rounded-2xl border border-edge/80 bg-ink/60 px-3 py-4 text-center">
+      <p className={tone === "allow" ? "proof-value text-allow" : "proof-value text-brand"}>
+        {value}
+      </p>
+      <p className="mt-1 text-[10px] uppercase leading-4 tracking-wider text-muted">{label}</p>
     </div>
   );
 }
@@ -482,41 +558,114 @@ function StatusBadge({ status }: { status: PurchaseEnvelope["status"] }) {
   );
 }
 
-function BoundaryCard() {
+function BoundaryCard({
+  envelope,
+  result,
+  busy,
+}: {
+  envelope: PurchaseEnvelope | null;
+  result: AutopilotResponse | null;
+  busy: boolean;
+}) {
+  const drafted = Boolean(envelope);
+  const activated = envelope?.status === "active" || envelope?.status === "consumed";
+  const decided = Boolean(result);
+  const dispatched = Boolean(result?.payment_link);
   return (
-    <section className="card">
-      <p className="label">Control boundary</p>
-      <div className="mt-4 space-y-3 text-sm">
-        <BoundaryRow actor="AI" action="Draft, plan, rank, explain" allowed />
-        <BoundaryRow actor="Code" action="Verify every final field" allowed />
-        <BoundaryRow actor="AI" action="Activate or widen authority" allowed={false} />
-        <BoundaryRow actor="Actuator" action="Redeem one exact Action Grant" allowed />
+    <section className="card overflow-hidden border-brand/20">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="label">Live authorization path</p>
+          <p className="mt-1 text-sm font-semibold">Who controls each decision</p>
+        </div>
+        <span className={busy ? "live-dot text-brand" : "live-dot"}>
+          <i className={busy ? "animate-ping" : ""} /> {busy ? "CHECKING" : "READY"}
+        </span>
       </div>
-      <p className="mt-4 border-t border-edge pt-4 text-xs leading-5 text-muted">
-        The envelope is application-level authority, not a banking mandate and not
-        a claim of access to private Razorpay or Vulcan APIs.
+      <div className="mt-5 space-y-1">
+        <JourneyStage
+          index="01"
+          actor="AI"
+          title="Draft purchase intent"
+          state={drafted ? "done" : "active"}
+          note="Probabilistic and editable"
+        />
+        <JourneyStage
+          index="02"
+          actor="YOU"
+          title="Activate exact bounds"
+          state={activated ? "done" : drafted ? "active" : "locked"}
+          note="A human-only transition"
+        />
+        <JourneyStage
+          index="03"
+          actor="CODE"
+          title="Verify the final quote"
+          state={decided ? (result?.envelope_decision.allowed ? "done" : "blocked") : activated ? "active" : "locked"}
+          note="Deterministic, field by field"
+        />
+        <JourneyStage
+          index="04"
+          actor="MCP"
+          title="Redeem one action grant"
+          state={dispatched ? "done" : decided && !result?.envelope_decision.allowed ? "blocked" : "locked"}
+          note={decided && !result?.envelope_decision.allowed ? "Provider never called" : "Exact canonical arguments"}
+        />
+      </div>
+      <p className="mt-5 border-t border-edge pt-4 text-[11px] leading-5 text-muted">
+        Voice and model output stop at step 01. Only shopper activation and deterministic
+        verification can move the flow closer to Razorpay.
       </p>
     </section>
   );
 }
 
-function BoundaryRow({ actor, action, allowed }: { actor: string; action: string; allowed: boolean }) {
+function JourneyStage({
+  index,
+  actor,
+  title,
+  note,
+  state,
+}: {
+  index: string;
+  actor: string;
+  title: string;
+  note: string;
+  state: "locked" | "active" | "done" | "blocked";
+}) {
+  const dot =
+    state === "done" ? "bg-allow text-ink" : state === "blocked" ? "bg-block text-white" : state === "active" ? "bg-brand text-white" : "bg-edge text-muted";
   return (
-    <div className="flex items-center gap-3">
-      <span className={allowed ? "text-allow" : "text-block"}>{allowed ? "✓" : "×"}</span>
-      <span className="w-16 font-mono text-xs text-muted">{actor}</span>
-      <span>{action}</span>
+    <div className={`journey-stage journey-${state}`}>
+      <span className={`journey-index ${dot}`}>{state === "done" ? "✓" : state === "blocked" ? "×" : index}</span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm font-medium text-slate-100">{title}</p>
+          <span className="font-mono text-[9px] tracking-wider text-muted">{actor}</span>
+        </div>
+        <p className="mt-0.5 text-[11px] leading-4 text-muted">{note}</p>
+      </div>
     </div>
   );
 }
 
 function WaitingCard() {
   return (
-    <section className="card border-dashed">
-      <p className="label">Evidence receipt</p>
-      <p className="mt-3 text-sm leading-6 text-muted">
-        The result appears here: exact quote facts, policy deltas, provider state,
-        and the application-signed receipt digest.
+    <section className="card border-dashed border-edge/80">
+      <p className="label">Why the envelope matters</p>
+      <h3 className="mt-2 text-base font-semibold">Autonomy without reusable payment power</h3>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+        <div className="rounded-xl border border-block/20 bg-block/[0.04] p-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-block">Exact-cart approval</p>
+          <p className="mt-2 text-xs leading-5 text-muted">Stock changes → checkout stops → shopper returns.</p>
+        </div>
+        <div className="rounded-xl border border-allow/25 bg-allow/[0.05] p-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-allow">Purchase Envelope</p>
+          <p className="mt-2 text-xs leading-5 text-muted">Stock changes → safe substitute → policy re-check.</p>
+        </div>
+      </div>
+      <p className="mt-4 text-[11px] leading-5 text-muted">
+        After execution, this panel becomes a field-level decision and signed Action Receipt.
       </p>
     </section>
   );
@@ -524,26 +673,45 @@ function WaitingCard() {
 
 function ResultCard({ result }: { result: AutopilotResponse }) {
   const allowed = result.envelope_decision.allowed;
+  const unknown = result.action_status === "unknown";
+  const decisionTitle = unknown
+    ? "Outcome unknown — retry frozen"
+    : allowed
+      ? result.recovery_applied
+        ? "Safe recovery authorized"
+        : "Exact action issued"
+      : "Out of bounds — stopped";
+  const cardTone = unknown
+    ? "border-amber-400/50 bg-amber-400/[0.06]"
+    : allowed
+      ? "border-allow/50 bg-allow/5"
+      : "border-block/50 bg-block/5";
+  const accentTone = unknown ? "text-amber-300" : allowed ? "text-allow" : "text-block";
   return (
-    <section
-      className={
-        "rounded-2xl border p-5 " +
-        (allowed ? "border-allow/50 bg-allow/5" : "border-block/50 bg-block/5")
-      }
-    >
-      <div className="flex items-center justify-between gap-3">
-        <p className="label">Decision</p>
-        <span className={allowed ? "text-allow" : "text-block"}>
-          {allowed ? "AUTHORIZED" : "REFUSED"}
+    <section className={`rounded-2xl border p-5 shadow-[0_18px_60px_rgba(0,0,0,0.2)] ${cardTone}`}>
+      <div className="flex items-start gap-3">
+        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-current/30 bg-ink/50 text-xl ${accentTone}`}>
+          {unknown ? "!" : allowed ? "✓" : "×"}
         </span>
+        <div className="min-w-0 flex-1">
+          <p className="label">Deterministic decision</p>
+          <h3 className={`mt-1 text-lg font-semibold ${accentTone}`}>{decisionTitle}</h3>
+        </div>
       </div>
       <p className="mt-3 text-sm leading-6">{result.envelope_decision.human_message}</p>
-      <div className="mt-3 rounded-xl border border-edge bg-ink p-3 font-mono text-[11px]">
-        <div className={allowed ? "text-allow" : "text-block"}>
+      <div className="mt-4 grid grid-cols-2 gap-2 font-mono text-[10px]">
+        <div className="rounded-xl border border-edge bg-ink/70 p-3">
+          <p className="text-muted">GATE RESULT</p>
+          <div className={`mt-1 ${accentTone}`}>
           {result.envelope_decision.code}
+          </div>
         </div>
-        <div className="mt-1 text-muted">provider {result.provider_mode}</div>
-        <div className="text-muted">state {result.action_status ?? "no action"}</div>
+        <div className="rounded-xl border border-edge bg-ink/70 p-3">
+          <p className="text-muted">RAZORPAY BOUNDARY</p>
+          <div className={`mt-1 ${allowed ? "text-slate-200" : "text-allow"}`}>
+            {allowed ? result.action_status ?? "pending" : "NOT CALLED"}
+          </div>
+        </div>
       </div>
 
       {result.recovery_applied && (
@@ -586,19 +754,22 @@ function ResultCard({ result }: { result: AutopilotResponse }) {
       )}
 
       {result.payment_link && (
-        <a
-          href={result.payment_link}
-          target="_blank"
-          rel="noreferrer"
-          className={
-            "mt-4 inline-block font-medium rounded-xl px-5 py-2.5 transition " +
-            (result.provider_mode?.toLowerCase().includes("razorpay")
-              ? "bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/20"
-              : "btn")
-          }
-        >
-          {result.provider_mode?.toLowerCase().includes("razorpay") ? "Open Razorpay Payment Link ↗" : "Open simulated Razorpay link ↗"}
-        </a>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <a
+            href={result.payment_link}
+            target="_blank"
+            rel="noreferrer"
+            className={
+              "inline-block rounded-xl px-5 py-2.5 font-medium transition " +
+              (result.provider_mode?.toLowerCase().includes("razorpay")
+                ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 hover:bg-emerald-500"
+                : "btn")
+            }
+          >
+            {result.provider_mode?.toLowerCase().includes("razorpay") ? "Open Razorpay test link ↗" : "Inspect simulated link ↗"}
+          </a>
+          <span className="text-[10px] leading-4 text-muted">Issued ≠ paid. Settlement needs provider evidence.</span>
+        </div>
       )}
 
       {result.receipt && (
@@ -624,6 +795,9 @@ function ResultCard({ result }: { result: AutopilotResponse }) {
           </div>
         </details>
       )}
+      <Link href="/audit" className="mt-4 inline-flex text-xs font-medium text-brand hover:text-sky-300">
+        Open full audit trail →
+      </Link>
     </section>
   );
 }

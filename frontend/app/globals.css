@@ -3,9 +3,17 @@
 @tailwind utilities;
 
 :root { color-scheme: dark; }
-body { @apply bg-ink text-slate-100 antialiased; }
+html { scroll-behavior: smooth; }
+body {
+  @apply min-h-screen bg-ink text-slate-100 antialiased;
+  background-image:
+    radial-gradient(circle at 12% 0%, rgba(51, 149, 255, 0.13), transparent 31rem),
+    radial-gradient(circle at 88% 28%, rgba(34, 197, 94, 0.055), transparent 26rem),
+    linear-gradient(180deg, #080d1b 0%, #0b1020 45%, #080d19 100%);
+}
+::selection { @apply bg-brand/30 text-white; }
 
-.card { @apply rounded-2xl border border-edge bg-panel/70 p-5; }
+.card { @apply rounded-2xl border border-edge bg-panel/70 p-5 shadow-[0_18px_60px_rgba(0,0,0,0.18)] backdrop-blur-sm; }
 .label { @apply text-xs uppercase tracking-wider text-muted; }
 .input {
   @apply w-full rounded-xl border border-edge bg-ink px-3 py-2 text-sm
@@ -15,10 +23,38 @@ body { @apply bg-ink text-slate-100 antialiased; }
   @apply rounded-xl bg-brand px-4 py-2 text-sm font-medium text-white
          transition hover:brightness-110 disabled:opacity-40;
 }
+.btn-primary {
+  @apply shadow-[0_12px_30px_rgba(51,149,255,0.22)] hover:shadow-[0_14px_34px_rgba(51,149,255,0.32)];
+}
 .btn-ghost {
   @apply rounded-xl border border-edge px-3 py-2 text-sm text-muted
          transition hover:border-brand hover:text-slate-100;
 }
+
+.hero-shell {
+  @apply relative overflow-hidden rounded-[2rem] border border-brand/25 bg-panel/70 p-6
+         shadow-[0_28px_90px_rgba(0,0,0,0.34)] backdrop-blur md:p-9;
+}
+.hero-orb { @apply pointer-events-none absolute rounded-full blur-3xl; }
+.hero-orb-one { @apply -left-20 -top-28 h-72 w-72 bg-brand/20; }
+.hero-orb-two { @apply -bottom-28 right-20 h-60 w-60 bg-allow/10; }
+.status-pill { @apply rounded-full border px-3 py-1 text-[10px] uppercase tracking-[0.14em]; }
+.text-gradient {
+  background: linear-gradient(92deg, #65b4ff 0%, #3395ff 46%, #78e9bd 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.proof-panel {
+  @apply rounded-3xl border border-white/10 bg-ink/70 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] md:p-5;
+}
+.proof-value { @apply font-mono text-base font-semibold tracking-tight sm:text-lg; }
+.live-dot { @apply inline-flex items-center gap-1.5 font-mono text-[9px] tracking-wider text-allow; }
+.live-dot i { @apply block h-1.5 w-1.5 rounded-full bg-current shadow-[0_0_8px_currentColor]; }
+.journey-stage { @apply relative flex gap-3 rounded-xl px-2 py-3 transition; }
+.journey-active { @apply bg-brand/[0.08]; }
+.journey-blocked { @apply bg-block/[0.07]; }
+.journey-index { @apply flex h-7 w-7 shrink-0 items-center justify-center rounded-lg font-mono text-[10px] font-semibold; }
 
 .voice-button {
   @apply inline-flex min-h-11 items-center gap-2 rounded-xl border border-brand/40
