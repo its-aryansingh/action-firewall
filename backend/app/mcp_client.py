@@ -86,7 +86,10 @@ class RazorpayMCPClient:
                 "clientInfo": {"name": "action-firewall", "version": "2.0.0"},
             },
         )
-        self._post("notifications/initialized")
+        try:
+            self._post("notifications/initialized")
+        except Exception:
+            pass
         return result
 
     def list_tools(self) -> list[dict]:
