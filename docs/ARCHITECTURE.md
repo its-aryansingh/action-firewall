@@ -265,14 +265,14 @@ a database administrator replacing the file.
 | Process stops after dispatch claim | Startup recovery changes stale `DISPATCHING` to `UNKNOWN` |
 | Observability unavailable | Local state and audit continue; tracing degrades without affecting authority |
 
-At this revision, 76 backend tests cover policy boundaries, proposal-only chat,
+At this revision, 147 backend tests cover policy boundaries, proposal-only chat,
 cart-hash confirmation, Purchase Envelope activation and verification, safe
 substitution, field-level refusals, exact action binding, policy and envelope
 fencing, concurrent one-envelope ownership, ambiguous outcomes, stale-dispatch
 recovery, receipt signatures, strict schemas, legacy TTL regression,
 database-enforced audit append-only behavior, and both disposable demos. A
-separate deterministic evaluator generates 400 boundary cases; its scope and
-limitations are documented in `docs/EVALUATION.md`.
+separate deterministic evaluator generates 650 boundary cases across 10 goal families
+(104 distinct carts); its scope and limitations are documented in `docs/EVALUATION.md`.
 
 ## Disposable offline rehearsal
 

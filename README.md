@@ -12,7 +12,8 @@ the final quote, derive one exact Action Grant, and dispatch one registered Razo
 action.
 
 The original exact-cart confirmation flow remains available at `/baseline` as the
-measured control. Safe Autopilot is the primary product at `/`.
+measured control. Safe Autopilot is the primary product at `/`, with merchant continuity
+benchmarks at `/impact` and attempt-centered trust evidence at `/audit`.
 
 ## Why this is more than a rules engine with AI decoration
 
@@ -144,7 +145,7 @@ The five-minute path is designed around one useful recovery and one hard refusal
    simulated payment link without another approval.
 4. Start a new job; change the merchant; show a field-level refusal before any grant.
 5. Show the timeout-to-`UNKNOWN` path and exact retry suppression.
-6. Open `/audit` and finish on the 650-case evaluator plus concurrency test.
+6. Open `/impact` for merchant continuity comparison, then `/audit` for the attempt timeline and 650-case evaluator.
 
 Full script: [docs/SAFE_AUTOPILOT_DEMO.md](docs/SAFE_AUTOPILOT_DEMO.md).
 
@@ -224,10 +225,13 @@ backend/
     evaluate_autopilot.py reproducible 650-case authorization corpus
     demo.py             preserved exact-cart baseline rehearsal
 frontend/
-  app/page.tsx          primary Safe Autopilot product flow
-  components/VoiceIntentInput.tsx AI transcription plus keyless speech fallback
+  app/page.tsx          primary Safe Autopilot intent-first storefront
+  app/impact/page.tsx   merchant continuity and recovery comparison
+  app/audit/page.tsx    attempt-centered timeline, dual-signature receipts, demo lab
   app/baseline/page.tsx exact-cart control
-  app/audit/page.tsx    event evidence and observed metrics
+  components/storefront/ 5-state intent-first shopping components
+  components/evidence/  attempt timeline, receipt inspector, isolated demo lab
+  components/VoiceIntentInput.tsx AI transcription plus keyless speech fallback
 data/catalog.json       fixed-price, server-owned demo catalog
 docs/                   architecture, evaluation, demo and research evidence
 ```

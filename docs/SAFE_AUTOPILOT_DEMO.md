@@ -9,9 +9,10 @@
 
 Use `DEMO_MODE=true`. Open:
 
-1. `/` — Safe Autopilot;
-2. `/audit` — lifecycle evidence;
-3. a terminal at `backend/` with `python scripts/demo_autopilot.py` ready.
+1. `/` — Safe Autopilot storefront;
+2. `/impact` — Merchant impact comparison;
+3. `/audit` — Lifecycle evidence, attempt timeline, and demo lab;
+4. a terminal at `backend/` with `python scripts/demo_autopilot.py` ready.
 
 Run before presenting:
 
@@ -130,7 +131,9 @@ terminal rehearsal.
 
 ## 4:10–4:45 — show evidence
 
-Open `/audit`. Point to the separate events:
+Open `/impact` to show the merchant continuity comparison (100% vs 50% checkout completion, 1.0 vs 1.5 approvals, 0 unsafe actions).
+
+Then open `/audit`. Point to the separate events grouped by purchase attempt:
 
 - `ENVELOPE_DRAFTED` and `ENVELOPE_ACTIVATED`;
 - `ENVELOPE_RECOVERY_APPLIED`;
@@ -138,8 +141,8 @@ Open `/audit`. Point to the separate events:
 - `ACTION_DISPATCH_STARTED` and `ACTION_ISSUED`;
 - `ENVELOPE_QUOTE_BLOCKED` for the merchant drift.
 
-Call out provider mode shown in the UI and the distinct issued, settled, and
-unknown value metrics.
+Point out the dual-signature receipt inspection, provider mode, and the distinct
+issued, settled, and unknown value metrics.
 
 ## 4:45–5:00 — close on proof
 
