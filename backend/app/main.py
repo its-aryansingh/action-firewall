@@ -6,8 +6,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.concurrency import run_in_threadpool
+from mcp.server.streamable_http_manager import TransportSecuritySettings
 
-from . import agent, autopilot, catalog, reconciler, store, voice
+from . import agent, agent_commerce, autopilot, catalog, commerce_mcp, reconciler, store, voice
 from .config import get_settings
 from .mcp_client import get_client
 from .models import (
@@ -42,15 +43,20 @@ async def lifespan(_: FastAPI):
         f"| drafting={s.envelope_drafting_mode} "
         f"| stale_dispatches_to_unknown={recovered}"
     )
-    yield
+    mgr = commerce_mcp.mcp_server.session_manager
+    if getattr(mgr, "_has_started", False) and getattr(mgr, "_task_group", None) is None:
+        mgr._has_started = False
+    async with mgr.run():
+        yield
 
 
 app = FastAPI(
-    title="Action Firewall — Safe Autopilot Checkout",
-    version="3.0.0",
+    title="Action Firewall — Agent Commerce Gateway",
+    version="3.1.0",
     lifespan=lifespan,
 )
-_frontend_origin = get_settings().frontend_origin.rstrip("/")
+_settings = get_settings()
+_frontend_origin = _settings.frontend_origin.rstrip("/")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[_frontend_origin] if _frontend_origin else [],
@@ -59,6 +65,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Configure Northbound FastMCP Streamable HTTP Transport
+_allowed_origins = [_frontend_origin] if _frontend_origin else []
+_allowed_origins.extend(["http://localhost:3000", "http://127.0.0.1:3000"])
+commerce_mcp.mcp_server.settings.streamable_http_path = "/"
+commerce_mcp.mcp_server.settings.transport_security = TransportSecuritySettings(
+    enable_dns_rebinding_protection=True,
+    allowed_hosts=["localhost", "127.0.0.1", "localhost:*", "127.0.0.1:*", "testserver"],
+    allowed_origins=list(dict.fromkeys(_allowed_origins)),
+)
+_mcp_asgi = commerce_mcp.mcp_server.streamable_http_app()
+app.mount("/agent-commerce/mcp", _mcp_asgi)
+
+app.include_router(agent_commerce.router, prefix="/agent-commerce/v1")
 
 
 @app.get("/health")
