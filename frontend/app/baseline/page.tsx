@@ -143,9 +143,19 @@ export default function BaselineChatPage() {
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
-      <section className="card flex h-[70vh] flex-col">
-        <div className="label">AI Buyer — proposal only</div>
+    <div className="space-y-4">
+      <div className="rounded-xl border border-edge/80 bg-panel/60 p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs">
+        <span className="text-muted">
+          📊 <strong>Exact-Cart Baseline Control:</strong> This surface demonstrates traditional multi-turn cart confirmation, which breaks when items change stock.
+        </span>
+        <a href="/impact" className="text-brand font-semibold hover:underline">
+          View 2× Continuity Comparison &rarr;
+        </a>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+        <section className="card flex h-[70vh] flex-col">
+          <div className="label">AI Buyer — proposal only</div>
 
         <div className="mt-4 flex-1 space-y-4 overflow-y-auto pr-2">
           {msgs.length === 0 && (
@@ -276,6 +286,7 @@ export default function BaselineChatPage() {
           </div>
         )}
       </aside>
+    </div>
     </div>
   );
 }

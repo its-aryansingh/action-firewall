@@ -5,6 +5,7 @@ claim about conversion, revenue, user time, or production payment success.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -17,6 +18,10 @@ from evaluate_autopilot import SEEDS, active_envelope  # noqa: E402
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Evaluate 3-way workflow comparison")
+    parser.add_argument("--output", type=str, default="", help="Optional JSON output filepath")
+    args = parser.parse_args()
+
     legitimate_cases = 0
     stock_loss_cases = 0
     unsafe_drift_cases = 0
@@ -133,7 +138,13 @@ def main() -> None:
         },
         "failures": failures,
     }
-    print(json.dumps(report, indent=2, sort_keys=True))
+    formatted = json.dumps(report, indent=2, sort_keys=True)
+    print(formatted)
+    if args.output:
+        out_path = Path(args.output).resolve()
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(formatted + "\n", encoding="utf-8")
+        print(f"Workflow benchmark written to {out_path}", file=sys.stderr)
     if failures:
         raise SystemExit(1)
 

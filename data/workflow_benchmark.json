@@ -1,0 +1,31 @@
+{
+  "corpus": {
+    "eligible_stock_loss_jobs": 50,
+    "legitimate_jobs": 100,
+    "seeds": 50,
+    "unsafe_drift_attempts": 150
+  },
+  "failures": [],
+  "results": {
+    "exact_cart_approval": {
+      "approval_prompts_per_legitimate_completion": 1.5,
+      "completed_without_action_time_intervention": 50,
+      "eligible_stock_loss_recovered_without_reapproval": 0,
+      "unsafe_automatic_authorizations": 0
+    },
+    "manual_checkout": {
+      "approval_prompts_per_legitimate_completion": 1.0,
+      "completed_without_action_time_intervention": 0,
+      "eligible_stock_loss_recovered_without_reapproval": 0,
+      "unsafe_automatic_authorizations": 0
+    },
+    "purchase_envelope": {
+      "approval_prompts_per_legitimate_completion": 1.0,
+      "completed_without_action_time_intervention": 100,
+      "eligible_stock_loss_recovered_without_reapproval": 50,
+      "unsafe_automatic_authorizations": 0
+    }
+  },
+  "schema_version": "action-firewall-workflow-comparison@1",
+  "scope": "Modeled workflow counts over synthetic catalog jobs. Not measured user time, conversion, revenue, or production payment success."
+}
