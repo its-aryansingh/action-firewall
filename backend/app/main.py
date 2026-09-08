@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.concurrency import run_in_threadpool
 from mcp.server.streamable_http_manager import TransportSecuritySettings
 
-from . import agent, agent_commerce, autopilot, catalog, commerce_mcp, demo_scenario, reconciler, store, voice
+from . import agent, agent_commerce, autopilot, catalog, commerce_mcp, demo_scenario, merchant, reconciler, store, voice
 from .buyer_auth import MERCHANT_ADMIN_KEY, verify_merchant_admin
 from .config import get_settings
 from .merchant import DEFAULT_MERCHANT_ID, DEFAULT_MERCHANT_NAME
@@ -134,6 +134,7 @@ _mcp_asgi = commerce_mcp.mcp_server.streamable_http_app()
 app.mount("/agent-commerce/mcp", _mcp_asgi)
 
 app.include_router(agent_commerce.router, prefix="/agent-commerce/v1")
+app.include_router(merchant.merchant_router)
 
 
 @app.get("/.well-known/agent-commerce.json")

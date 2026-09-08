@@ -64,6 +64,15 @@ def evaluate_channel_policy(
             remedy="Select an Action Firewall verified merchant.",
         )
 
+    # 0. Kill switch check
+    if not DEFAULT_CHANNEL_POLICY.get("enabled", True):
+        return ChannelPolicyDecision(
+            allowed=False,
+            code="BLOCK_MERCHANT_AI_CHANNEL_DISABLED",
+            reason=f"Merchant {merchant_id} AI channel is currently turned OFF by merchant kill switch.",
+            remedy="Merchant must turn AI channel ON in Agent Commerce control plane.",
+        )
+
     # 1. Closed registered rail check
     if action_name not in DEFAULT_CHANNEL_POLICY["allowed_actions"]:
         return ChannelPolicyDecision(
