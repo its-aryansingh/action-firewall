@@ -4,6 +4,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from app import catalog
 from app.config import get_settings
 from app.main import app
 from app import store
@@ -59,7 +60,12 @@ def test_public_agent_catalog_endpoint(client: TestClient):
         assert "category" in p
         assert isinstance(p["price_paise"], int) and p["price_paise"] > 0
         assert p["currency"] == "INR"
-        assert p["in_stock"] is True
+        # Assert the endpoint AGREES with the catalog, not that everything is
+        # always available. The previous form ("in_stock is True" for every row)
+        # only passed while availability was hard-coded; it would have gone on
+        # passing with a row the merchant genuinely cannot ship.
+        assert p["in_stock"] is (catalog.available_stock(p["sku"]) > 0)
+    assert any(p["in_stock"] for p in data["products"]), "catalog cannot be entirely empty"
 
 
 def test_public_agent_catalog_jsonld_endpoint(client: TestClient):
@@ -84,7 +90,12 @@ def test_public_agent_catalog_jsonld_endpoint(client: TestClient):
         assert offer["@type"] == "Offer"
         assert float(offer["price"]) > 0
         assert offer["priceCurrency"] == "INR"
-        assert offer["availability"] == "https://schema.org/InStock"
+        expected_availability = (
+            "https://schema.org/InStock"
+            if catalog.available_stock(item["sku"]) > 0
+            else "https://schema.org/OutOfStock"
+        )
+        assert offer["availability"] == expected_availability
 
         # Explicitly assert no cost or margin fields
         assert "cost" not in item

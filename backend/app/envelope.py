@@ -282,6 +282,10 @@ def _eligible_products(
         if item["category"] not in blocked
         and required.issubset(set(item.get("tags", [])))
         and not forbidden.intersection(set(item.get("tags", [])))
+        # Enough units for the WHOLE slot, not merely "in stock". Offering a
+        # repair the merchant cannot ship is the failure this whole layer exists
+        # to prevent, and it would be this function that caused it.
+        and catalog.available_stock(item["sku"]) >= slot.quantity
     ]
     return sorted(products, key=lambda item: (item["price_paise"], item["sku"]))
 
@@ -428,6 +432,17 @@ def verify_quote(envelope: PurchaseEnvelope, quote: MerchantQuote, now: float | 
             )
         if line.category in envelope.blocked_categories:
             delta(f"cart.lines[{index}].category", "not blocked", line.category, "stop")
+        on_hand = catalog.available_stock(line.sku)
+        if line.qty > on_hand:
+            # Read at verification time, not at quote time. A quote priced when
+            # 4 were on the shelf must not dispatch once 1 is left, and this is
+            # the only check positioned to notice.
+            delta(
+                f"cart.lines[{index}].stock",
+                f"{line.qty} available",
+                f"{on_hand} on hand for {line.sku}",
+                "repair",
+            )
         product_tags = set(product.get("tags", []))
         # Tags come from the server catalog, never from the proposed line, so a
         # buyer cannot clear this check by omitting the tag from its request.

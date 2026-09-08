@@ -26,6 +26,45 @@ def by_sku() -> dict[str, dict]:
     return {p["sku"]: p for p in load_catalog()}
 
 
+# ---------------------------------------------------------------------------
+# Availability
+# ---------------------------------------------------------------------------
+# `stock` is an INTEGER and it is the only source of truth for availability.
+# The `in_stock` boolean in the catalog file is a derived convenience for
+# display: a boolean cannot express "2 left, you asked for 4", which is exactly
+# the case a quote has to survive between being priced and being dispatched.
+#
+# _STOCK_OVERRIDE is the seam where live stock will come from a table rather
+# than a file. Until then it lets a scenario, a test, or a reservation move
+# stock deterministically without rewriting data/catalog.json.
+_STOCK_OVERRIDE: dict[str, int] = {}
+
+
+def available_stock(sku: str) -> int:
+    """Units of `sku` a quote may claim right now. Unknown SKU -> 0."""
+    if sku in _STOCK_OVERRIDE:
+        return max(0, int(_STOCK_OVERRIDE[sku]))
+    product = by_sku().get(sku)
+    if product is None:
+        return 0
+    return max(0, int(product.get("stock", 0)))
+
+
+def set_stock(sku: str, units: int) -> None:
+    """Move stock for one SKU. Deterministic; never touches the catalog file."""
+    _STOCK_OVERRIDE[sku] = max(0, int(units))
+
+
+def reset_stock() -> None:
+    """Drop every override and fall back to the catalog file."""
+    _STOCK_OVERRIDE.clear()
+
+
+def is_in_stock(product: dict[str, Any]) -> bool:
+    """Single availability expression, so no two surfaces can disagree."""
+    return available_stock(product.get("sku", "")) > 0
+
+
 def _doc_text(p: dict) -> str:
     return (f"{p['name']}. Category: {p['category']}. {p.get('description','')} "
             f"Tags: {', '.join(p.get('tags', []))}. Price: Rs {p['price_paise']/100:.0f}.")
