@@ -33,15 +33,21 @@ from .receipts import build_receipt, verify_receipt
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    s = get_settings()
+    if s.fault_injection_enabled and (s.payment_provider != "simulated" or not s.demo_mode):
+        raise RuntimeError(
+            f"Invariant 17 violation: fault_injection_enabled cannot be True when "
+            f"payment_provider='{s.payment_provider}' or demo_mode={s.demo_mode}. App refused to start."
+        )
     store.init_db()
     recovered = store.recover_stale_dispatches()
-    s = get_settings()
     if not store.get_active_mandate("user_demo", "agent_groceries"):
         store.create_mandate(MandateCreate(cap_rupees=1000))
     print(
         f"[boot] payment_provider={s.payment_provider} "
         f"| catalog_retrieval={s.catalog_retrieval_mode} "
         f"| drafting={s.envelope_drafting_mode} "
+        f"| db_path={s.db_path} "
         f"| stale_dispatches_to_unknown={recovered}"
     )
     mgr = commerce_mcp.mcp_server.session_manager
@@ -85,15 +91,20 @@ app.include_router(agent_commerce.router, prefix="/agent-commerce/v1")
 @app.get("/health")
 def health() -> dict:
     s = get_settings()
-    return {"ok": True, "demo_mode": s.demo_mode,
-            "catalog_size": len(catalog.load_catalog()),
-            "payment_provider": s.payment_provider,
-            "catalog_retrieval_mode": s.catalog_retrieval_mode,
-            "envelope_drafting_mode": s.envelope_drafting_mode,
-            "voice_ai_configured": bool(s.openai_api_key),
-            "voice_transcription_model": s.openai_transcription_model,
-            "fault_injection_enabled": s.fault_injection_enabled,
-            "mcp": type(get_client()).__name__}
+    return {
+        "ok": True,
+        "status": "ok",
+        "demo_mode": s.demo_mode,
+        "catalog_size": len(catalog.load_catalog()),
+        "payment_provider": s.payment_provider,
+        "catalog_retrieval_mode": s.catalog_retrieval_mode,
+        "envelope_drafting_mode": s.envelope_drafting_mode,
+        "voice_ai_configured": bool(s.openai_api_key),
+        "voice_transcription_model": s.openai_transcription_model,
+        "fault_injection_enabled": s.fault_injection_enabled,
+        "mcp": type(get_client()).__name__,
+        "db_path": s.db_path,
+    }
 
 
 # ---------------- Demo Scenario (Loopback & Admin Only) ----------------

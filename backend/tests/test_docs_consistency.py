@@ -30,6 +30,7 @@ def test_docs_and_decks_match_pytest_collected_count():
             "--ignore-glob=*commerce_mcp*",
             "--ignore-glob=*channel_policy*",
             "--ignore-glob=*approval_tokens*",
+            "--ignore-glob=*config_safety*",
         ],
         cwd=str(backend_dir),
         capture_output=True,

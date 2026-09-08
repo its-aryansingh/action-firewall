@@ -220,6 +220,7 @@ def test_demo_scenario_loopback_and_security(monkeypatch):
     # 3. DEMO_MODE=false returns 403 even for loopback
     from app.config import get_settings
     monkeypatch.setenv("DEMO_MODE", "false")
+    monkeypatch.setenv("FAULT_INJECTION_ENABLED", "false")
     get_settings.cache_clear()
     try:
         with TestClient(app, base_url="http://localhost") as client:
@@ -228,6 +229,7 @@ def test_demo_scenario_loopback_and_security(monkeypatch):
             assert "only permitted when DEMO_MODE=true" in r_blocked.json()["detail"]
     finally:
         monkeypatch.setenv("DEMO_MODE", "true")
+        monkeypatch.setenv("FAULT_INJECTION_ENABLED", "true")
         get_settings.cache_clear()
 
     demo_scenario.reset_active_scenario()
