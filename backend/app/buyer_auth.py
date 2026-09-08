@@ -8,9 +8,11 @@ Provides:
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 import hashlib
 import hmac
 import json
+import os
 import time
 import uuid
 from typing import Any
@@ -22,17 +24,105 @@ from .merchant import DEFAULT_MERCHANT_ID
 from .receipts import _signing_key
 from . import store
 
-# Default fixture for replay buyer / demo testing
-DEMO_BUYER_KEY = "af_live_buyer_demo_key_2026"
-MERCHANT_ADMIN_KEY = "af_merchant_admin_demo_key_2026"
-_KNOWN_BUYER_KEYS: dict[str, str] = {
-    hashlib.sha256(DEMO_BUYER_KEY.encode("utf-8")).hexdigest(): "buyer_replay",
+
+@dataclass(frozen=True)
+class AgentPrincipal:
+    """Authenticated agent identity resolved from the transport boundary."""
+    buyer_agent_id: str
+    merchant_id: str = DEFAULT_MERCHANT_ID
+    authenticated: bool = True
+    key_hash: str | None = None
+
+    def __str__(self) -> str:
+        return self.buyer_agent_id
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, str):
+            return self.buyer_agent_id == other
+        if isinstance(other, AgentPrincipal):
+            return (
+                self.buyer_agent_id == other.buyer_agent_id
+                and self.merchant_id == other.merchant_id
+                and self.authenticated == other.authenticated
+            )
+        return False
+
+    def __hash__(self) -> int:
+        return hash((self.buyer_agent_id, self.merchant_id, self.authenticated))
+
+
+@dataclass(frozen=True)
+class ShopperPrincipal:
+    """Signed customer identity resolved from the transport session header."""
+    user_id: str
+    shopper_session_id: str
+    authenticated: bool = True
+
+    def __str__(self) -> str:
+        return self.user_id
+
+    def __iter__(self):
+        return iter((self.user_id, self.shopper_session_id))
+
+    def __getitem__(self, index: int):
+        return (self.user_id, self.shopper_session_id)[index]
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, str):
+            return self.user_id == other
+        if isinstance(other, ShopperPrincipal):
+            return (
+                self.user_id == other.user_id
+                and self.shopper_session_id == other.shopper_session_id
+                and self.authenticated == other.authenticated
+            )
+        if isinstance(other, (tuple, list)) and len(other) == 2:
+            return (self.user_id, self.shopper_session_id) == tuple(other)
+        return False
+
+
+@dataclass(frozen=True)
+class MerchantPrincipal:
+    """Merchant operations administrative identity."""
+    merchant_id: str = DEFAULT_MERCHANT_ID
+    role: str = "merchant_admin"
+    authenticated: bool = True
+
+    def __str__(self) -> str:
+        return self.merchant_id
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, str):
+            return self.merchant_id == other or self.role == other
+        if isinstance(other, MerchantPrincipal):
+            return self.merchant_id == other.merchant_id and self.role == other.role
+        return False
+
+
+# Generated dynamically at startup or loaded from environment — never a hard-coded 'live' literal in source
+DEMO_BUYER_KEY = os.getenv("DEMO_BUYER_KEY") or f"af_test_buyer_demo_{uuid.uuid4().hex[:16]}"
+MERCHANT_ADMIN_KEY = os.getenv("MERCHANT_ADMIN_KEY") or f"af_merchant_admin_{uuid.uuid4().hex[:16]}"
+
+
+def _hash_key(key: str) -> str:
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()
+
+
+_demo_hash = _hash_key(DEMO_BUYER_KEY)
+_KNOWN_BUYER_KEYS: dict[str, AgentPrincipal] = {
+    _demo_hash: AgentPrincipal(
+        buyer_agent_id="buyer_replay",
+        merchant_id=DEFAULT_MERCHANT_ID,
+        authenticated=True,
+        key_hash=_demo_hash,
+    ),
 }
+_REVOKED_KEY_HASHES: set[str] = set()
 
 
 def verify_merchant_admin(
     authorization: str | None = Header(None, alias="Authorization"),
-) -> str:
+) -> MerchantPrincipal:
     """Verify merchant admin bearer token.
 
     Restricts administrative / provider surface endpoints from unauthorized callers.
@@ -55,28 +145,70 @@ def verify_merchant_admin(
             status_code=403,
             detail="Forbidden: Invalid merchant admin credentials",
         )
-    return "merchant_admin"
+    return MerchantPrincipal(merchant_id=DEFAULT_MERCHANT_ID, role="merchant_admin", authenticated=True)
 
 
-def register_buyer_key(key: str, agent_id: str) -> None:
+def register_buyer_key(
+    key: str,
+    agent_id: str,
+    merchant_id: str = DEFAULT_MERCHANT_ID,
+) -> AgentPrincipal:
     """Register an agent key fixture at runtime (useful for tests)."""
-    hashed = hashlib.sha256(key.encode("utf-8")).hexdigest()
-    _KNOWN_BUYER_KEYS[hashed] = agent_id
+    hashed = _hash_key(key)
+    _REVOKED_KEY_HASHES.discard(hashed)
+    principal = AgentPrincipal(
+        buyer_agent_id=agent_id,
+        merchant_id=merchant_id,
+        authenticated=True,
+        key_hash=hashed,
+    )
+    _KNOWN_BUYER_KEYS[hashed] = principal
+    return principal
+
+
+def revoke_buyer_key(key: str) -> None:
+    """Revoke an agent API key by plaintext value."""
+    hashed = _hash_key(key)
+    _REVOKED_KEY_HASHES.add(hashed)
+
+
+def revoke_buyer_agent(agent_id: str) -> None:
+    """Revoke all keys associated with an agent ID."""
+    for h, principal in list(_KNOWN_BUYER_KEYS.items()):
+        if principal.buyer_agent_id == agent_id:
+            _REVOKED_KEY_HASHES.add(h)
+
+
+def reset_buyer_keys() -> None:
+    """Reset registered keys to default demo fixture (for test isolation)."""
+    _KNOWN_BUYER_KEYS.clear()
+    _REVOKED_KEY_HASHES.clear()
+    _KNOWN_BUYER_KEYS[_demo_hash] = AgentPrincipal(
+        buyer_agent_id="buyer_replay",
+        merchant_id=DEFAULT_MERCHANT_ID,
+        authenticated=True,
+        key_hash=_demo_hash,
+    )
 
 
 def verify_buyer_agent(
     authorization: str | None = Header(None, alias="Authorization"),
-) -> str:
+) -> AgentPrincipal:
     """Verify Bearer buyer agent key.
 
-    Returns the authenticated buyer_agent_id.
+    Returns the authenticated AgentPrincipal.
     Allows unauthenticated fallback only in Demo Mode.
     """
     settings = get_settings()
 
     if not authorization:
         if settings.demo_mode:
-            return "buyer_replay"
+            return AgentPrincipal(
+                buyer_agent_id="buyer_replay",
+                merchant_id=DEFAULT_MERCHANT_ID,
+                authenticated=False,
+                key_hash=None,
+            )
         raise HTTPException(
             status_code=401,
             detail="Missing Authorization Bearer header",
@@ -91,18 +223,24 @@ def verify_buyer_agent(
         )
 
     token = authorization.split("Bearer ", 1)[1].strip()
-    hashed = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    hashed = _hash_key(token)
 
-    # Check registered keys
-    agent_id = _KNOWN_BUYER_KEYS.get(hashed)
-    if not agent_id:
+    if hashed in _REVOKED_KEY_HASHES:
+        raise HTTPException(
+            status_code=401,
+            detail="Revoked buyer agent API key",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    principal = _KNOWN_BUYER_KEYS.get(hashed)
+    if not principal:
         raise HTTPException(
             status_code=401,
             detail="Invalid buyer agent API key",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    return agent_id
+    return principal
 
 
 def mint_shopper_session(
@@ -125,17 +263,21 @@ def mint_shopper_session(
 def verify_shopper_session(
     token: str | None = Header(None, alias="X-Shopper-Session"),
     expected_session_id: str | None = None,
-) -> tuple[str, str]:
+) -> ShopperPrincipal:
     """Verify signed shopper session token from header.
 
-    Returns (user_id, shopper_session_id).
+    Returns ShopperPrincipal(user_id, shopper_session_id).
     Allows fallback in Demo Mode if header is absent.
     """
     settings = get_settings()
 
     if not token:
         if settings.demo_mode:
-            return "user_demo", expected_session_id or "session_demo_replay"
+            return ShopperPrincipal(
+                user_id="user_demo",
+                shopper_session_id=expected_session_id or "session_demo_replay",
+                authenticated=False,
+            )
         raise HTTPException(
             status_code=401,
             detail="Missing X-Shopper-Session header",
@@ -169,15 +311,25 @@ def verify_shopper_session(
             detail=f"Shopper session mismatch: token session {sid} does not match request session {expected_session_id}",
         )
 
-    return user_id, sid
+    return ShopperPrincipal(user_id=user_id, shopper_session_id=sid, authenticated=True)
 
 
-def verify_merchant_access(requested_merchant_id: str) -> None:
-    """Ensure buyer requests only target merchants served by this gateway instance."""
+def verify_merchant_access(
+    requested_merchant_id: str,
+    principal: AgentPrincipal | None = None,
+) -> None:
+    """Ensure buyer requests only target merchants served by this gateway instance
+    and authorized for the authenticated agent principal.
+    """
     if requested_merchant_id != DEFAULT_MERCHANT_ID:
         raise HTTPException(
             status_code=403,
             detail=f"Cross-merchant request blocked: merchant '{requested_merchant_id}' is not hosted by this gateway",
+        )
+    if principal and principal.merchant_id != requested_merchant_id:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Cross-merchant request blocked: agent key is scoped to merchant '{principal.merchant_id}', cannot access '{requested_merchant_id}'",
         )
 
 
