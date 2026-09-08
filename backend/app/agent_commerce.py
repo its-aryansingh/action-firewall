@@ -80,6 +80,76 @@ def get_merchant() -> MerchantCapabilities:
     return get_merchant_capabilities(DEFAULT_MERCHANT_ID)
 
 
+@router.get("/catalog")
+def get_agent_catalog(
+    category: str | None = Query(default=None, description="Filter products by category"),
+    limit: int = Query(default=50, ge=1, le=100, description="Max products to return"),
+    offset: int = Query(default=0, ge=0, description="Pagination offset"),
+) -> dict[str, Any]:
+    """Public read-only catalog projection for external AI buyers."""
+    all_items = catalog.load_catalog()
+    if category:
+        all_items = [item for item in all_items if item.get("category", "").lower() == category.lower()]
+
+    paged = all_items[offset : offset + limit]
+    return {
+        "merchant_id": DEFAULT_MERCHANT_ID,
+        "catalog_revision": CATALOG_REVISION,
+        "total_products": len(all_items),
+        "count": len(paged),
+        "offset": offset,
+        "products": [
+            {
+                "sku": item["sku"],
+                "name": item["name"],
+                "category": item["category"],
+                "price_paise": item["price_paise"],
+                "currency": item.get("currency", "INR"),
+                "unit": item.get("unit", "each"),
+                "in_stock": item.get("stock", 1) > 0,
+                "tags": item.get("tags", []),
+            }
+            for item in paged
+        ],
+    }
+
+
+@router.get("/catalog/jsonld")
+def get_catalog_jsonld() -> dict[str, Any]:
+    """Public Schema.org JSON-LD ItemList representation of the catalog.
+
+    Conforms to Schema.org Product specifications without cost or margin fields.
+    """
+    items = catalog.load_catalog()
+    elements = []
+    for item in items:
+        in_stock = item.get("stock", 1) > 0
+        price_in_rupees = f"{item['price_paise'] / 100:.2f}"
+        product_node = {
+            "@type": "Product",
+            "sku": item["sku"],
+            "name": item["name"],
+            "category": item.get("category", "General"),
+            "offers": {
+                "@type": "Offer",
+                "price": price_in_rupees,
+                "priceCurrency": item.get("currency", "INR"),
+                "availability": "https://schema.org/InStock" if in_stock else "https://schema.org/OutOfStock",
+            },
+        }
+        if item.get("description"):
+            product_node["description"] = item["description"]
+        elements.append(product_node)
+
+    return {
+        "@context": "https://schema.org/",
+        "@type": "ItemList",
+        "name": "FreshBasket for Business Catalog",
+        "numberOfItems": len(elements),
+        "itemListElement": elements,
+    }
+
+
 @router.get("/catalog/search", response_model=list[CatalogSearchResponseItem])
 def search_agent_catalog(
     q: str = Query(default="", description="Search query for catalog items"),

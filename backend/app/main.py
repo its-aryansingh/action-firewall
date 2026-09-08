@@ -14,6 +14,7 @@ from mcp.server.streamable_http_manager import TransportSecuritySettings
 from . import agent, agent_commerce, autopilot, catalog, commerce_mcp, demo_scenario, reconciler, store, voice
 from .buyer_auth import MERCHANT_ADMIN_KEY, verify_merchant_admin
 from .config import get_settings
+from .merchant import DEFAULT_MERCHANT_ID, DEFAULT_MERCHANT_NAME
 from .mcp_client import get_client
 from .models import (
     ChatRequest,
@@ -133,6 +134,32 @@ _mcp_asgi = commerce_mcp.mcp_server.streamable_http_app()
 app.mount("/agent-commerce/mcp", _mcp_asgi)
 
 app.include_router(agent_commerce.router, prefix="/agent-commerce/v1")
+
+
+@app.get("/.well-known/agent-commerce.json")
+def get_agent_commerce_manifest() -> dict[str, Any]:
+    """Agent discovery manifest without an SDK (APEX/ACI standard superset)."""
+    return {
+        "version": "0.1",
+        "service": "Action Firewall — Agent Checkout",
+        "merchant": {
+            "id": DEFAULT_MERCHANT_ID,
+            "display_name": DEFAULT_MERCHANT_NAME,
+        },
+        "currency": "INR",
+        "capabilities": [
+            "catalog_discovery",
+            "purchase_scope_approval",
+            "policy_gated_checkout",
+        ],
+        "endpoints": {
+            "catalog": "/agent-commerce/v1/catalog",
+            "catalog_jsonld": "/agent-commerce/v1/catalog/jsonld",
+            "mcp": "/agent-commerce/mcp",
+        },
+        "authority_model": "per-purchase customer scope; human activation required; one registered action",
+        "notes": "Every purchase passes a deterministic authorization gate before any provider call.",
+    }
 
 
 @app.get("/health")
