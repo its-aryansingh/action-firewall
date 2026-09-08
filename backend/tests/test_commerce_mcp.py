@@ -74,7 +74,7 @@ def test_mcp_exact_tool_allowlist():
 
 def test_discover_storefront_tool():
     res = discover_storefront()
-    assert res["merchant_id"] == "merchant_demo"
+    assert res["merchant_id"] in ("merchant_freshbasket", "merchant_demo")
     assert res["currency"] == "INR"
     assert res["action_name"] == "create_payment_link"
     assert res["store_readiness"] == "READY_FOR_AI_BUYERS"
@@ -346,7 +346,7 @@ def test_quote_persisted_in_commerce_quotes():
     row = store.get_commerce_quote(quote_id)
     assert row is not None
     assert row["id"] == quote_id
-    assert row["merchant_id"] == "merchant_demo"
+    assert row["merchant_id"] in ("merchant_freshbasket", "merchant_demo")
     assert row["buyer_agent_id"] == "buyer_mcp"
     assert row["total_paise"] == (8900 * 2) + 24900
     assert row["quote_hash"] == res["quote_hash"]

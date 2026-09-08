@@ -143,7 +143,7 @@ class EnvelopeDraftRequest(BaseModel):
 
     goal: str = Field(..., min_length=3, max_length=280)
     max_total_rupees: StrictInt = Field(..., ge=1, le=1_000_000)
-    merchant_id: Literal["merchant_demo"] = "merchant_demo"
+    merchant_id: Literal["merchant_freshbasket", "merchant_demo"] = "merchant_freshbasket"
     fulfillment_profile_id: Literal["saved_office"] = "saved_office"
     expires_in_minutes: StrictInt = Field(default=30, ge=5, le=1440)
     delivery_in_minutes: StrictInt = Field(default=45, ge=15, le=1440)
@@ -281,7 +281,7 @@ class ActionContext(BaseModel):
     user_id: str
     agent_id: str
     session_id: str
-    merchant_id: str = "merchant_demo"
+    merchant_id: str = "merchant_freshbasket"
 
 
 class AuthorizationRequest(BaseModel):

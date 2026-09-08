@@ -20,7 +20,7 @@ from fastapi import Header, HTTPException
 
 from .authorization import canonical_json
 from .config import get_settings
-from .merchant import DEFAULT_MERCHANT_ID
+from .merchant import DEFAULT_MERCHANT_ID, SUPPORTED_MERCHANT_IDS
 from .receipts import _signing_key
 from . import store
 
@@ -314,6 +314,7 @@ def verify_shopper_session(
     return ShopperPrincipal(user_id=user_id, shopper_session_id=sid, authenticated=True)
 
 
+
 def verify_merchant_access(
     requested_merchant_id: str,
     principal: AgentPrincipal | None = None,
@@ -321,12 +322,12 @@ def verify_merchant_access(
     """Ensure buyer requests only target merchants served by this gateway instance
     and authorized for the authenticated agent principal.
     """
-    if requested_merchant_id != DEFAULT_MERCHANT_ID:
+    if requested_merchant_id not in SUPPORTED_MERCHANT_IDS:
         raise HTTPException(
             status_code=403,
             detail=f"Cross-merchant request blocked: merchant '{requested_merchant_id}' is not hosted by this gateway",
         )
-    if principal and principal.merchant_id != requested_merchant_id:
+    if principal and principal.merchant_id not in (requested_merchant_id, DEFAULT_MERCHANT_ID, "merchant_demo"):
         raise HTTPException(
             status_code=403,
             detail=f"Cross-merchant request blocked: agent key is scoped to merchant '{principal.merchant_id}', cannot access '{requested_merchant_id}'",

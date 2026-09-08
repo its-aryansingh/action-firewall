@@ -135,7 +135,7 @@ export const IntentComposer: React.FC<IntentComposerProps> = ({
           <div className="flex items-center gap-1.5 text-xs text-muted sm:ml-auto">
             <span>Store:</span>
             <span className="store-chip store-chip-active cursor-default">
-              Acme Grocery
+              FreshBasket for Business
             </span>
           </div>
         </div>

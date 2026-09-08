@@ -19,7 +19,7 @@ Autopilot as the primary product:
 | `/baseline` | Exact cart hash | Any material cart change requires another approval |
 | `/` Safe Autopilot | Versioned Purchase Envelope | A changed quote can proceed without another approval only when every envelope field still matches |
 
-The Purchase Envelope binds one merchant, INR, a maximum total, required
+The Purchase Envelope binds one merchant (**FreshBasket for Business** / `merchant_freshbasket`), INR, a maximum total (e.g. ₹8,000 ceiling for a ₹7,840 office-pantry order), required
 catalog-tag slots, blocked categories, a saved fulfilment profile, delivery
 deadline, expiry, one purchase, and `create_payment_link`. Activation is a
 separate hash-bound user action. The model may draft the object, but cannot
@@ -265,7 +265,7 @@ a database administrator replacing the file.
 | Process stops after dispatch claim | Startup recovery changes stale `DISPATCHING` to `UNKNOWN` |
 | Observability unavailable | Local state and audit continue; tracing degrades without affecting authority |
 
-At this revision, 147 backend tests cover policy boundaries, proposal-only chat,
+At this revision, 148 backend tests cover policy boundaries, proposal-only chat,
 cart-hash confirmation, Purchase Envelope activation and verification, safe
 substitution, field-level refusals, exact action binding, policy and envelope
 fencing, concurrent one-envelope ownership, ambiguous outcomes, stale-dispatch

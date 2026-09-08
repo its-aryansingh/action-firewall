@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .merchant import DEFAULT_MERCHANT_ID
+from .merchant import DEFAULT_MERCHANT_ID, SUPPORTED_MERCHANT_IDS
 from .models import Cart
 
 
@@ -23,7 +23,7 @@ class ChannelPolicyDecision:
     remedy: str | None = None
 
 
-# Default Merchant AI-Channel Rules for Acme Grocery (merchant_demo)
+# Default Merchant AI-Channel Rules for FreshBasket for Business (merchant_freshbasket)
 DEFAULT_CHANNEL_POLICY = {
     "merchant_id": DEFAULT_MERCHANT_ID,
     "enabled": True,
@@ -56,7 +56,7 @@ def evaluate_channel_policy(
     action_name: str = "create_payment_link",
 ) -> ChannelPolicyDecision:
     """Evaluate requested purchase against merchant's AI channel policy."""
-    if merchant_id != DEFAULT_MERCHANT_ID:
+    if merchant_id not in SUPPORTED_MERCHANT_IDS:
         return ChannelPolicyDecision(
             allowed=False,
             code="BLOCK_MERCHANT_AI_CHANNEL_DISABLED",

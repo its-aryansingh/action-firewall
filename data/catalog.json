@@ -10,7 +10,8 @@
       "dinner",
       "staple"
     ],
-    "description": "Bronze-die penne, holds sauce well."
+    "description": "Bronze-die penne, holds sauce well.",
+    "in_stock": true
   },
   {
     "sku": "SKU-PAS-002",
@@ -23,7 +24,8 @@
       "dinner",
       "staple"
     ],
-    "description": "Classic spaghetti for weeknight dinners."
+    "description": "Classic spaghetti for weeknight dinners.",
+    "in_stock": true
   },
   {
     "sku": "SKU-SAU-001",
@@ -37,7 +39,8 @@
       "italian",
       "dinner"
     ],
-    "description": "Sweet, low-acid passata for red sauce."
+    "description": "Sweet, low-acid passata for red sauce.",
+    "in_stock": true
   },
   {
     "sku": "SKU-SAU-002",
@@ -51,7 +54,8 @@
       "sauce",
       "dinner"
     ],
-    "description": "Genovese-style basil pesto."
+    "description": "Genovese-style basil pesto.",
+    "in_stock": true
   },
   {
     "sku": "SKU-CHE-001",
@@ -65,7 +69,8 @@
       "premium",
       "dinner"
     ],
-    "description": "24-month aged, premium hard cheese."
+    "description": "24-month aged, premium hard cheese.",
+    "in_stock": true
   },
   {
     "sku": "SKU-CHE-002",
@@ -78,7 +83,8 @@
       "pizza",
       "dinner"
     ],
-    "description": "Semi-soft mozzarella for melting."
+    "description": "Semi-soft mozzarella for melting.",
+    "in_stock": true
   },
   {
     "sku": "SKU-CHE-003",
@@ -90,7 +96,8 @@
       "sandwich",
       "breakfast"
     ],
-    "description": "Everyday cheese slices."
+    "description": "Everyday cheese slices.",
+    "in_stock": true
   },
   {
     "sku": "SKU-VEG-001",
@@ -104,7 +111,8 @@
       "dinner",
       "fresh"
     ],
-    "description": "Firm plum tomatoes."
+    "description": "Firm plum tomatoes.",
+    "in_stock": true
   },
   {
     "sku": "SKU-VEG-002",
@@ -117,7 +125,8 @@
       "fresh",
       "dinner"
     ],
-    "description": "Everyday cooking onions."
+    "description": "Everyday cooking onions.",
+    "in_stock": true
   },
   {
     "sku": "SKU-VEG-003",
@@ -131,7 +140,8 @@
       "italian",
       "dinner"
     ],
-    "description": "Fresh whole garlic bulbs."
+    "description": "Fresh whole garlic bulbs.",
+    "in_stock": true
   },
   {
     "sku": "SKU-VEG-004",
@@ -145,7 +155,8 @@
       "fresh",
       "dinner"
     ],
-    "description": "Aromatic basil leaves."
+    "description": "Aromatic basil leaves.",
+    "in_stock": true
   },
   {
     "sku": "SKU-VEG-005",
@@ -158,7 +169,8 @@
       "fresh",
       "healthy"
     ],
-    "description": "Washed baby spinach."
+    "description": "Washed baby spinach.",
+    "in_stock": true
   },
   {
     "sku": "SKU-OIL-001",
@@ -171,7 +183,8 @@
       "cooking",
       "staple"
     ],
-    "description": "Cold-pressed EVOO."
+    "description": "Cold-pressed EVOO.",
+    "in_stock": true
   },
   {
     "sku": "SKU-OIL-002",
@@ -183,7 +196,8 @@
       "cooking",
       "staple"
     ],
-    "description": "Refined sunflower cooking oil."
+    "description": "Refined sunflower cooking oil.",
+    "in_stock": true
   },
   {
     "sku": "SKU-STA-001",
@@ -196,7 +210,8 @@
       "indian",
       "bulk"
     ],
-    "description": "Aged long-grain basmati."
+    "description": "Aged long-grain basmati.",
+    "in_stock": true
   },
   {
     "sku": "SKU-STA-002",
@@ -209,7 +224,8 @@
       "indian",
       "bulk"
     ],
-    "description": "Chakki-fresh atta."
+    "description": "Chakki-fresh atta.",
+    "in_stock": true
   },
   {
     "sku": "SKU-STA-003",
@@ -222,7 +238,8 @@
       "indian",
       "protein"
     ],
-    "description": "Split pigeon peas."
+    "description": "Split pigeon peas.",
+    "in_stock": true
   },
   {
     "sku": "SKU-DAI-001",
@@ -235,7 +252,8 @@
       "breakfast",
       "staple"
     ],
-    "description": "Homogenised toned milk."
+    "description": "Homogenised toned milk.",
+    "in_stock": true
   },
   {
     "sku": "SKU-DAI-002",
@@ -248,7 +266,8 @@
       "breakfast",
       "healthy"
     ],
-    "description": "Thick, high-protein yoghurt."
+    "description": "Thick, high-protein yoghurt.",
+    "in_stock": true
   },
   {
     "sku": "SKU-DAI-003",
@@ -261,7 +280,8 @@
       "baking",
       "breakfast"
     ],
-    "description": "Creamery salted butter."
+    "description": "Creamery salted butter.",
+    "in_stock": true
   },
   {
     "sku": "SKU-DAI-004",
@@ -273,7 +293,8 @@
       "protein",
       "breakfast"
     ],
-    "description": "Dozen free-range eggs."
+    "description": "Dozen free-range eggs.",
+    "in_stock": true
   },
   {
     "sku": "SKU-BAK-001",
@@ -285,7 +306,8 @@
       "bakery",
       "breakfast"
     ],
-    "description": "Naturally leavened sourdough."
+    "description": "Naturally leavened sourdough.",
+    "in_stock": true
   },
   {
     "sku": "SKU-BAK-002",
@@ -298,7 +320,8 @@
       "breakfast",
       "healthy"
     ],
-    "description": "Sliced multigrain sandwich bread."
+    "description": "Sliced multigrain sandwich bread.",
+    "in_stock": true
   },
   {
     "sku": "SKU-BEV-001",
@@ -311,7 +334,8 @@
       "breakfast",
       "premium"
     ],
-    "description": "Single-origin arabica, whole bean."
+    "description": "Single-origin arabica, whole bean.",
+    "in_stock": true
   },
   {
     "sku": "SKU-BEV-002",
@@ -323,7 +347,8 @@
       "beverage",
       "breakfast"
     ],
-    "description": "Strong CTC Assam tea."
+    "description": "Strong CTC Assam tea.",
+    "in_stock": true
   },
   {
     "sku": "SKU-BEV-003",
@@ -335,7 +360,8 @@
       "beverage",
       "breakfast"
     ],
-    "description": "Not-from-concentrate orange juice."
+    "description": "Not-from-concentrate orange juice.",
+    "in_stock": true
   },
   {
     "sku": "SKU-SNK-001",
@@ -348,7 +374,8 @@
       "dessert",
       "premium"
     ],
-    "description": "Single-origin dark chocolate."
+    "description": "Single-origin dark chocolate.",
+    "in_stock": true
   },
   {
     "sku": "SKU-SNK-002",
@@ -359,7 +386,8 @@
       "chips",
       "snack"
     ],
-    "description": "Kettle-cooked salted chips."
+    "description": "Kettle-cooked salted chips.",
+    "in_stock": true
   },
   {
     "sku": "SKU-SNK-003",
@@ -372,7 +400,8 @@
       "healthy",
       "premium"
     ],
-    "description": "Dry-roasted California almonds."
+    "description": "Dry-roasted California almonds.",
+    "in_stock": true
   },
   {
     "sku": "SKU-HOU-001",
@@ -384,7 +413,8 @@
       "household",
       "staple"
     ],
-    "description": "Lemon dishwashing liquid."
+    "description": "Lemon dishwashing liquid.",
+    "in_stock": true
   },
   {
     "sku": "SKU-HOU-002",
@@ -396,7 +426,8 @@
       "household",
       "laundry"
     ],
-    "description": "Front-load detergent powder."
+    "description": "Front-load detergent powder.",
+    "in_stock": true
   },
   {
     "sku": "SKU-HOU-003",
@@ -408,7 +439,8 @@
       "cleaning",
       "paper"
     ],
-    "description": "Two-ply absorbent towels."
+    "description": "Two-ply absorbent towels.",
+    "in_stock": true
   },
   {
     "sku": "SKU-PER-001",
@@ -420,7 +452,8 @@
       "personal",
       "bath"
     ],
-    "description": "Anti-hairfall shampoo."
+    "description": "Anti-hairfall shampoo.",
+    "in_stock": true
   },
   {
     "sku": "SKU-PER-002",
@@ -432,7 +465,8 @@
       "personal",
       "bath"
     ],
-    "description": "Fluoride toothpaste."
+    "description": "Fluoride toothpaste.",
+    "in_stock": true
   },
   {
     "sku": "SKU-ELE-001",
@@ -445,7 +479,8 @@
       "premium",
       "gadget"
     ],
-    "description": "ANC true-wireless earbuds."
+    "description": "ANC true-wireless earbuds.",
+    "in_stock": true
   },
   {
     "sku": "SKU-ELE-002",
@@ -457,7 +492,8 @@
       "electronics",
       "gadget"
     ],
-    "description": "GaN fast charger."
+    "description": "GaN fast charger.",
+    "in_stock": true
   },
   {
     "sku": "SKU-ELE-003",
@@ -470,11 +506,12 @@
       "smart-home",
       "gadget"
     ],
-    "description": "Wi-Fi colour LED bulb."
+    "description": "Wi-Fi colour LED bulb.",
+    "in_stock": true
   },
   {
     "sku": "SKU-GFT-001",
-    "name": "Gift Card ₹5000",
+    "name": "Gift Card \u20b95000",
     "category": "gift_cards",
     "price_paise": 500000,
     "tags": [
@@ -482,6 +519,83 @@
       "gift",
       "high-risk"
     ],
-    "description": "Digital gift card — high fraud-risk category."
+    "description": "Digital gift card \u2014 high fraud-risk category.",
+    "in_stock": true
+  },
+  {
+    "sku": "SKU-DAI-005",
+    "name": "Barista Oat Milk 1L",
+    "category": "dairy",
+    "price_paise": 28000,
+    "in_stock": false,
+    "tags": [
+      "milk",
+      "oatmilk",
+      "dairy-free",
+      "beverage",
+      "pantry",
+      "coffee"
+    ],
+    "description": "Creamy oat milk for barista beverages \u2014 temporarily out of stock."
+  },
+  {
+    "sku": "SKU-DAI-006",
+    "name": "Organic Soy Milk 1L",
+    "category": "dairy",
+    "price_paise": 29200,
+    "in_stock": true,
+    "tags": [
+      "milk",
+      "soymilk",
+      "dairy-free",
+      "beverage",
+      "pantry",
+      "coffee"
+    ],
+    "description": "Organic non-GMO soy milk (+\u20b912 eligible substitution for oat milk)."
+  },
+  {
+    "sku": "SKU-SNK-004",
+    "name": "Digestive Cookies 400g",
+    "category": "snacks",
+    "price_paise": 10500,
+    "in_stock": true,
+    "tags": [
+      "biscuits",
+      "cookies",
+      "snack",
+      "tea-time",
+      "pantry"
+    ],
+    "description": "Whole wheat high-fibre digestive biscuits."
+  },
+  {
+    "sku": "SKU-GFT-002",
+    "name": "Gift Card \u20b91000",
+    "category": "gift_cards",
+    "price_paise": 100000,
+    "in_stock": true,
+    "tags": [
+      "giftcard",
+      "gift",
+      "voucher",
+      "high-risk"
+    ],
+    "description": "Digital gift card \u2014 high fraud-risk restricted category."
+  },
+  {
+    "sku": "SKU-GFT-003",
+    "name": "Corporate Gift Voucher \u20b97840",
+    "category": "gift_cards",
+    "price_paise": 784000,
+    "in_stock": true,
+    "tags": [
+      "giftcard",
+      "gift",
+      "corporate",
+      "voucher",
+      "high-risk"
+    ],
+    "description": "Corporate digital gift voucher matching pantry budget total exactly (restricted SKU)."
   }
 ]

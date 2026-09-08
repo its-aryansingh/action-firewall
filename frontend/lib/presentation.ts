@@ -84,8 +84,9 @@ export type CheckoutOutcomeView =
 
 export function merchantFriendlyName(merchantId: string): string {
   switch (merchantId) {
+    case "merchant_freshbasket":
     case "merchant_demo":
-      return "Acme Grocery";
+      return "FreshBasket for Business";
     case "merchant_unapproved":
       return "Unapproved Merchant";
     default:

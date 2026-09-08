@@ -1544,7 +1544,7 @@ def authorize_and_reserve(request: AuthorizationRequest) -> AuthorizationOutcome
         channel_merchant_id = (
             (envelope.merchant_id if envelope else None)
             or getattr(request.context, "merchant_id", None)
-            or "merchant_demo"
+            or "merchant_freshbasket"
         )
         eval_amount = request.quote.cart.total_paise if request.quote else amount_paise
         channel_dec = evaluate_channel_policy(
@@ -2533,10 +2533,15 @@ def mark_commerce_quote_checked_out(quote_id: str, attempt_id: str) -> bool:
 def get_agent_order(attempt_id: str, merchant_id: str, buyer_agent_id: str) -> dict[str, Any] | None:
     """Retrieve an agent order matching attempt_id, scoped strictly to merchant and buyer agent."""
     with _conn() as cx:
+        merchants = [merchant_id]
+        if merchant_id in ("merchant_freshbasket", "merchant_demo"):
+            merchants = ["merchant_freshbasket", "merchant_demo"]
+        placeholders = ",".join("?" for _ in merchants)
+        query = f"""SELECT * FROM agent_orders
+               WHERE purchase_attempt_id = ? AND merchant_id IN ({placeholders}) AND buyer_agent_id = ?"""
         row = cx.execute(
-            """SELECT * FROM agent_orders
-               WHERE purchase_attempt_id = ? AND merchant_id = ? AND buyer_agent_id = ?""",
-            (attempt_id, merchant_id, buyer_agent_id),
+            query,
+            (attempt_id, *merchants, buyer_agent_id),
         ).fetchone()
         if not row:
             return None

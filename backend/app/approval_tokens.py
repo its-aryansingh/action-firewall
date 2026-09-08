@@ -16,6 +16,7 @@ import uuid
 from typing import Any
 
 from . import store
+from .merchant import DEFAULT_MERCHANT_ID
 from .models import PurchaseEnvelope
 from .store import (
     ApprovalTokenAlreadyRedeemedError,
@@ -33,21 +34,26 @@ __all__ = [
     "ApprovalTokenAlreadyRedeemedError",
     "ApprovalTokenConflictError",
     "ApprovalTokenInvalidError",
+    "hash_token",
     "mint_approval_token",
-    "lookup_approval_token",
     "redeem_approval_token",
+    "get_approval_token_details",
 ]
 
 
-def _hash_token(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+def hash_token(raw_token: str) -> str:
+    """Hash raw token with SHA-256 for secure storage and comparison."""
+    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+
+_hash_token = hash_token
 
 
 def mint_approval_token(
     envelope_id: str,
     envelope_hash: str,
     ttl_seconds: int = 900,
-    merchant_id: str = "merchant_demo",
+    merchant_id: str = DEFAULT_MERCHANT_ID,
     buyer_agent_id: str = "buyer_mcp",
     shopper_session_id: str = "sess_demo",
     intent_id: str | None = None,

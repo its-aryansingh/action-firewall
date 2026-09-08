@@ -60,7 +60,7 @@ class IntentCreateRequest(BaseModel):
     natural_language_intent: str = Field(..., min_length=1)
     voice_transcript: str | None = None
     budget_paise: int | None = Field(default=None, ge=100)
-    merchant_id: str = "merchant_demo"
+    merchant_id: str = "merchant_freshbasket"
     idempotency_key: str | None = None
 
 
@@ -90,7 +90,7 @@ class QuoteItemRequest(BaseModel):
 class QuoteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    merchant_id: str = "merchant_demo"
+    merchant_id: str = "merchant_freshbasket"
     fulfillment_profile_id: str = "dest_demo"
     items: list[QuoteItemRequest] = Field(..., min_length=1)
     envelope_id: str | None = None

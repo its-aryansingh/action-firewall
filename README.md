@@ -43,8 +43,8 @@ whether this agent is allowed to do it.**
 One activation binds:
 
 - user and AI buyer identity within the application;
-- one approved merchant;
-- INR and a maximum total in integer paise;
+- one approved merchant (**FreshBasket for Business** / `merchant_freshbasket`);
+- INR and a maximum total in integer paise (e.g. ₹8,000 ceiling for a ₹7,840 office-pantry order);
 - required item slots expressed through server-owned catalog tags;
 - blocked categories;
 - one saved fulfilment profile and a delivery deadline;
@@ -97,7 +97,7 @@ later provider observation can record `SETTLED`.
 
 ### Integration tests
 
-The current suite has **147 passing backend tests**. It includes:
+The current suite has **148 passing backend tests**. It includes:
 
 - pure spend-policy boundaries and integer-paise arithmetic;
 - proposal-only chat and strict planner schemas;

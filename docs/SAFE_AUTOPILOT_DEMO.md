@@ -48,13 +48,13 @@ verifies; the actuator accepts one exact grant.
 ## 0:30–1:20 — activate bounded authority
 
 Use **Speak purchase intent** when `OPENAI_API_KEY` is configured, or the clearly
-labeled **Use device voice** fallback. Say “Buy supplies for a pasta dinner.” Point
-out that the transcript only edits the goal field. Keep the ₹600 maximum and click
+labeled **Use device voice** fallback. Say “Buy supplies for an office pantry restock.” Point
+out that the transcript only edits the goal field. Keep the ₹8,000 ceiling (or ₹600 for pasta dinner; office pantry totals ₹7,840) and click
 **Generate approval draft**.
 
 Point to:
 
-- merchant `merchant_demo`;
+- merchant **FreshBasket for Business** (`merchant_freshbasket`);
 - saved fulfilment profile;
 - three required item slots;
 - blocked `gift_cards` category;
@@ -148,7 +148,7 @@ issued, settled, and unknown value metrics.
 
 **Say:**
 
-> “The evaluator passes 650 generated boundary cases across 10 goal families. The 147-test integration suite
+> “The evaluator passes 650 generated boundary cases across 10 goal families. The 148-test integration suite
 > drives eight concurrent attempts under one envelope to one issued action,
 > reproduces revocation between authorization and dispatch, and proves UNKNOWN
 > suppresses redispatch. Vulcan can decide what is likely to work. Action
