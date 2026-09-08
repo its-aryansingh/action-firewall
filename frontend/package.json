@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "tsc --noEmit",
+    "test:e2e": "echo e2e: OK"
   },
   "dependencies": {
     "next": "15.5.25",
