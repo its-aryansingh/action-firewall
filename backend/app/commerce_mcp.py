@@ -407,26 +407,27 @@ def request_checkout(
 @mcp_server.tool()
 def get_checkout_status(attempt_id: str) -> dict[str, Any]:
     """Query telemetry status of a purchase attempt. Polling never re-dispatches."""
-    with store._conn() as cx:
-        row = cx.execute(
-            "SELECT * FROM agent_orders WHERE purchase_attempt_id = ?",
-            (attempt_id,),
-        ).fetchone()
+    merchant_id = DEFAULT_MERCHANT_ID
+    buyer_agent_id = "buyer_mcp"
+    data = store.get_agent_order(
+        attempt_id=attempt_id,
+        merchant_id=merchant_id,
+        buyer_agent_id=buyer_agent_id,
+    )
+    if not data:
+        return {"attempt_id": attempt_id, "status": "not_found"}
 
-        if not row:
-            return {"attempt_id": attempt_id, "status": "not_found"}
+    return {
+        "attempt_id": data["purchase_attempt_id"],
+        "order_id": data["order_id"],
+        "status": data["status"],
+        "outcome": data["outcome"],
+        "amount_paise": data["amount_paise"],
+        "recovery_applied": bool(data["recovery_applied"]),
+        "payment_link": data["payment_link"],
+        "grant_id": data["grant_id"],
+        "receipt_id": data["receipt_id"],
+        "code": data["code"],
+        "updated_at": data["updated_at"],
+    }
 
-        data = dict(row)
-        return {
-            "attempt_id": data["purchase_attempt_id"],
-            "order_id": data["order_id"],
-            "status": data["status"],
-            "outcome": data["outcome"],
-            "amount_paise": data["amount_paise"],
-            "recovery_applied": bool(data["recovery_applied"]),
-            "payment_link": data["payment_link"],
-            "grant_id": data["grant_id"],
-            "receipt_id": data["receipt_id"],
-            "code": data["code"],
-            "updated_at": data["updated_at"],
-        }

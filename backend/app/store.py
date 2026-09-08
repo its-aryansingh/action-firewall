@@ -2368,3 +2368,17 @@ def mark_commerce_quote_checked_out(quote_id: str, attempt_id: str) -> bool:
         )
         return cur.rowcount > 0
 
+
+def get_agent_order(attempt_id: str, merchant_id: str, buyer_agent_id: str) -> dict[str, Any] | None:
+    """Retrieve an agent order matching attempt_id, scoped strictly to merchant and buyer agent."""
+    with _conn() as cx:
+        row = cx.execute(
+            """SELECT * FROM agent_orders
+               WHERE purchase_attempt_id = ? AND merchant_id = ? AND buyer_agent_id = ?""",
+            (attempt_id, merchant_id, buyer_agent_id),
+        ).fetchone()
+        if not row:
+            return None
+        return dict(row)
+
+

@@ -454,3 +454,69 @@ def test_quote_authoritative_total_paise_used():
     row = store.get_commerce_quote(quote_id)
     assert row["total_paise"] == 8900
 
+
+def test_get_checkout_status_ownership_isolation():
+    """Verify buyer B cannot read buyer A's attempt and receives not_found (preventing enumeration)."""
+    from app.commerce_metrics import record_agent_order
+
+    # 1. Record an order owned by a different buyer agent
+    record_agent_order(
+        purchase_attempt_id="att_foreign_buyer_01",
+        merchant_id="merchant_demo",
+        buyer_agent_id="buyer_other",
+        shopper_session_id="sess_foreign",
+        status="issued",
+        outcome="ACTION_ISSUED",
+        amount_paise=12300,
+        envelope_id="env_foreign",
+    )
+
+    # 2. MCP status check (scoped to buyer_mcp) returns not_found
+    stat_foreign = get_checkout_status("att_foreign_buyer_01")
+    assert stat_foreign["status"] == "not_found"
+
+    # 3. Record an order owned by buyer_mcp
+    record_agent_order(
+        purchase_attempt_id="att_mcp_owned_01",
+        merchant_id="merchant_demo",
+        buyer_agent_id="buyer_mcp",
+        shopper_session_id="sess_mcp",
+        status="issued",
+        outcome="ACTION_ISSUED",
+        amount_paise=45600,
+        envelope_id="env_mcp",
+        payment_link="https://rzp.io/l/test_owned",
+    )
+
+    # 4. MCP status check returns the order
+    stat_owned = get_checkout_status("att_mcp_owned_01")
+    assert stat_owned["status"] == "issued"
+    assert stat_owned["attempt_id"] == "att_mcp_owned_01"
+    assert stat_owned["payment_link"] == "https://rzp.io/l/test_owned"
+
+
+def test_get_checkout_status_polling_never_redispatches():
+    """Verify polling get_checkout_status multiple times is purely read-only and never re-dispatches."""
+    from app.commerce_metrics import record_agent_order
+
+    record_agent_order(
+        purchase_attempt_id="att_poll_01",
+        merchant_id="merchant_demo",
+        buyer_agent_id="buyer_mcp",
+        shopper_session_id="sess_poll",
+        status="issued",
+        outcome="ACTION_ISSUED",
+        amount_paise=8900,
+        envelope_id="env_poll",
+        grant_id="grant_poll_01",
+    )
+
+    # Poll twice
+    r1 = get_checkout_status("att_poll_01")
+    r2 = get_checkout_status("att_poll_01")
+
+    assert r1 == r2
+    assert r1["status"] == "issued"
+    assert r1["grant_id"] == "grant_poll_01"
+
+
