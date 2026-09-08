@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     catalog_retrieval_mode: Literal["keyword", "pinecone"] = "keyword"
     fault_injection_enabled: bool = False
     envelope_drafting_mode: Literal["deterministic", "llm", "replay"] = "replay"
+    gateway_mode: Literal["demo", "external"] = "demo"
 
     @field_validator("db_path", mode="after")
     @classmethod

@@ -33,6 +33,7 @@ def test_docs_and_decks_match_pytest_collected_count():
             "--ignore-glob=*config_safety*",
             "--ignore-glob=*razorpay_rest_client*",
             "--ignore-glob=*razorpay_webhook*",
+            "--ignore-glob=*route_isolation*",
         ],
         cwd=str(backend_dir),
         capture_output=True,

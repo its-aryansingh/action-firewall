@@ -6,7 +6,7 @@ import json
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.concurrency import run_in_threadpool
 from mcp.server.streamable_http_manager import TransportSecuritySettings
@@ -75,6 +75,50 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def is_isolated_route(path: str, method: str) -> bool:
+    """Check if a route path/method is an internal execution/admin route."""
+    p = path.rstrip("/")
+    m = method.upper()
+
+    if p == "/chat" or p.startswith("/chat/"):
+        return True
+    if p == "/checkout/confirm":
+        return True
+    if "/envelopes/" in p and ("/activate" in p or "/revoke" in p):
+        return True
+    if p == "/autopilot/execute":
+        return True
+    if p.startswith("/mandates") and m in ("POST", "PATCH", "PUT", "DELETE"):
+        return True
+    if p == "/mcp/tools" or p.startswith("/mcp/tools") or p == "/mcp/southbound-tools":
+        return True
+    if p == "/actions/reconcile" or (p.startswith("/actions/") and p.endswith("/reconcile")):
+        return True
+    if p == "/demo" or p.startswith("/demo/"):
+        return True
+
+    return False
+
+
+@app.middleware("http")
+async def enforce_route_isolation(request: Request, call_next):
+    s = get_settings()
+    if s.gateway_mode == "external":
+        path = request.url.path
+        method = request.method
+        if is_isolated_route(path, method):
+            auth = request.headers.get("Authorization", "")
+            presented = auth.split("Bearer ", 1)[1].strip() if auth.startswith("Bearer ") else ""
+            is_admin = bool(presented) and hmac.compare_digest(presented, MERCHANT_ADMIN_KEY)
+            if not is_admin:
+                return Response(
+                    content=json.dumps({"detail": f"Route '{path}' is isolated from external agents in external gateway mode"}),
+                    status_code=403,
+                    media_type="application/json",
+                )
+    return await call_next(request)
 
 # Configure Northbound FastMCP Streamable HTTP Transport
 _allowed_origins = [_frontend_origin] if _frontend_origin else []
