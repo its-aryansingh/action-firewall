@@ -322,9 +322,16 @@ def request_checkout(
     # Authoritative money value from the persisted quote row (caller-supplied values are ignored)
     authoritative_amount_paise = persisted_quote["total_paise"]
 
-    # Evaluate merchant channel policy using authoritative quote amount
+    persisted_cart = (
+        Cart.model_validate_json(persisted_quote["cart_json"])
+        if persisted_quote.get("cart_json")
+        else None
+    )
+
+    # Evaluate merchant channel policy using authoritative quote amount and cart
     channel_dec = evaluate_channel_policy(
         merchant_id=envelope.merchant_id,
+        cart=persisted_cart,
         amount_paise=authoritative_amount_paise,
         action_name="create_payment_link",
     )

@@ -1429,6 +1429,7 @@ def authorize_and_reserve(request: AuthorizationRequest) -> AuthorizationOutcome
                 authorized=False, decision=decision, reason=invalid_reason
             )
 
+        envelope = None
         if request.envelope_id is not None:
             from .envelope import verify_quote
 
@@ -1535,6 +1536,51 @@ def authorize_and_reserve(request: AuthorizationRequest) -> AuthorizationOutcome
             cx.commit()
             return AuthorizationOutcome(
                 authorized=False, decision=decision, reason="INCOMPLETE_ENVELOPE_BINDING"
+            )
+
+        # Merchant AI Channel Policy evaluation under the same transaction lock
+        from .channel_policy import evaluate_channel_policy
+
+        channel_merchant_id = (
+            (envelope.merchant_id if envelope else None)
+            or getattr(request.context, "merchant_id", None)
+            or "merchant_demo"
+        )
+        eval_amount = request.quote.cart.total_paise if request.quote else amount_paise
+        channel_dec = evaluate_channel_policy(
+            merchant_id=channel_merchant_id,
+            cart=request.cart,
+            amount_paise=eval_amount,
+            action_name=request.action_name,
+        )
+        if not channel_dec.allowed:
+            decision = _action_denial(
+                mandate,
+                request,
+                DecisionCode.BLOCK_INVALID_ACTION,
+                channel_dec.reason,
+            )
+            _insert_audit_row(
+                cx,
+                event="CHANNEL_POLICY_REJECTED",
+                session_id=request.context.session_id,
+                mandate_id=mandate.id,
+                mandate_version=mandate.version,
+                code=channel_dec.code,
+                cart_total_paise=amount_paise,
+                cap_paise=mandate.cap_paise,
+                payload={
+                    "merchant_id": channel_merchant_id,
+                    "channel_decision": channel_dec.code,
+                    "reason": channel_dec.reason,
+                    "remedy": channel_dec.remedy,
+                },
+            )
+            cx.commit()
+            return AuthorizationOutcome(
+                authorized=False,
+                decision=decision,
+                reason=channel_dec.code,
             )
 
         window = mandate.window
