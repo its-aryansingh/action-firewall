@@ -16,6 +16,7 @@ import uuid
 from typing import Any
 
 from . import store
+from .store import UNBOUND_SESSION
 from .merchant import DEFAULT_MERCHANT_ID
 from .models import PurchaseEnvelope
 from .store import (
@@ -37,7 +38,7 @@ __all__ = [
     "hash_token",
     "mint_approval_token",
     "redeem_approval_token",
-    "get_approval_token_details",
+    "lookup_approval_token",
 ]
 
 
@@ -55,7 +56,7 @@ def mint_approval_token(
     ttl_seconds: int = 900,
     merchant_id: str = DEFAULT_MERCHANT_ID,
     buyer_agent_id: str = "buyer_mcp",
-    shopper_session_id: str = "sess_demo",
+    shopper_session_id: str | None = None,
     intent_id: str | None = None,
     envelope_version: int = 1,
 ) -> tuple[str, str]:
@@ -74,7 +75,7 @@ def mint_approval_token(
         public_approval_id=public_approval_id,
         merchant_id=merchant_id,
         buyer_agent_id=buyer_agent_id,
-        shopper_session_id=shopper_session_id,
+        shopper_session_id=shopper_session_id or UNBOUND_SESSION,
         intent_id=intent_id,
         envelope_id=envelope_id,
         envelope_version=envelope_version,
@@ -96,7 +97,6 @@ def lookup_approval_token(raw_token: str) -> dict[str, Any] | None:
 def redeem_approval_token(
     raw_token: str,
     expected_shopper_session_id: str | None = None,
-    _simulate_failure_at_activation: bool = False,
 ) -> PurchaseEnvelope:
     """Atomically redeem an approval token and activate the bound Purchase Envelope.
 
@@ -111,5 +111,4 @@ def redeem_approval_token(
     return store.redeem_approval_token_and_activate(
         token_hash=token_hash,
         expected_shopper_session_id=expected_shopper_session_id,
-        _simulate_failure_at_activation=_simulate_failure_at_activation,
     )

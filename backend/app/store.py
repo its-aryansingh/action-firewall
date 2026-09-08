@@ -114,6 +114,7 @@ CREATE TABLE IF NOT EXISTS purchase_envelopes (
     expires_at REAL NOT NULL,
     slots_json TEXT NOT NULL,
     blocked_categories TEXT NOT NULL DEFAULT '[]',
+    blocked_tags TEXT NOT NULL DEFAULT '[]',
     max_purchases INTEGER NOT NULL DEFAULT 1,
     action_name TEXT NOT NULL,
     status TEXT NOT NULL,
@@ -386,6 +387,16 @@ def _migrate(cx: sqlite3.Connection) -> None:
     ):
         if col not in cols:
             cx.execute(ddl)
+
+    # Envelopes created before ingredient-level rules existed have no blocked_tags
+    # column. Backfill it as an empty list so their stored envelope_hash still
+    # verifies: sorted([]) is what envelope_payload contributes for them.
+    envelope_cols = {r["name"] for r in cx.execute("PRAGMA table_info(purchase_envelopes)")}
+    if "blocked_tags" not in envelope_cols:
+        cx.execute(
+            "ALTER TABLE purchase_envelopes ADD COLUMN blocked_tags TEXT NOT NULL DEFAULT '[]'"
+        )
+
     cx.execute("UPDATE spend_ledger SET updated_at=created_at WHERE updated_at IS NULL")
     cx.execute("DROP INDEX IF EXISTS idx_ledger_idem")
     cx.execute(
@@ -571,6 +582,7 @@ def _row_to_envelope(row: sqlite3.Row) -> PurchaseEnvelope:
         expires_at=row["expires_at"],
         slots=[EnvelopeSlot.model_validate(item) for item in json.loads(row["slots_json"])],
         blocked_categories=json.loads(row["blocked_categories"]),
+        blocked_tags=json.loads(row["blocked_tags"] or "[]"),
         max_purchases=row["max_purchases"],
         action_name=row["action_name"],
         status=EnvelopeStatus(row["status"]),
@@ -607,10 +619,10 @@ def save_envelope_draft(envelope: PurchaseEnvelope) -> PurchaseEnvelope:
             """INSERT INTO purchase_envelopes (
                    id,user_id,agent_id,label,goal,merchant_id,currency,
                    max_total_paise,fulfillment_profile_id,delivery_deadline,
-                   expires_at,slots_json,blocked_categories,max_purchases,
+                   expires_at,slots_json,blocked_categories,blocked_tags,max_purchases,
                    action_name,status,version,envelope_hash,mandate_id,
                    created_at,updated_at
-               ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 envelope.id,
                 envelope.user_id,
@@ -625,6 +637,7 @@ def save_envelope_draft(envelope: PurchaseEnvelope) -> PurchaseEnvelope:
                 envelope.expires_at,
                 canonical_json([slot.model_dump(mode="json") for slot in envelope.slots]),
                 canonical_json(envelope.blocked_categories),
+                canonical_json(envelope.blocked_tags),
                 envelope.max_purchases,
                 envelope.action_name,
                 envelope.status.value,

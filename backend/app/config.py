@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=(".env", "backend/.env"), extra="ignore")
 
     # LLM
+    gemini_api_key: str = ""
     openai_api_key: str = ""
     openai_base_url: str = ""
     openai_model: str = "gpt-4o-mini"

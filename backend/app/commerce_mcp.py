@@ -42,6 +42,7 @@ from .commerce_metrics import record_agent_order
 from .config import get_settings
 from .merchant import CATALOG_REVISION, DEFAULT_MERCHANT_ID, get_merchant_capabilities
 from .models import (
+    DEFAULT_FULFILLMENT_PROFILE_ID,
     AutopilotExecuteRequest,
     AutopilotScenario,
     Cart,
@@ -49,6 +50,15 @@ from .models import (
     EnvelopeDraftRequest,
     MerchantQuote,
 )
+
+#: Identity this MCP transport presents to the shared commerce layer.
+#: These are constants, not inline literals, for one reason: request_quote WRITES
+#: the quote row's owner and request_checkout READS it back to decide ownership.
+#: When those were two separate string literals, a typo in either one silently
+#: turned every MCP checkout into QUOTE_NOT_FOUND (or, worse, let a quote minted
+#: by one identity be spent by another). One definition, both sites.
+MCP_BUYER_AGENT_ID = "buyer_mcp"
+MCP_QUOTE_SESSION_ID = "session_mcp_quote"
 
 mcp_server = FastMCP("Action Firewall — AI Commerce Gateway")
 
@@ -78,22 +88,30 @@ def search_catalog(query: str = "", limit: int = 10) -> list[dict[str, Any]]:
     """Search merchant catalog by keyword or tags. Returns server-owned verified facts."""
     items = catalog.load_catalog()
     q = query.strip().lower()
+    terms = [t for t in q.split() if len(t) > 2 and t not in {"buy", "the", "for", "and", "with", "from"}]
     matches: list[dict[str, Any]] = []
 
     for item in items:
-        if not q or (
-            q in item["name"].lower()
-            or q in item["sku"].lower()
-            or q in item["category"].lower()
-            or any(q in tag.lower() for tag in item.get("tags", []))
-        ):
+        name_l = item["name"].lower()
+        sku_l = item["sku"].lower()
+        cat_l = item["category"].lower()
+        tags_l = [tag.lower() for tag in item.get("tags", [])]
+
+        matches_exact = not q or (q in name_l or q in sku_l or q in cat_l or any(q in t for t in tags_l))
+        matches_terms = any(t in name_l or t in sku_l or t in cat_l or any(t in tag for tag in tags_l) for t in terms) if terms else False
+
+        if matches_exact or matches_terms:
             matches.append(
                 {
                     "sku": item["sku"],
                     "name": item["name"],
                     "category": item["category"],
                     "price_paise": item["price_paise"],
-                    "in_stock": item.get("in_stock", True),
+                    # Same expression as the HTTP surface in agent_commerce.py.
+                    # These read the SAME catalog rows and previously used two
+                    # different keys ("in_stock" here, "stock" there), so the two
+                    # surfaces could have disagreed about availability for one SKU.
+                    "in_stock": item.get("stock", 1) > 0,
                     "tags": item.get("tags", []),
                 }
             )
@@ -154,7 +172,7 @@ def draft_purchase(
 @mcp_server.tool()
 def request_quote(
     items: list[dict[str, Any]],
-    fulfillment_profile_id: str = "dest_demo",
+    fulfillment_profile_id: str = DEFAULT_FULFILLMENT_PROFILE_ID,
 ) -> dict[str, Any]:
     """Compute an authoritative merchant quote based on current server catalog facts.
 
@@ -206,8 +224,8 @@ def request_quote(
     store.save_commerce_quote(
         quote_id=quote_id,
         merchant_id=DEFAULT_MERCHANT_ID,
-        buyer_agent_id="buyer_mcp",
-        shopper_session_id="session_mcp_quote",
+        buyer_agent_id=MCP_BUYER_AGENT_ID,
+        shopper_session_id=MCP_QUOTE_SESSION_ID,
         catalog_revision=CATALOG_REVISION,
         canonical_cart_json=canonical_cart_json,
         cart_hash=cart_hash,
@@ -276,7 +294,7 @@ def request_checkout(
         }
 
     # 2. Ownership check: quote owned by another buyer is rejected (returns not-found, not forbidden)
-    expected_buyer_id = "buyer_mcp"
+    expected_buyer_id = MCP_BUYER_AGENT_ID
     if persisted_quote["buyer_agent_id"] != expected_buyer_id:
         return {
             "allowed": False,
@@ -374,6 +392,14 @@ def request_checkout(
         outcome = "UNKNOWN"
     elif not res.envelope_decision.allowed:
         outcome = "POLICY_DELTA_REQUIRED" if res.envelope_decision.deltas else "STOPPED_BEFORE_RAZORPAY"
+    else:
+        # Reachable and previously fatal. autopilot.execute can return allowed=True
+        # with action_status in {AUTHORIZED, DISPATCHING, SETTLED, DEFINITIVE_FAILURE,
+        # CANCELLED, None} — for example the ActionInProgress path, where a second
+        # concurrent MCP checkout observes DISPATCHING. Without this branch `outcome`
+        # was never bound and the tool raised UnboundLocalError instead of answering.
+        # The HTTP surface has always had this fallback; the MCP surface did not.
+        outcome = "READY_FOR_CHECKOUT"
     order_status = (
         "issued" if res.action_status == "action_issued"
         else "unknown" if res.action_status == "unknown"
@@ -382,7 +408,7 @@ def request_checkout(
     record_agent_order(
         purchase_attempt_id=attempt_id,
         merchant_id=envelope.merchant_id,
-        buyer_agent_id="buyer_mcp",
+        buyer_agent_id=MCP_BUYER_AGENT_ID,
         shopper_session_id=exec_req.session_id,
         status=order_status,
         outcome=outcome,
@@ -416,7 +442,7 @@ def request_checkout(
 def get_checkout_status(attempt_id: str) -> dict[str, Any]:
     """Query telemetry status of a purchase attempt. Polling never re-dispatches."""
     merchant_id = DEFAULT_MERCHANT_ID
-    buyer_agent_id = "buyer_mcp"
+    buyer_agent_id = MCP_BUYER_AGENT_ID
     data = store.get_agent_order(
         attempt_id=attempt_id,
         merchant_id=merchant_id,

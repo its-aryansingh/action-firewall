@@ -6,6 +6,14 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, computed_field, model_validator
 
 
+#: The single canonical fulfilment profile identifier for this deployment.
+#: Every surface (envelope draft, merchant capability projection, HTTP quote,
+#: MCP quote) MUST use this constant. Divergent literals here silently produce
+#: a fulfillment_profile_id delta between the envelope and the quote, which the
+#: verifier reads as a cart mismatch and blocks a legitimate order.
+DEFAULT_FULFILLMENT_PROFILE_ID = "dest_demo"
+
+
 class Window(str, Enum):
     PER_TXN = "per_transaction"
     DAILY = "daily"
@@ -128,6 +136,14 @@ class PurchaseEnvelope(BaseModel):
     expires_at: float
     slots: list[EnvelopeSlot] = Field(..., min_length=1)
     blocked_categories: list[str] = Field(default_factory=list)
+    #: Ingredient-level prohibitions, expressed against catalog tags rather than
+    #: categories. This exists because category is too coarse to carry a real
+    #: business rule: Free-Range Eggs sit in category `dairy`, which a kitchen
+    #: allows, while the tag `eggs` is exactly what a pure-vegetarian kitchen
+    #: must never receive. A category allowlist cannot express that; a tag
+    #: blocklist can. Bound into envelope_hash, so the rule the customer
+    #: approved is the rule that is enforced at dispatch.
+    blocked_tags: list[str] = Field(default_factory=list)
     max_purchases: Literal[1] = 1
     action_name: Literal["create_payment_link"] = "create_payment_link"
     status: EnvelopeStatus
@@ -144,7 +160,7 @@ class EnvelopeDraftRequest(BaseModel):
     goal: str = Field(..., min_length=3, max_length=280)
     max_total_rupees: StrictInt = Field(..., ge=1, le=1_000_000)
     merchant_id: Literal["merchant_freshbasket", "merchant_demo"] = "merchant_freshbasket"
-    fulfillment_profile_id: Literal["saved_office"] = "saved_office"
+    fulfillment_profile_id: str = DEFAULT_FULFILLMENT_PROFILE_ID
     expires_in_minutes: StrictInt = Field(default=30, ge=5, le=1440)
     delivery_in_minutes: StrictInt = Field(default=45, ge=15, le=1440)
     user_id: str = "user_demo"
@@ -214,6 +230,12 @@ class AutopilotScenario(str, Enum):
     MERCHANT_DRIFT = "merchant_drift"
     FULFILLMENT_DRIFT = "fulfillment_drift"
     TIMEOUT_AFTER_DISPATCH = "timeout_after_dispatch"
+    #: The buyer swaps in a cheaper item that satisfies the slot's required tags
+    #: and sits in an allowed category, but carries a tag the envelope forbids.
+    #: Every cap, allowlist and category check passes; only the tag rule catches
+    #: it. This mirrors a measured LLM failure mode — agents over-select on small
+    #: price differences — so the proposed basket is CHEAPER than the compliant one.
+    FORBIDDEN_TAG = "forbidden_tag"
 
 
 class AutopilotExecuteRequest(BaseModel):

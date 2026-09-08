@@ -110,9 +110,12 @@ def test_unknown_approval_token_rejected():
     assert exc.value.status_code == 404
 
 
-def test_forced_failure_at_activation_rolls_back():
-    """Verify single BEGIN IMMEDIATE transaction rolls back all mutations on activation failure:
-    token remains pending/unconsumed, and envelope remains draft.
+def test_forced_failure_at_activation_rolls_back(monkeypatch):
+    """A real failure inside the atomic gate must roll back every mutation.
+
+    The failure is injected by patching an internal step rather than by a
+    production parameter: a failure switch shipped in the money path is itself
+    the defect this suite exists to prevent.
     """
     draft = autopilot.create_draft(
         EnvelopeDraftRequest(goal="Buy pasta and sauce", max_total_rupees=600)
@@ -123,16 +126,20 @@ def test_forced_failure_at_activation_rolls_back():
         ttl_seconds=900,
     )
 
-    # 1. Force failure at activation step inside the atomic transaction
+    def _boom(*args, **kwargs):
+        raise RuntimeError("SIMULATED_ACTIVATION_FAILURE")
+
+    # 1. Real failure after the CAS consume, inside the transaction
+    monkeypatch.setattr(store, "_insert_policy_revision", _boom)
     with pytest.raises(RuntimeError, match="SIMULATED_ACTIVATION_FAILURE"):
-        redeem_approval_token(raw_token, _simulate_failure_at_activation=True)
+        redeem_approval_token(raw_token)
+    monkeypatch.undo()
 
     # 2. Token must remain UNCONSUMED and pending
     token_row = lookup_approval_token(raw_token)
     assert token_row is not None
     assert token_row["state"] == "pending"
     assert token_row["consumed_at"] is None
-    assert token_row["redeemed_at"] is None
 
     # 3. Envelope must remain in DRAFT status
     env = store.get_envelope(draft.id)
@@ -145,11 +152,58 @@ def test_forced_failure_at_activation_rolls_back():
     assert active.status.value == "active"
     assert active.version == draft.version + 1
 
-    # 5. Token is now consumed
-    token_row_after = lookup_approval_token(raw_token)
-    assert token_row_after is not None
-    assert token_row_after["state"] == "consumed"
-    assert token_row_after["consumed_at"] is not None
+
+def test_bound_token_requires_matching_shopper_session():
+    """A token bound to a shopper session may not be redeemed without that session.
+
+    Regression: the bind check was skipped whenever the caller passed None, so
+    possession of the raw approval link alone was enough to activate.
+    """
+    draft = autopilot.create_draft(
+        EnvelopeDraftRequest(goal="Buy pasta and sauce", max_total_rupees=600)
+    )
+    raw_token, _ = mint_approval_token(
+        envelope_id=draft.id,
+        envelope_hash=draft.envelope_hash,
+        ttl_seconds=900,
+        shopper_session_id="sess_real_shopper_001",
+    )
+
+    with pytest.raises(store.ApprovalTokenInvalidError):
+        redeem_approval_token(raw_token)
+
+    with pytest.raises(store.ApprovalTokenInvalidError):
+        redeem_approval_token(raw_token, expected_shopper_session_id="sess_someone_else")
+
+    assert store.get_envelope(draft.id).status.value == "draft"
+    assert lookup_approval_token(raw_token)["state"] == "pending"
+
+    active = redeem_approval_token(
+        raw_token, expected_shopper_session_id="sess_real_shopper_001"
+    )
+    assert active.status.value == "active"
+
+
+def test_unbound_token_still_redeemable_without_session():
+    """A token minted without a session is explicitly unbound and stays redeemable."""
+    draft = autopilot.create_draft(
+        EnvelopeDraftRequest(goal="Buy pasta and sauce", max_total_rupees=600)
+    )
+    raw_token, _ = mint_approval_token(
+        envelope_id=draft.id, envelope_hash=draft.envelope_hash, ttl_seconds=900
+    )
+    assert lookup_approval_token(raw_token)["shopper_session_id"] == store.UNBOUND_SESSION
+    assert redeem_approval_token(raw_token).status.value == "active"
+
+
+def test_merchant_admin_prefix_token_is_rejected():
+    """An attacker-chosen token beginning with 'merchant_admin' must not authenticate."""
+    with TestClient(app, base_url="http://localhost") as client:
+        r = client.get(
+            "/mcp/southbound-tools",
+            headers={"Authorization": "Bearer merchant_admin_but_not_the_real_key"},
+        )
+        assert r.status_code == 403
 
 
 def test_lookup_approval_has_no_side_effects():

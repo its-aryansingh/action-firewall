@@ -5,6 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from .models import (
+    DEFAULT_FULFILLMENT_PROFILE_ID,
     ActionReceipt,
     AutopilotScenario,
     Cart,
@@ -23,7 +24,7 @@ class MerchantCapabilities(BaseModel):
     currency: str = "INR"
     supported_currencies: list[str] = Field(default_factory=lambda: ["INR"])
     fulfillment_modes: list[str] = Field(default_factory=lambda: ["delivery", "pickup"])
-    default_fulfillment_profile_id: str = "dest_demo"
+    default_fulfillment_profile_id: str = DEFAULT_FULFILLMENT_PROFILE_ID
     catalog_revision: str
     environment: str
     payment_provider: str
@@ -91,7 +92,7 @@ class QuoteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     merchant_id: str = "merchant_freshbasket"
-    fulfillment_profile_id: str = "dest_demo"
+    fulfillment_profile_id: str = DEFAULT_FULFILLMENT_PROFILE_ID
     items: list[QuoteItemRequest] = Field(..., min_length=1)
     envelope_id: str | None = None
 

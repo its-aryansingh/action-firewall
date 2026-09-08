@@ -34,6 +34,14 @@ from .models import (
 
 ENVELOPE_AGENT_ID = "agent_safe_autopilot"
 
+#: Standing ingredient rules for this deployment's buyer — Basil & Bay, a
+#: pure-vegetarian cloud kitchen. These are the kitchen's rules, not the
+#: merchant's: FreshBasket sells eggs quite legitimately, and a different buyer
+#: would carry a different list. They live here as a default only because the
+#: draft path has no per-buyer standing-rules store yet; when it does, this
+#: becomes the seed for that store rather than a constant.
+DEFAULT_BLOCKED_TAGS: tuple[str, ...] = ("eggs", "meat", "gelatin")
+
 
 def envelope_payload(envelope: PurchaseEnvelope) -> dict[str, object]:
     return {
@@ -50,6 +58,10 @@ def envelope_payload(envelope: PurchaseEnvelope) -> dict[str, object]:
         "expires_at": envelope.expires_at,
         "slots": [slot.model_dump(mode="json") for slot in envelope.slots],
         "blocked_categories": sorted(envelope.blocked_categories),
+        # Bound into the hash deliberately. A tag rule that is not hashed is a
+        # suggestion: an attacker (or a bug) could widen the envelope after the
+        # customer approved it and the version fence would not notice.
+        "blocked_tags": sorted(envelope.blocked_tags),
         "max_purchases": envelope.max_purchases,
         "action_name": envelope.action_name,
         "status": envelope.status.value,
@@ -239,6 +251,7 @@ def draft_envelope(req: EnvelopeDraftRequest, now: float | None = None) -> Purch
         expires_at=created + req.expires_in_minutes * 60,
         slots=slots,
         blocked_categories=["gift_cards"],
+        blocked_tags=list(DEFAULT_BLOCKED_TAGS),
         status=EnvelopeStatus.DRAFT,
         version=1,
         envelope_hash="",
@@ -248,13 +261,27 @@ def draft_envelope(req: EnvelopeDraftRequest, now: float | None = None) -> Purch
     return draft.model_copy(update={"envelope_hash": compute_envelope_hash(draft)})
 
 
-def _eligible_products(slot: EnvelopeSlot, blocked: set[str]) -> list[dict]:
+def _eligible_products(
+    slot: EnvelopeSlot,
+    blocked: set[str],
+    blocked_tags: set[str] | None = None,
+) -> list[dict]:
+    """Catalog items that satisfy a slot without violating the envelope.
+
+    Both filters are applied here as well as in verify_quote, and that duplication
+    is intentional: this function decides what the deterministic repair may offer,
+    while verify_quote decides what an agent-proposed cart may contain. If only
+    the verifier knew about blocked tags, every repair would propose a forbidden
+    item and then block itself.
+    """
     required = set(slot.required_tags)
+    forbidden = blocked_tags or set()
     products = [
         item
         for item in catalog.load_catalog()
         if item["category"] not in blocked
         and required.issubset(set(item.get("tags", [])))
+        and not forbidden.intersection(set(item.get("tags", [])))
     ]
     return sorted(products, key=lambda item: (item["price_paise"], item["sku"]))
 
@@ -274,9 +301,24 @@ def build_quote(
     for slot in envelope.slots:
         candidates = [
             item
-            for item in _eligible_products(slot, set(envelope.blocked_categories))
+            for item in _eligible_products(
+                slot, set(envelope.blocked_categories), set(envelope.blocked_tags)
+            )
             if item["sku"] not in used
         ]
+        if scenario is AutopilotScenario.FORBIDDEN_TAG and envelope.blocked_tags:
+            # Model the agent, not the merchant. Offer it the cheapest item that
+            # satisfies the slot and clears every categorical check but carries a
+            # forbidden tag — the substitution a price-sensitive buyer actually makes.
+            forbidden = set(envelope.blocked_tags)
+            tempting = [
+                item
+                for item in _eligible_products(slot, set(envelope.blocked_categories))
+                if item["sku"] not in used
+                and forbidden.intersection(set(item.get("tags", [])))
+            ]
+            if tempting:
+                candidates = tempting + candidates
         if not candidates:
             continue
         preferred = candidates[0]
@@ -386,7 +428,18 @@ def verify_quote(envelope: PurchaseEnvelope, quote: MerchantQuote, now: float | 
             )
         if line.category in envelope.blocked_categories:
             delta(f"cart.lines[{index}].category", "not blocked", line.category, "stop")
-        line_tags[index] = set(product.get("tags", []))
+        product_tags = set(product.get("tags", []))
+        # Tags come from the server catalog, never from the proposed line, so a
+        # buyer cannot clear this check by omitting the tag from its request.
+        forbidden_hits = sorted(product_tags.intersection(set(envelope.blocked_tags)))
+        if forbidden_hits:
+            delta(
+                f"cart.lines[{index}].tags",
+                f"none of {sorted(envelope.blocked_tags)}",
+                f"{line.sku} carries {forbidden_hits}",
+                "repair",
+            )
+        line_tags[index] = product_tags
 
     unused = set(range(len(quote.cart.lines)))
     for slot in sorted(envelope.slots, key=lambda item: -len(item.required_tags)):

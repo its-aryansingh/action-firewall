@@ -140,7 +140,10 @@ def verify_merchant_admin(
             headers={"WWW-Authenticate": "Bearer"},
         )
     token = authorization.split("Bearer ", 1)[1].strip()
-    if token != MERCHANT_ADMIN_KEY and not token.startswith("merchant_admin"):
+    # Constant-time compare against the configured key only. A prefix match such as
+    # token.startswith("merchant_admin") accepts any attacker-chosen token beginning
+    # with that literal, which is an authentication bypass on every admin route.
+    if not hmac.compare_digest(token, MERCHANT_ADMIN_KEY):
         raise HTTPException(
             status_code=403,
             detail="Forbidden: Invalid merchant admin credentials",
