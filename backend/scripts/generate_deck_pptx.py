@@ -152,7 +152,7 @@ def build_deck():
              "• Dual HMAC-SHA256 Action Receipt survives grant settlement",
              title_color=C_TEXT)
 
-    add_footer(s1, "Razorpay MCP-compatible actuator · deterministic policy · 147 tests · offline demo", "Aryan Singh · Track 01")
+    add_footer(s1, "Razorpay MCP-compatible actuator · deterministic policy · 148 tests · offline demo", "Aryan Singh · Track 01")
 
     # --- SLIDE 2: The Control Gap ---
     s2 = prs.slides.add_slide(blank_layout)
@@ -373,7 +373,7 @@ def build_deck():
 
     add_card(s10, Inches(0.8), Inches(2.8), Inches(11.7), Inches(2.2),
              "Verified System Properties",
-             "• 147 passing backend tests covering pure spend policy, envelope drafts, voice boundaries, concurrency, and reconciliation\n"
+             "• 148 passing backend tests covering pure spend policy, envelope drafts, voice boundaries, concurrency, and reconciliation\n"
              "• 650 synthetic evaluation cases across 10 goal families (104 distinct carts, 100% boundary pass rate)\n"
              "• Dual HMAC-SHA256 Action Receipts preserving authorization proof across grant settlement\n"
              "• Cross-envelope User Authority Ceiling enforced atomically under SQLite BEGIN IMMEDIATE\n"
@@ -382,7 +382,7 @@ def build_deck():
 
     add_card(s10, Inches(0.8), Inches(5.3), Inches(11.7), Inches(0.9),
              "Submission Status",
-             "pytest → 147 passed · 650 eval cases · npm audit → 0 · offline rehearsals → passed",
+             "pytest → 148 passed · 650 eval cases · npm audit → 0 · offline rehearsals → passed",
              title_color=C_BLUE, bg_color=C_PANEL2)
 
     add_footer(s10, "Track 01: AI Growth & Agentic Commerce", "Aryan Singh · Razorpay AI Buildathon 2026")
