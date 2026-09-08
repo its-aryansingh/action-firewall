@@ -8,19 +8,17 @@ export default function MerchantImpactPage() {
     <div className="space-y-8 animate-fadeIn">
       {/* Hero */}
       <section className="hero-shell">
-        <div className="hero-orb hero-orb-one" />
-        <div className="hero-orb hero-orb-two" />
         <div className="relative">
-          <span className="status-pill border-brand/40 bg-brand/10 text-brand font-semibold">
-            Merchant Value · Track 01
+          <span className="status-pill border-primary/40 bg-primary/10 text-primary font-semibold">
+            Merchant Value
           </span>
 
-          <h1 className="mt-4 text-3xl font-bold tracking-tight text-white sm:text-5xl max-w-3xl leading-[1.1]">
+          <h1 className="mt-4 text-3xl font-bold tracking-tight text-text sm:text-5xl max-w-3xl leading-[1.1]">
             Keep agent-built checkouts alive{" "}
-            <span className="text-gradient">when the cart changes.</span>
+            <span className="text-primary">when the cart changes.</span>
           </h1>
 
-          <p className="mt-3.5 max-w-2xl text-sm leading-relaxed text-slate-300 sm:text-base">
+          <p className="mt-3.5 max-w-2xl text-sm leading-relaxed text-muted sm:text-base">
             Exact-cart approvals break as soon as an item goes out of stock. Safe Autopilot obtains one approval for the shopping outcome and recovers inside approved bounds without dropping the customer back into the cart.
           </p>
         </div>
@@ -53,25 +51,25 @@ export default function MerchantImpactPage() {
         </div>
 
         <div className="grid gap-4 sm:grid-cols-3 font-mono text-xs">
-          <div className="rounded-2xl border border-edge/80 bg-ink/80 p-5 space-y-2">
-            <span className="text-brand font-bold text-[10px] uppercase tracking-wider">Step 1 · Ingestion</span>
-            <h3 className="font-semibold text-white text-sm">Merchant Catalog</h3>
+          <div className="rounded-2xl border border-border bg-surface p-5 space-y-2">
+            <span className="text-primary font-bold text-[10px] uppercase tracking-wider">Step 1 · Ingestion</span>
+            <h3 className="font-semibold text-text text-sm">Merchant Catalog</h3>
             <p className="text-xs text-muted leading-relaxed font-sans">
               Trusted SKUs, fixed integer-paise pricing, and real-time inventory provided directly from the merchant database.
             </p>
           </div>
 
-          <div className="rounded-2xl border border-brand/40 bg-brand/[0.04] p-5 space-y-2">
-            <span className="text-brand font-bold text-[10px] uppercase tracking-wider">Step 2 · Action Firewall</span>
-            <h3 className="font-semibold text-white text-sm">Safe Autopilot Engine</h3>
+          <div className="rounded-2xl border border-primary/40 bg-primary/[0.04] p-5 space-y-2">
+            <span className="text-primary font-bold text-[10px] uppercase tracking-wider">Step 2 · Action Firewall</span>
+            <h3 className="font-semibold text-text text-sm">Safe Autopilot Engine</h3>
             <p className="text-xs text-muted leading-relaxed font-sans">
               Bounded Purchase Envelope, one explicit human approval, stock-loss substitution, and atomic headroom reservation under SQLite.
             </p>
           </div>
 
-          <div className="rounded-2xl border border-edge/80 bg-ink/80 p-5 space-y-2">
-            <span className="text-allow font-bold text-[10px] uppercase tracking-wider">Step 3 · Actuation</span>
-            <h3 className="font-semibold text-white text-sm">Razorpay Checkout</h3>
+          <div className="rounded-2xl border border-border bg-surface p-5 space-y-2">
+            <span className="text-success font-bold text-[10px] uppercase tracking-wider">Step 3 · Actuation</span>
+            <h3 className="font-semibold text-text text-sm">Razorpay Checkout</h3>
             <p className="text-xs text-muted leading-relaxed font-sans">
               One exact registered payment link action executed with cryptographic Action Receipt proof. Zero duplicate dispatches.
             </p>

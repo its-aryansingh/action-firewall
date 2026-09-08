@@ -58,28 +58,30 @@ export const DemoLab: React.FC<DemoLabProps> = ({ health }) => {
   const canInject = Boolean(health?.demo_mode && health?.fault_injection_enabled);
 
   return (
-    <div className="rounded-2xl border border-edge/80 bg-panel/70 p-5 space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-edge/60 pb-3">
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4 shadow-xs">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
         <div>
-          <span className="label">Evaluator & Presentation Sandbox</span>
-          <h3 className="text-base font-bold text-white mt-0.5">
-            Judge Demo Lab
+          <span className="text-[10px] font-mono text-[#0C6CF2] uppercase tracking-wider font-semibold">
+            Presentation Sandbox
+          </span>
+          <h3 className="text-sm font-bold text-slate-900 mt-0.5">
+            Judge Boundary Demo Lab
           </h3>
         </div>
 
         <button
           type="button"
           onClick={() => setOpen(!open)}
-          className="btn btn-ghost text-xs"
+          className="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-medium transition"
         >
-          {open ? "Hide Demo Lab" : "Open Demo Lab"}
+          {open ? "Hide Scenarios" : "Explore Test Scenarios"}
         </button>
       </div>
 
-      <p className="text-xs text-muted leading-relaxed">
+      <p className="text-xs text-slate-500 leading-relaxed">
         {canInject ? (
           <span>
-            ⚠️ <strong>Controlled Demo Condition:</strong> Injects deterministic boundary scenarios on camera to verify authorization gates. The backend strictly rejects simulated faults when running against live providers.
+            ⚠️ <strong>Controlled Demo Condition:</strong> Injects deterministic boundary scenarios to verify authorization gates. The backend strictly rejects simulated faults when running against live Razorpay providers.
           </span>
         ) : (
           <span>
@@ -93,35 +95,35 @@ export const DemoLab: React.FC<DemoLabProps> = ({ health }) => {
           {SCENARIOS.map((sc) => (
             <div
               key={sc.id}
-              className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl border border-edge/60 bg-ink/70"
+              className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl border border-slate-200 bg-slate-50/70"
             >
               <div className="space-y-1 max-w-xl">
                 <div className="flex items-center gap-2">
-                  <h4 className="text-xs font-bold text-white">{sc.title}</h4>
+                  <h4 className="text-xs font-bold text-slate-900">{sc.title}</h4>
                   <span
-                    className={`rounded px-1.5 py-0.2 font-mono text-[9px] uppercase tracking-wider ${
+                    className={`rounded px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider font-semibold ${
                       sc.tone === "allow"
-                        ? "bg-allow/10 text-allow"
+                        ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
                         : sc.tone === "risk"
-                        ? "bg-rose-500/10 text-rose-300"
-                        : "bg-amber-500/10 text-amber-300"
+                        ? "bg-rose-50 text-rose-700 border border-rose-200"
+                        : "bg-amber-50 text-amber-700 border border-amber-200"
                     }`}
                   >
                     {sc.tone === "allow" ? "ALLOW" : sc.tone === "risk" ? "BLOCK" : "HOLD"}
                   </span>
                 </div>
-                <p className="text-xs text-muted">{sc.description}</p>
-                <p className="text-[11px] font-mono text-slate-300">
-                  Expected: <span className="text-brand">{sc.expectedResult}</span>
+                <p className="text-xs text-slate-600">{sc.description}</p>
+                <p className="text-[11px] font-mono text-slate-700">
+                  Expected: <span className="text-[#0C6CF2] font-semibold">{sc.expectedResult}</span>
                 </p>
               </div>
 
               <div>
                 <Link
-                  href={`/?scenario=${sc.id}`}
-                  className="btn btn-primary text-xs py-1.5 px-3 whitespace-nowrap inline-flex items-center gap-1.5"
+                  href={`/playground?scenario=${sc.id}`}
+                  className="px-3 py-1.5 rounded-lg bg-[#0C6CF2] hover:bg-blue-600 text-white text-xs font-semibold whitespace-nowrap inline-flex items-center gap-1.5 transition shadow-xs"
                 >
-                  <span>Launch in Shop</span>
+                  <span>Launch in Playground</span>
                   <span aria-hidden="true">&rarr;</span>
                 </Link>
               </div>

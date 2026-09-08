@@ -2,74 +2,59 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { color-scheme: dark; }
+:root { color-scheme: light; }
 html { scroll-behavior: smooth; }
 body {
-  @apply min-h-screen bg-ink text-slate-100 antialiased;
-  background-image:
-    radial-gradient(circle at 12% 0%, rgba(51, 149, 255, 0.13), transparent 31rem),
-    radial-gradient(circle at 88% 28%, rgba(34, 197, 94, 0.055), transparent 26rem),
-    linear-gradient(180deg, #080d1b 0%, #0b1020 45%, #080d19 100%);
+  @apply min-h-screen bg-[#F7F8FC] text-[#192233] antialiased;
 }
-::selection { @apply bg-brand/30 text-white; }
+::selection { @apply bg-primary/20 text-primary; }
 
-.card { @apply rounded-2xl border border-edge bg-panel/70 p-5 shadow-[0_18px_60px_rgba(0,0,0,0.18)] backdrop-blur-sm; }
-.label { @apply text-xs uppercase tracking-wider text-muted; }
+.card { @apply rounded-2xl border border-border bg-surface p-5 shadow-sm; }
+.label { @apply text-xs uppercase tracking-wider text-muted font-medium; }
 .input {
-  @apply w-full rounded-xl border border-edge bg-ink px-3 py-2 text-sm
-         outline-none focus:border-brand;
+  @apply w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm text-text
+         outline-none focus:border-primary focus:ring-1 focus:ring-primary;
 }
 .btn {
-  @apply rounded-xl bg-brand px-4 py-2 text-sm font-medium text-white
-         transition hover:brightness-110 disabled:opacity-40;
+  @apply rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white
+         transition hover:bg-primary-hover disabled:opacity-40;
 }
 .btn-primary {
-  @apply shadow-[0_12px_30px_rgba(51,149,255,0.22)] hover:shadow-[0_14px_34px_rgba(51,149,255,0.32)];
+  @apply bg-primary hover:bg-primary-hover shadow-sm;
 }
 .btn-ghost {
-  @apply rounded-xl border border-edge px-3 py-2 text-sm text-muted
-         transition hover:border-brand hover:text-slate-100;
+  @apply rounded-xl border border-border bg-surface px-3 py-2 text-sm text-muted
+         transition hover:border-primary hover:text-text;
 }
 
 .hero-shell {
-  @apply relative overflow-hidden rounded-[2rem] border border-brand/25 bg-panel/70 p-6
-         shadow-[0_28px_90px_rgba(0,0,0,0.34)] backdrop-blur md:p-9;
+  @apply relative overflow-hidden rounded-[2rem] border border-border bg-surface p-6 shadow-sm md:p-9;
 }
-.hero-orb { @apply pointer-events-none absolute rounded-full blur-3xl; }
-.hero-orb-one { @apply -left-20 -top-28 h-72 w-72 bg-brand/20; }
-.hero-orb-two { @apply -bottom-28 right-20 h-60 w-60 bg-allow/10; }
-.status-pill { @apply rounded-full border px-3 py-1 text-[10px] uppercase tracking-[0.14em]; }
-.text-gradient {
-  background: linear-gradient(92deg, #65b4ff 0%, #3395ff 46%, #78e9bd 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
+.status-pill { @apply rounded-full border border-border px-3 py-1 text-[10px] uppercase tracking-[0.14em]; }
 .proof-panel {
-  @apply rounded-3xl border border-white/10 bg-ink/70 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] md:p-5;
+  @apply rounded-2xl border border-border bg-canvas p-4 shadow-sm md:p-5;
 }
-.proof-value { @apply font-mono text-base font-semibold tracking-tight sm:text-lg; }
-.live-dot { @apply inline-flex items-center gap-1.5 font-mono text-[9px] tracking-wider text-allow; }
-.live-dot i { @apply block h-1.5 w-1.5 rounded-full bg-current shadow-[0_0_8px_currentColor]; }
+.proof-value { @apply font-mono text-base font-semibold tracking-tight text-text sm:text-lg; }
+.live-dot { @apply inline-flex items-center gap-1.5 font-mono text-[9px] tracking-wider text-success; }
+.live-dot i { @apply block h-1.5 w-1.5 rounded-full bg-current; }
 .journey-stage { @apply relative flex gap-3 rounded-xl px-2 py-3 transition; }
-.journey-active { @apply bg-brand/[0.08]; }
-.journey-blocked { @apply bg-block/[0.07]; }
+.journey-active { @apply bg-primary/[0.08]; }
+.journey-blocked { @apply bg-danger/[0.07]; }
 .journey-index { @apply flex h-7 w-7 shrink-0 items-center justify-center rounded-lg font-mono text-[10px] font-semibold; }
 
 .voice-button {
-  @apply inline-flex min-h-11 items-center gap-2 rounded-xl border border-brand/40
-         bg-brand/10 px-3.5 py-2 text-sm font-semibold text-slate-100 transition
-         hover:border-brand hover:bg-brand/20 disabled:cursor-not-allowed disabled:opacity-40;
+  @apply inline-flex min-h-11 items-center gap-2 rounded-xl border border-border
+         bg-surface px-3.5 py-2 text-sm font-semibold text-text transition
+         hover:border-primary hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-40;
 }
 .voice-button-active {
-  @apply border-block/70 bg-block/10 text-white hover:border-block hover:bg-block/20;
+  @apply border-danger/70 bg-danger/10 text-danger hover:border-danger hover:bg-danger/20;
 }
 .voice-icon {
-  @apply flex h-6 w-6 items-center justify-center rounded-full bg-brand text-[8px] text-white
-         shadow-[0_0_0_4px_rgba(51,149,255,0.12)];
+  @apply flex h-6 w-6 items-center justify-center rounded-full bg-primary text-[8px] text-white;
 }
 .voice-button-active .voice-icon {
-  @apply animate-pulse bg-block shadow-[0_0_0_4px_rgba(244,63,94,0.12)];
+  @apply animate-pulse bg-danger;
 }
 .voice-wave {
   @apply flex h-5 items-center gap-0.5;
@@ -90,21 +75,20 @@ body {
 
 /* Storefront & Outcome Patterns */
 .store-chip {
-  @apply inline-flex items-center gap-1.5 rounded-xl border border-edge/80 bg-panel/60 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:border-brand/50 hover:bg-panel;
+  @apply inline-flex items-center gap-1.5 rounded-xl border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text transition hover:border-primary hover:bg-primary/5;
 }
 .store-chip-active {
-  @apply border-brand/80 bg-brand/15 text-white shadow-[0_0_15px_rgba(51,149,255,0.15)];
+  @apply border-primary bg-primary/10 text-primary shadow-sm;
 }
 .outcome-banner {
-  @apply relative overflow-hidden rounded-2xl border p-5 shadow-lg backdrop-blur-sm;
+  @apply relative overflow-hidden rounded-2xl border border-border bg-surface p-5 shadow-sm;
 }
 .outcome-ready {
-  @apply border-allow/30 bg-allow/[0.06] text-slate-100 shadow-[0_12px_40px_rgba(34,197,94,0.08)];
+  @apply border-success/30 bg-success/[0.06] text-text shadow-sm;
 }
 .outcome-paused {
-  @apply border-amber-500/30 bg-amber-500/[0.06] text-slate-100 shadow-[0_12px_40px_rgba(245,158,11,0.08)];
+  @apply border-warning/30 bg-warning/[0.06] text-text shadow-sm;
 }
 .outcome-confirming {
-  @apply border-brand/30 bg-brand/[0.06] text-slate-100 shadow-[0_12px_40px_rgba(51,149,255,0.08)];
+  @apply border-primary/30 bg-primary/[0.06] text-text shadow-sm;
 }
-

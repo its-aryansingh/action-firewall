@@ -44,16 +44,16 @@ export const CheckoutReady: React.FC<CheckoutReadyProps> = ({
 
       {/* Before / After Price Comparison */}
       <div className="grid grid-cols-2 gap-3 sm:gap-4">
-        <div className="rounded-xl border border-edge/80 bg-ink/60 p-4">
+        <div className="rounded-xl border border-border bg-canvas p-4">
           <p className="text-[11px] uppercase tracking-wider text-muted font-medium">Initial Plan</p>
-          <p className="mt-1 font-mono text-xl font-bold text-slate-300">
+          <p className="mt-1 font-mono text-xl font-bold text-text">
             {inr(outcome.previousTotalPaise)}
           </p>
         </div>
 
-        <div className="rounded-xl border border-allow/40 bg-ink/80 p-4">
-          <p className="text-[11px] uppercase tracking-wider text-allow font-medium">Final Total (Approved)</p>
-          <p className="mt-1 font-mono text-xl font-bold text-white">
+        <div className="rounded-xl border border-success/40 bg-surface p-4">
+          <p className="text-[11px] uppercase tracking-wider text-success font-medium">Final Total (Approved)</p>
+          <p className="mt-1 font-mono text-xl font-bold text-text">
             {inr(outcome.finalTotalPaise)} <span className="text-xs font-normal text-muted">of {inr(outcome.maxAllowedPaise)} limit</span>
           </p>
         </div>
@@ -61,7 +61,7 @@ export const CheckoutReady: React.FC<CheckoutReadyProps> = ({
 
       {/* Substitution Diff Pill */}
       {hasSubstitutions && (
-        <div className="rounded-2xl border border-edge/80 bg-ink/70 p-4 space-y-2.5">
+        <div className="rounded-2xl border border-border bg-surface p-4 space-y-2.5">
           <p className="text-xs font-semibold uppercase tracking-wider text-muted">
             Eligible In-Envelope Substitution
           </p>

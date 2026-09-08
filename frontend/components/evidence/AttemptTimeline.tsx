@@ -90,8 +90,8 @@ export const AttemptTimeline: React.FC<{ events: AuditEvent[] }> = ({ events }) 
 
   if (groups.length === 0) {
     return (
-      <div className="rounded-2xl border border-edge/60 bg-panel/40 p-8 text-center text-muted text-sm">
-        No purchase attempts recorded yet. Run a shopping flow from the Shop tab.
+      <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-slate-500 text-xs">
+        No purchase attempts recorded yet. Run a shopping flow from the Agent Checkout tab.
       </div>
     );
   }
@@ -109,13 +109,13 @@ export const AttemptTimeline: React.FC<{ events: AuditEvent[] }> = ({ events }) 
             key={group.attemptId}
             className={`rounded-2xl border transition-all ${
               group.status === "ready"
-                ? "border-allow/30 bg-panel/70"
+                ? "border-emerald-200 bg-emerald-50/20"
                 : group.status === "blocked"
-                ? "border-rose-500/30 bg-panel/70"
+                ? "border-rose-200 bg-rose-50/20"
                 : group.status === "unknown"
-                ? "border-amber-500/30 bg-panel/70"
-                : "border-edge/70 bg-panel/50"
-            } p-5`}
+                ? "border-amber-200 bg-amber-50/20"
+                : "border-slate-200 bg-white"
+            } p-5 shadow-xs`}
           >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
@@ -123,12 +123,12 @@ export const AttemptTimeline: React.FC<{ events: AuditEvent[] }> = ({ events }) 
                   <span
                     className={`rounded-full px-2.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider border ${
                       group.status === "ready"
-                        ? "border-allow/40 bg-allow/10 text-allow"
+                        ? "border-emerald-300 bg-emerald-50 text-emerald-700"
                         : group.status === "blocked"
-                        ? "border-rose-500/40 bg-rose-500/10 text-rose-300"
+                        ? "border-rose-300 bg-rose-50 text-rose-700"
                         : group.status === "unknown"
-                        ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
-                        : "border-brand/40 bg-brand/10 text-brand"
+                        ? "border-amber-300 bg-amber-50 text-amber-700"
+                        : "border-blue-300 bg-blue-50 text-[#0C6CF2]"
                     }`}
                   >
                     {group.status === "ready"
@@ -139,42 +139,42 @@ export const AttemptTimeline: React.FC<{ events: AuditEvent[] }> = ({ events }) 
                       ? "CONFIRMING (UNKNOWN)"
                       : "IN PROGRESS"}
                   </span>
-                  <span className="font-mono text-xs text-muted">
+                  <span className="font-mono text-xs text-slate-400">
                     {new Date(group.latestEvent.created_at * 1000).toLocaleTimeString()}
                   </span>
                 </div>
 
-                <h3 className="mt-2 text-base font-bold text-white capitalize">
+                <h3 className="mt-2 text-sm font-bold text-slate-900 capitalize">
                   {group.label}
                 </h3>
               </div>
 
               <div className="text-right">
-                <p className="font-mono text-lg font-bold text-slate-100">
+                <p className="font-mono text-base font-bold text-slate-900">
                   {inr(group.totalPaise)}
                 </p>
-                <p className="font-mono text-[10px] text-muted">
+                <p className="font-mono text-[10px] text-slate-400">
                   attempt: {group.attemptId.slice(0, 14)}…
                 </p>
               </div>
             </div>
 
             {/* Stage Progress Sequence */}
-            <div className="mt-4 flex flex-wrap items-center gap-1.5 font-mono text-[11px] text-muted">
+            <div className="mt-3.5 flex flex-wrap items-center gap-1.5 font-mono text-[11px] text-slate-500">
               {group.events.map((ev, i) => (
                 <React.Fragment key={ev.id}>
-                  <span className="rounded bg-ink/70 px-2 py-0.5 text-slate-200 border border-edge/50">
+                  <span className="rounded bg-slate-100 px-2 py-0.5 text-slate-700 border border-slate-200">
                     {ev.event.replace("ENVELOPE_", "").replace("ACTION_", "")}
                   </span>
-                  {i < group.events.length - 1 && <span className="text-muted/60">→</span>}
+                  {i < group.events.length - 1 && <span className="text-slate-300">→</span>}
                 </React.Fragment>
               ))}
             </div>
 
             {/* Explanatory summary */}
-            <div className="mt-3.5 text-xs text-slate-300 leading-relaxed border-t border-edge/60 pt-3">
+            <div className="mt-3.5 text-xs text-slate-600 leading-relaxed border-t border-slate-100 pt-3">
               {group.status === "ready" && (
-                <p className="text-slate-200">
+                <p className="text-emerald-800">
                   ✓ <strong>Authorized inside bounds:</strong>{" "}
                   {recoveryEv
                     ? "In-envelope substitution safely applied. Exactly one Razorpay action issued."
@@ -182,12 +182,12 @@ export const AttemptTimeline: React.FC<{ events: AuditEvent[] }> = ({ events }) 
                 </p>
               )}
               {group.status === "blocked" && (
-                <p className="text-rose-300">
+                <p className="text-rose-800">
                   ✕ <strong>Pre-actuator refusal:</strong> Quote drifted from approved envelope limits. Razorpay was not called.
                 </p>
               )}
               {group.status === "unknown" && (
-                <p className="text-amber-300">
+                <p className="text-amber-800">
                   ⏳ <strong>Unknown held:</strong> Provider timed out after dispatch. Retries are suppressed; exposure is held.
                 </p>
               )}
@@ -198,39 +198,39 @@ export const AttemptTimeline: React.FC<{ events: AuditEvent[] }> = ({ events }) 
               <button
                 type="button"
                 onClick={() => setExpandedId(isExpanded ? null : group.attemptId)}
-                className="text-[11px] text-brand hover:underline font-mono flex items-center gap-1"
+                className="text-[11px] text-[#0C6CF2] hover:underline font-mono flex items-center gap-1"
               >
                 <span>{isExpanded ? "▼ Hide technical digests" : "▶ Inspect technical digests & receipts"}</span>
               </button>
             </div>
 
             {isExpanded && (
-              <div className="mt-3 space-y-2 rounded-xl border border-edge/60 bg-ink/80 p-3.5 font-mono text-[11px] text-slate-300 animate-fadeIn">
+              <div className="mt-3 space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3.5 font-mono text-[11px] text-slate-700 animate-fadeIn">
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div>
-                    <span className="text-muted uppercase text-[9px]">Session ID:</span>
-                    <p className="break-all">{group.sessionId || "—"}</p>
+                    <span className="text-slate-400 uppercase text-[9px]">Session ID:</span>
+                    <p className="break-all text-slate-800">{group.sessionId || "—"}</p>
                   </div>
                   <div>
-                    <span className="text-muted uppercase text-[9px]">Attempt ID:</span>
-                    <p className="break-all">{group.attemptId}</p>
+                    <span className="text-slate-400 uppercase text-[9px]">Attempt ID:</span>
+                    <p className="break-all text-slate-800">{group.attemptId}</p>
                   </div>
                   <div>
-                    <span className="text-muted uppercase text-[9px]">Grant ID:</span>
-                    <p className="break-all">
+                    <span className="text-slate-400 uppercase text-[9px]">Grant ID:</span>
+                    <p className="break-all text-slate-800">
                       {(actionEv?.payload?.grant_id as string) || (group.latestEvent.payload?.grant_id as string) || "None"}
                     </p>
                   </div>
                   <div>
-                    <span className="text-muted uppercase text-[9px]">Event Count:</span>
-                    <p>{group.events.length} audit records</p>
+                    <span className="text-slate-400 uppercase text-[9px]">Event Count:</span>
+                    <p className="text-slate-800">{group.events.length} audit records</p>
                   </div>
                 </div>
 
                 {Boolean(blockedEv?.payload?.deltas) && (
-                  <div className="border-t border-edge/60 pt-2 text-rose-300">
-                    <span className="text-muted uppercase text-[9px]">Policy Deltas:</span>
-                    <pre className="mt-1 text-[10px] overflow-x-auto bg-black/40 p-2 rounded">
+                  <div className="border-t border-slate-200 pt-2 text-rose-700">
+                    <span className="text-slate-400 uppercase text-[9px]">Policy Deltas:</span>
+                    <pre className="mt-1 text-[10px] overflow-x-auto bg-white border border-rose-200 p-2 rounded text-rose-800">
                       {JSON.stringify(blockedEv?.payload?.deltas, null, 2)}
                     </pre>
                   </div>

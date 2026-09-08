@@ -245,6 +245,117 @@ export type VoiceTranscription = {
   draft_only: true;
 };
 
+export type MerchantCapabilities = {
+  merchant_id: string;
+  display_name: string;
+  currency: string;
+  default_fulfillment_profile_id: string;
+  supported_destinations?: string[];
+  capabilities: string[];
+  action_name: string;
+  catalog_revision: string;
+  store_readiness?: string;
+  payment_provider?: string;
+  environment?: string;
+};
+
+export type CatalogItem = {
+  sku: string;
+  name: string;
+  category: string;
+  price_paise: number;
+  in_stock: boolean;
+  tags: string[];
+  description: string;
+};
+
+export type FunnelStep = {
+  stage: string;
+  count: number;
+  conversion_rate: number;
+};
+
+export type NeedsAttentionItem = {
+  item_id: string;
+  item_type: "unknown_outcome" | "policy_delta_blocked" | "stale_attempt" | string;
+  attempt_id: string;
+  severity: "high" | "medium" | "low";
+  title: string;
+  detail: string;
+  action_required: string;
+  created_at: number;
+};
+
+export type AgentOrderSummary = {
+  order_id: string;
+  purchase_attempt_id: string;
+  envelope_id: string | null;
+  merchant_id: string;
+  buyer_agent_id: string;
+  shopper_session_id: string;
+  status: "issued" | "recovered" | "blocked" | "unknown" | "settled";
+  outcome: string;
+  amount_paise: number;
+  recovery_applied: boolean;
+  payment_link: string | null;
+  grant_id: string | null;
+  receipt_id: string | null;
+  code: string | null;
+  created_at: number;
+  updated_at?: number;
+};
+
+export type ComprehensiveMetrics = {
+  merchant_id: string;
+  evidence_mode: string;
+  store_readiness: string;
+  agent_gmv_issued_paise: number;
+  settled_agent_gmv_paise: number;
+  agent_orders_count: number;
+  orders_recovered_count: number;
+  unsafe_attempts_blocked_count: number;
+  unknown_attempts_count: number;
+  unknown_exposure_paise: number;
+  funnel: FunnelStep[];
+  needs_attention: NeedsAttentionItem[];
+  recent_orders: AgentOrderSummary[];
+  generated_at: number;
+};
+
+export type CommerceAttemptStage = {
+  stage: "understand" | "quote" | "authorize" | "razorpay_action";
+  name: string;
+  status: "pending" | "completed" | "blocked" | "unknown";
+  detail: string;
+};
+
+export type CommerceAttemptResponse = {
+  attempt_id: string;
+  envelope_id: string;
+  outcome: "ACTION_ISSUED" | "RECOVERED_INSIDE_ENVELOPE" | "POLICY_DELTA_REQUIRED" | "STOPPED_BEFORE_RAZORPAY" | "UNKNOWN" | "READY_FOR_CHECKOUT";
+  stages: CommerceAttemptStage[];
+  allowed: boolean;
+  code: string;
+  human_message: string;
+  quote_total_paise: number;
+  payment_link: string | null;
+  grant_id: string | null;
+  receipt: ActionReceipt | null;
+  deltas: PolicyDelta[];
+  recovery_applied: boolean;
+  provider_mode: string;
+  razorpay_action_called: boolean;
+};
+
+export type IntentCreateResponse = {
+  agent_request_id: string;
+  draft_envelope: PurchaseEnvelope;
+  missing_fields: string[];
+  evidence_mode: string;
+  message: string;
+  provider_action_called: boolean;
+};
+
 async function j<T>(r: Response): Promise<T> {
   if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
   return r.json() as Promise<T>;
@@ -361,6 +472,93 @@ export const api = {
     fetch(`${API}/authority?user_id=${encodeURIComponent(user_id)}`, {
       cache: "no-store",
     }).then(j<AuthorityView>),
+
+  agentCommerce: {
+    merchant: () =>
+      fetch(`${API}/agent-commerce/v1/merchant`, { cache: "no-store" }).then(j<MerchantCapabilities>),
+
+    metrics: () =>
+      fetch(`${API}/agent-commerce/v1/metrics`, { cache: "no-store" }).then(j<ComprehensiveMetrics>),
+
+    getApproval: (token: string) =>
+      fetch(`${API}/agent-commerce/v1/approvals/${encodeURIComponent(token)}`, { cache: "no-store" }).then(
+        j<{
+          token: string;
+          envelope_id: string;
+          envelope_hash: string;
+          expires_at: number;
+          redeemed_at: number | null;
+          expired: boolean;
+          redeemed: boolean;
+          envelope: PurchaseEnvelope | null;
+        }>
+      ),
+
+    redeemApproval: (token: string) =>
+      fetch(`${API}/agent-commerce/v1/approvals/${encodeURIComponent(token)}/redeem`, {
+        method: "POST",
+      }).then(j<PurchaseEnvelope>),
+
+    orders: (status?: string) =>
+      fetch(`${API}/agent-commerce/v1/orders${status ? `?status=${encodeURIComponent(status)}` : ""}`, {
+        cache: "no-store",
+      }).then(j<AgentOrderSummary[]>),
+
+    catalog: (q?: string) =>
+      fetch(`${API}/agent-commerce/v1/catalog/search${q ? `?q=${encodeURIComponent(q)}` : ""}`, {
+        cache: "no-store",
+      }).then(j<CatalogItem[]>),
+
+    getAttempt: (id: string) =>
+      fetch(`${API}/agent-commerce/v1/attempts/${encodeURIComponent(id)}`, { cache: "no-store" }).then(
+        j<CommerceAttemptResponse>
+      ),
+
+    createIntent: (req: {
+      agent_request_id: string;
+      natural_language_intent: string;
+      budget_paise?: number;
+      buyer_agent_id?: string;
+      shopper_session_id?: string;
+      merchant_id?: string;
+    }) =>
+      fetch(`${API}/agent-commerce/v1/intents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req),
+      }).then(j<IntentCreateResponse>),
+
+    activateEnvelope: (envelopeId: string, expected_envelope_hash: string) =>
+      fetch(`${API}/agent-commerce/v1/envelopes/${envelopeId}/activate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expected_envelope_hash }),
+      }).then(j<PurchaseEnvelope>),
+
+    submitAttempt: (req: {
+      envelope_id: string;
+      purchase_attempt_id: string;
+      scenario?: AutopilotScenario;
+      buyer_agent_id?: string;
+      shopper_session_id?: string;
+    }) =>
+      fetch(`${API}/agent-commerce/v1/attempts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req),
+      }).then(j<CommerceAttemptResponse>),
+
+    planBuyer: (req: {
+      goal: string;
+      merchant_id?: string;
+      buyer_type?: "replay" | "openai";
+    }) =>
+      fetch(`${API}/agent-commerce/v1/buyer/plan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req),
+      }).then(j<{ plan: any; model_used: string; latency_ms: number; raw_plan_untrusted: boolean }>),
+  },
 };
 
 export const inr = (paise: number) =>

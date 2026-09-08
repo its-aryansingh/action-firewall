@@ -61,7 +61,7 @@ export const IntentComposer: React.FC<IntentComposerProps> = ({
 
       <div className="space-y-4">
         {/* Main Intent Input Box */}
-        <div className="relative rounded-2xl border border-edge/90 bg-ink/90 p-2 shadow-inner focus-within:border-brand/70 focus-within:ring-2 focus-within:ring-brand/20 transition-all">
+        <div className="relative rounded-2xl border border-border bg-surface p-2 shadow-sm focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all">
           <textarea
             value={goal}
             onChange={(e) => {

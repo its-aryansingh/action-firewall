@@ -210,7 +210,7 @@ export function VoiceIntentInput({
             Transcript becomes editable goal text only. It can never approve or pay.
           </p>
         </div>
-        <span className="rounded-full border border-edge bg-ink/60 px-2.5 py-1 font-mono text-[10px] text-muted">
+        <span className="rounded-full border border-border bg-canvas px-2.5 py-1 font-mono text-[10px] text-muted">
           {aiConfigured ? "AI READY" : browserFallback ? "DEVICE MODE" : "TEXT ONLY"}
         </span>
       </div>

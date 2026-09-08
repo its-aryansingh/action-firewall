@@ -31,7 +31,7 @@ export const ShoppingPlan: React.FC<ShoppingPlanProps> = ({
           </p>
         </div>
 
-        <div className="rounded-2xl border border-edge/80 bg-ink/70 px-5 py-3 text-right">
+        <div className="rounded-2xl border border-border bg-surface px-5 py-3 text-right">
           <p className="text-[11px] font-medium uppercase tracking-wider text-muted">Estimated Plan Total</p>
           <p className="font-mono text-2xl font-bold tracking-tight text-white sm:text-3xl">
             {inr(plan.totalPaise)}

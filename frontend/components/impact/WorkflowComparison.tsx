@@ -105,8 +105,8 @@ export const WorkflowComparison: React.FC = () => {
       </div>
 
       {/* Mandatory Scope Limitation Callout */}
-      <div className="rounded-xl border border-edge/60 bg-ink/60 p-4 text-xs text-slate-300 leading-relaxed">
-        <p className="font-semibold text-white mb-1">Methodology & Empirical Verification Scope</p>
+      <div className="rounded-xl border border-border bg-canvas p-4 text-xs text-muted leading-relaxed">
+        <p className="font-semibold text-text mb-1">Methodology & Empirical Verification Scope</p>
         <p>
           Synthetic catalog workflow benchmark over {data.corpus.legitimate_jobs} legitimate jobs ({data.corpus.eligible_stock_loss_jobs} eligible stock-loss cases) and {data.corpus.unsafe_drift_attempts} adversarial drift attempts across 10 goal families.
           This measures modeled workflow continuity and authorization correctness, <strong>not production conversion, GMV, payment success, or revenue uplift</strong>.

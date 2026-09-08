@@ -38,7 +38,7 @@ export const ApprovalSheet: React.FC<ApprovalSheetProps> = ({
       </div>
 
       {/* Structured Terms Table */}
-      <div className="rounded-2xl border border-edge/90 bg-ink/70 overflow-hidden divide-y divide-edge/60">
+      <div className="rounded-2xl border border-border bg-surface overflow-hidden divide-y divide-border">
         <div className="flex items-center justify-between px-4 py-3 sm:px-6">
           <span className="text-xs text-muted">Store</span>
           <span className="text-sm font-semibold text-white">{summary.merchantName}</span>

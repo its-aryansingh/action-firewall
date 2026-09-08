@@ -24,7 +24,7 @@ export const AgentProgress: React.FC<AgentProgressProps> = ({
         </p>
       </div>
 
-      <div className="space-y-3 rounded-2xl border border-edge/80 bg-ink/70 p-5 font-mono text-xs">
+      <div className="space-y-3 rounded-2xl border border-border bg-canvas p-5 font-mono text-xs">
         <div className="flex items-center gap-3 text-allow font-medium">
           <span className="flex h-5 w-5 items-center justify-center rounded-full bg-allow/20 text-[11px]">✓</span>
           <span>Understood your goal</span>

@@ -186,7 +186,7 @@ export default function BaselineChatPage() {
                   "inline-block max-w-[85%] rounded-2xl px-4 py-2 text-sm " +
                   (message.role === "user"
                     ? "bg-brand text-white"
-                    : "border border-edge bg-ink")
+                    : "border border-border bg-canvas text-text")
                 }
               >
                 {message.text}
@@ -199,7 +199,7 @@ export default function BaselineChatPage() {
               )}
 
               {message.actionStatus && (
-                <div className="mt-1 max-w-[85%] rounded-lg border border-edge bg-ink px-3 py-1.5 font-mono text-[11px]">
+                <div className="mt-1 max-w-[85%] rounded-lg border border-border bg-canvas px-3 py-1.5 font-mono text-[11px] text-text">
                   action {message.actionStatus}
                   {message.grantId ? " · " + message.grantId : ""}
                 </div>
@@ -208,7 +208,7 @@ export default function BaselineChatPage() {
               {message.tools?.map((tool, index) => (
                 <div
                   key={tool.name + "-" + index}
-                  className="mt-1 max-w-[85%] rounded-lg border border-edge bg-ink px-3 py-1.5 font-mono text-[11px]"
+                  className="mt-1 max-w-[85%] rounded-lg border border-border bg-canvas px-3 py-1.5 font-mono text-[11px] text-text"
                 >
                   <span className={tool.blocked ? "text-block" : "text-allow"}>
                     {tool.blocked ? "DENIED" : "ACTION ISSUED"}

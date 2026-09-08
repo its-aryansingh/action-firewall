@@ -11,7 +11,7 @@ export const ProductLineCard: React.FC<ProductLineCardProps> = ({ item }) => {
     <article className="group relative flex flex-col justify-between rounded-xl border border-edge/80 bg-panel/70 p-3.5 transition hover:border-brand/40 hover:bg-panel">
       <div>
         <div className="flex items-center justify-between gap-2">
-          <span className="rounded-md border border-edge/70 bg-ink/60 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-muted">
+          <span className="rounded-md border border-border bg-canvas px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-muted">
             {item.role || item.category}
           </span>
           <span className="inline-flex items-center gap-1 text-[10px] font-medium text-allow">

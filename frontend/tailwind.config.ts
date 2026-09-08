@@ -5,13 +5,19 @@ export default {
   theme: {
     extend: {
       colors: {
-        ink: "#0B1020",
-        panel: "#121a33",
-        edge: "#1f2a4a",
-        brand: "#3395FF",   // Razorpay blue
-        allow: "#22C55E",
-        block: "#F43F5E",
-        muted: "#8FA0C4",
+        sidebar: "#0B1020",
+        canvas: "#F7F8FC",
+        surface: "#FFFFFF",
+        primary: {
+          DEFAULT: "#2B6EF3",
+          hover: "#1F5ED8",
+        },
+        text: "#192233",
+        muted: "#657084",
+        border: "#E5E9F0",
+        success: "#138A5B",
+        warning: "#B7791F",
+        danger: "#C23B3B",
       },
       fontFamily: { sans: ["Inter", "system-ui", "sans-serif"] },
     },

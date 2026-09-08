@@ -16,7 +16,7 @@ export const TrustDetails: React.FC<TrustDetailsProps> = ({
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="rounded-xl border border-edge/60 bg-ink/40">
+    <div className="rounded-xl border border-border bg-canvas">
       <button
         type="button"
         onClick={() => setOpen(!open)}

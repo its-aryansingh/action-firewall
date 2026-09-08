@@ -57,24 +57,24 @@ export const CheckoutConfirming: React.FC<CheckoutConfirmingProps> = ({
 
       {/* Status Grid */}
       <div className="grid grid-cols-3 gap-3">
-        <div className="rounded-xl border border-edge/80 bg-ink/70 p-3.5 text-center">
+        <div className="rounded-xl border border-border bg-canvas p-3.5 text-center">
           <p className="text-[10px] uppercase tracking-wider text-muted font-medium">Provider Action</p>
-          <p className="mt-1 font-semibold text-white text-xs sm:text-sm">One request sent</p>
+          <p className="mt-1 font-semibold text-text text-xs sm:text-sm">One request sent</p>
         </div>
 
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.05] p-3.5 text-center">
-          <p className="text-[10px] uppercase tracking-wider text-amber-400 font-medium">Duplicate Retry</p>
-          <p className="mt-1 font-semibold text-amber-300 text-xs sm:text-sm">Frozen (Suppressed)</p>
+        <div className="rounded-xl border border-warning/30 bg-warning/[0.05] p-3.5 text-center">
+          <p className="text-[10px] uppercase tracking-wider text-warning font-medium">Duplicate Retry</p>
+          <p className="mt-1 font-semibold text-warning text-xs sm:text-sm">Frozen (Suppressed)</p>
         </div>
 
-        <div className="rounded-xl border border-edge/80 bg-ink/70 p-3.5 text-center">
+        <div className="rounded-xl border border-border bg-canvas p-3.5 text-center">
           <p className="text-[10px] uppercase tracking-wider text-muted font-medium">Headroom Exposure</p>
-          <p className="mt-1 font-semibold text-slate-200 text-xs sm:text-sm">Held atomically</p>
+          <p className="mt-1 font-semibold text-text text-xs sm:text-sm">Held atomically</p>
         </div>
       </div>
 
       {statusMessage && (
-        <div className="rounded-xl border border-edge/80 bg-ink/60 p-3 text-xs text-slate-300">
+        <div className="rounded-xl border border-border bg-canvas p-3 text-xs text-muted">
           ℹ️ {statusMessage}
         </div>
       )}
