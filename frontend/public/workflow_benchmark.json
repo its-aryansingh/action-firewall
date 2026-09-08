@@ -10,7 +10,9 @@
     "exact_cart_approval": {
       "approval_prompts_per_legitimate_completion": 1.5,
       "completed_without_action_time_intervention": 50,
+      "customer_scope_violations": 0,
       "eligible_stock_loss_recovered_without_reapproval": 0,
+      "false_blocks_on_legitimate_orders": 0,
       "unsafe_automatic_authorizations": 0
     },
     "manual_checkout": {
@@ -19,10 +21,20 @@
       "eligible_stock_loss_recovered_without_reapproval": 0,
       "unsafe_automatic_authorizations": 0
     },
+    "permissive_ai": {
+      "approval_prompts_per_legitimate_completion": 1.0,
+      "completed_without_action_time_intervention": 100,
+      "customer_scope_violations": 150,
+      "eligible_stock_loss_recovered_without_reapproval": 50,
+      "false_blocks_on_legitimate_orders": 0,
+      "unsafe_automatic_authorizations": 150
+    },
     "purchase_envelope": {
       "approval_prompts_per_legitimate_completion": 1.0,
       "completed_without_action_time_intervention": 100,
+      "customer_scope_violations": 0,
       "eligible_stock_loss_recovered_without_reapproval": 50,
+      "false_blocks_on_legitimate_orders": 0,
       "unsafe_automatic_authorizations": 0
     }
   },

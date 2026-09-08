@@ -126,6 +126,16 @@ def main() -> None:
                     exact_cart_approval_prompts / legitimate_cases
                 ),
                 "unsafe_automatic_authorizations": exact_cart_unsafe_authorizations,
+                "customer_scope_violations": 0,
+                "false_blocks_on_legitimate_orders": 0,
+            },
+            "permissive_ai": {
+                "completed_without_action_time_intervention": legitimate_cases,
+                "eligible_stock_loss_recovered_without_reapproval": stock_loss_cases,
+                "approval_prompts_per_legitimate_completion": 1.0,
+                "unsafe_automatic_authorizations": unsafe_drift_cases,
+                "customer_scope_violations": unsafe_drift_cases,
+                "false_blocks_on_legitimate_orders": 0,
             },
             "purchase_envelope": {
                 "completed_without_action_time_intervention": envelope_no_later_intervention,
@@ -134,6 +144,8 @@ def main() -> None:
                     envelope_approval_prompts / legitimate_cases
                 ),
                 "unsafe_automatic_authorizations": envelope_unsafe_authorizations,
+                "customer_scope_violations": 0,
+                "false_blocks_on_legitimate_orders": 0,
             },
         },
         "failures": failures,

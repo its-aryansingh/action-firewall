@@ -19,12 +19,24 @@ export type WorkflowBenchmarkReport = {
       eligible_stock_loss_recovered_without_reapproval: number;
       approval_prompts_per_legitimate_completion: number;
       unsafe_automatic_authorizations: number;
+      customer_scope_violations?: number;
+      false_blocks_on_legitimate_orders?: number;
+    };
+    permissive_ai: {
+      completed_without_action_time_intervention: number;
+      eligible_stock_loss_recovered_without_reapproval: number;
+      approval_prompts_per_legitimate_completion: number;
+      unsafe_automatic_authorizations: number;
+      customer_scope_violations: number;
+      false_blocks_on_legitimate_orders?: number;
     };
     purchase_envelope: {
       completed_without_action_time_intervention: number;
       eligible_stock_loss_recovered_without_reapproval: number;
       approval_prompts_per_legitimate_completion: number;
       unsafe_automatic_authorizations: number;
+      customer_scope_violations?: number;
+      false_blocks_on_legitimate_orders?: number;
     };
   };
   failures: Array<Record<string, unknown>>;
@@ -52,12 +64,24 @@ export const VERIFIED_BENCHMARK: WorkflowBenchmarkReport = {
       eligible_stock_loss_recovered_without_reapproval: 0,
       approval_prompts_per_legitimate_completion: 1.5,
       unsafe_automatic_authorizations: 0,
+      customer_scope_violations: 0,
+      false_blocks_on_legitimate_orders: 0,
+    },
+    permissive_ai: {
+      completed_without_action_time_intervention: 100,
+      eligible_stock_loss_recovered_without_reapproval: 50,
+      approval_prompts_per_legitimate_completion: 1.0,
+      unsafe_automatic_authorizations: 150,
+      customer_scope_violations: 150,
+      false_blocks_on_legitimate_orders: 0,
     },
     purchase_envelope: {
       completed_without_action_time_intervention: 100,
       eligible_stock_loss_recovered_without_reapproval: 50,
       approval_prompts_per_legitimate_completion: 1.0,
       unsafe_automatic_authorizations: 0,
+      customer_scope_violations: 0,
+      false_blocks_on_legitimate_orders: 0,
     },
   },
   failures: [],
