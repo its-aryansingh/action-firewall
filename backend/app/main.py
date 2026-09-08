@@ -3,12 +3,13 @@ from __future__ import annotations
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.concurrency import run_in_threadpool
 from mcp.server.streamable_http_manager import TransportSecuritySettings
 
 from . import agent, agent_commerce, autopilot, catalog, commerce_mcp, demo_scenario, reconciler, store, voice
+from .buyer_auth import verify_merchant_admin
 from .config import get_settings
 from .mcp_client import get_client
 from .models import (
@@ -326,12 +327,45 @@ def search_catalog(q: str, top_k: int = 6) -> list[dict]:
 
 
 @app.get("/mcp/tools")
-def mcp_tools() -> dict:
+def mcp_tools(_: str = Depends(verify_merchant_admin)) -> dict:
+    """Return the northbound buyer allowlist to authenticated merchant admins.
+
+    Raw provider tools are never returned here.
+    """
+    tools = commerce_mcp.mcp_server._tool_manager.list_tools()
+    tool_names = [t.name for t in tools]
+    return {
+        "surface": "northbound_buyer_allowlist",
+        "notice": "Strict customer-scoped allowlist exposed to AI buyers",
+        "tool_names": tool_names,
+        "tools": [
+            {
+                "name": t.name,
+                "description": t.description,
+                "parameters": t.parameters,
+            }
+            for t in tools
+        ],
+    }
+
+
+@app.get("/mcp/southbound-tools")
+@app.get("/mcp/tools/southbound")
+def mcp_southbound_tools(_: str = Depends(verify_merchant_admin)) -> dict:
+    """Southbound provider surface — never exposed to external buyers.
+
+    Restricted to merchant-admin for audit and evidence verification.
+    """
     client = get_client()
     try:
-        return {"client": type(client).__name__, "tools": client.list_tools()}
+        return {
+            "surface": "southbound_provider_surface",
+            "notice": "Internal provider adapter surface — never exposed to AI buyers",
+            "client": type(client).__name__,
+            "tools": client.list_tools(),
+        }
     except Exception as exc:
-        raise HTTPException(502, f"MCP unreachable: {exc}")
+        raise HTTPException(502, f"Provider MCP unreachable: {exc}")
 
 
 # ---------------- Reconciliation ----------------

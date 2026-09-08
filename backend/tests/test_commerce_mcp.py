@@ -270,3 +270,65 @@ def test_mcp_streamable_http_endpoint_mounted():
         resp = client.get("/agent-commerce/mcp/", follow_redirects=True)
         assert resp.status_code in (200, 406)
         assert "mcp-session-id" in resp.headers
+
+
+def test_mcp_tools_route_locked_and_returns_northbound_allowlist():
+    """Verify GET /mcp/tools requires merchant-admin and returns northbound allowlist."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.buyer_auth import MERCHANT_ADMIN_KEY
+
+    with TestClient(app, base_url="http://localhost") as client:
+        # 1. Unauthenticated returns 401
+        r_unauth = client.get("/mcp/tools")
+        assert r_unauth.status_code == 401
+        assert "Merchant admin authentication required" in r_unauth.json()["detail"]
+
+        # 2. Invalid admin token returns 403
+        r_bad = client.get("/mcp/tools", headers={"Authorization": "Bearer invalid_key"})
+        assert r_bad.status_code == 403
+        assert "Invalid merchant admin credentials" in r_bad.json()["detail"]
+
+        # 3. Authenticated returns northbound allowlist (6 customer tools, 0 raw payment tools)
+        r_auth = client.get("/mcp/tools", headers={"Authorization": f"Bearer {MERCHANT_ADMIN_KEY}"})
+        assert r_auth.status_code == 200
+        data = r_auth.json()
+        assert data["surface"] == "northbound_buyer_allowlist"
+        assert set(data["tool_names"]) == {
+            "discover_storefront",
+            "search_catalog",
+            "draft_purchase",
+            "request_quote",
+            "request_checkout",
+            "get_checkout_status",
+        }
+        assert not any(
+            bad in data["tool_names"]
+            for bad in [
+                "create_payment_link",
+                "capture_payment",
+                "refund_payment",
+                "activate_envelope",
+                "call_razorpay_tool",
+            ]
+        )
+
+
+def test_southbound_tools_route_requires_merchant_admin():
+    """Verify southbound provider route is restricted to merchant-admin."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.buyer_auth import MERCHANT_ADMIN_KEY
+
+    with TestClient(app, base_url="http://localhost") as client:
+        # 1. Unauthenticated returns 401
+        r_unauth = client.get("/mcp/southbound-tools")
+        assert r_unauth.status_code == 401
+
+        # 2. Authenticated returns southbound tools
+        r_auth = client.get("/mcp/southbound-tools", headers={"Authorization": f"Bearer {MERCHANT_ADMIN_KEY}"})
+        assert r_auth.status_code == 200
+        data = r_auth.json()
+        assert data["surface"] == "southbound_provider_surface"
+        assert "never exposed to AI buyers" in data["notice"]
+        assert any(t.get("name") == "create_payment_link" for t in data["tools"])
