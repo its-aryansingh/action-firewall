@@ -110,7 +110,19 @@ class RazorpayMCPClient:
         if not self.session_id:
             try:
                 self.initialize()
-            except Exception:
+            except Exception as exc:
+                # If Remote MCP auth fails before claiming grant, trigger fallback to REST once
+                is_auth_error = False
+                if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (401, 403):
+                    is_auth_error = True
+                elif any(phrase in str(exc) for phrase in ("Authentication failed", "401", "403")):
+                    is_auth_error = True
+
+                if is_auth_error:
+                    trigger_provider_fallback(f"Remote MCP auth failed ({exc}); falling back to razorpay_rest")
+                    rest_client = RazorpayRESTClient()
+                    return rest_client.call_tool(name, args, grant_id, context, cart_hash)
+
                 store.cancel_action_grant(grant_id, "MCP_INITIALIZATION_FAILED")
                 raise
         grant, token = _claim_or_raise(canonical, grant_id, context, cart_hash)
@@ -302,15 +314,188 @@ def unwrap(result: dict) -> Any:
     return result
 
 
+class RazorpayRESTClient:
+    """Direct Razorpay REST client using official Test Mode API keys.
+
+    Targets:
+      - POST https://api.razorpay.com/v1/payment_links
+      - GET  https://api.razorpay.com/v1/payment_links/{id}
+
+    Enforces the identical atomic authorization, exact-bound Action Grant claiming,
+    and unknown-outcome boundary as RazorpayMCPClient.
+    """
+
+    def __init__(self) -> None:
+        settings = get_settings()
+        self.key_id = settings.razorpay_key_id
+        self.key_secret = settings.razorpay_key_secret
+        if not (self.key_id and self.key_secret):
+            raise RuntimeError(
+                "PAYMENT_PROVIDER=razorpay_rest requires both RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET"
+            )
+        self.base_url = "https://api.razorpay.com/v1"
+
+    def list_tools(self) -> list[dict]:
+        return [
+            {
+                "name": "create_payment_link",
+                "description": "Issue a Razorpay Standard Payment Link via REST API",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "amount": {"type": "integer"},
+                        "currency": {"type": "string"},
+                        "description": {"type": "string"},
+                    },
+                    "required": ["amount", "currency", "description"],
+                },
+            }
+        ]
+
+    def call_tool(
+        self,
+        name: str,
+        args: dict,
+        grant_id: str,
+        context: ActionContext,
+        cart_hash: str,
+    ) -> dict:
+        canonical = _canonical_or_block(name, args, grant_id)
+        grant, token = _claim_or_raise(canonical, grant_id, context, cart_hash)
+
+        if name != "create_payment_link":
+            store.cancel_action_grant(grant_id, "UNSUPPORTED_REST_ACTION")
+            raise MandateViolation(f"Action '{name}' is not supported via REST client")
+
+        payload = {
+            "amount": canonical.args["amount"],
+            "currency": canonical.args.get("currency", "INR"),
+            "description": canonical.args.get("description", "Agent Purchase"),
+            "notes": {
+                "grant_id": grant.id,
+                "merchant_id": getattr(context, "merchant_id", "merchant_freshbasket"),
+                "agent_id": getattr(context, "agent_id", "buyer_agent"),
+                "session_id": getattr(context, "session_id", ""),
+            },
+        }
+
+        try:
+            with httpx.Client(timeout=45.0) as client:
+                resp = client.post(
+                    f"{self.base_url}/payment_links",
+                    json=payload,
+                    auth=(self.key_id, self.key_secret),
+                )
+                resp.raise_for_status()
+                data = resp.json()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in (400, 401, 403, 422):
+                store.cancel_action_grant(grant.id, f"PROVIDER_HTTP_{exc.response.status_code}")
+                raise MandateViolation(
+                    f"Razorpay rejected request ({exc.response.status_code}): {exc.response.text}"
+                ) from exc
+            store.mark_action_unknown(grant.id, token, type(exc).__name__)
+            raise ActionOutcomeUnknown(
+                grant.id,
+                "Razorpay REST returned an ambiguous status; reconciliation required.",
+            ) from exc
+        except Exception as exc:
+            store.mark_action_unknown(grant.id, token, type(exc).__name__)
+            raise ActionOutcomeUnknown(
+                grant.id,
+                "Razorpay REST did not return a final result; reconciliation is required.",
+            ) from exc
+
+        result = {
+            "content": [
+                {
+                    "type": "text",
+                    "text": json.dumps(
+                        {
+                            "id": data.get("id"),
+                            "amount": data.get("amount"),
+                            "currency": data.get("currency", "INR"),
+                            "status": data.get("status", "created"),
+                            "short_url": data.get("short_url"),
+                            "description": data.get("description"),
+                        }
+                    ),
+                }
+            ]
+        }
+        return _persist_issued_or_unknown(grant.id, token, result)
+
+    def fetch_action_status(self, provider_ref: str) -> dict:
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                resp = client.get(
+                    f"{self.base_url}/payment_links/{provider_ref}",
+                    auth=(self.key_id, self.key_secret),
+                )
+                if resp.status_code == 200:
+                    return resp.json()
+        except Exception:
+            pass
+        return {"id": provider_ref, "status": "unknown"}
+
+
+_ACTIVE_PROVIDER: str | None = None
+_FALLBACK_REASON: str | None = None
+
+
+def get_active_provider_mode() -> str:
+    global _ACTIVE_PROVIDER
+    if _ACTIVE_PROVIDER:
+        return _ACTIVE_PROVIDER
+    return get_settings().payment_provider
+
+
+def get_provider_fallback_info() -> dict[str, str | None]:
+    return {
+        "active_provider": get_active_provider_mode(),
+        "configured_provider": get_settings().payment_provider,
+        "fallback_reason": _FALLBACK_REASON,
+    }
+
+
+def trigger_provider_fallback(reason: str) -> None:
+    global _ACTIVE_PROVIDER, _FALLBACK_REASON
+    if _ACTIVE_PROVIDER != "razorpay_rest":
+        _ACTIVE_PROVIDER = "razorpay_rest"
+        _FALLBACK_REASON = reason
+        print(f"[provider-fallback] Switched payment provider to razorpay_rest: {reason}")
+
+
+def reset_provider_fallback() -> None:
+    global _ACTIVE_PROVIDER, _FALLBACK_REASON
+    _ACTIVE_PROVIDER = None
+    _FALLBACK_REASON = None
+
+
 def get_client():
     settings = get_settings()
-    if settings.payment_provider == "simulated":
+    provider = get_active_provider_mode()
+
+    if provider == "simulated":
         return SimulatedMCPClient()
-    has_token = bool(settings.razorpay_mcp_token)
-    has_key_pair = bool(settings.razorpay_key_id and settings.razorpay_key_secret)
-    if not (has_token or has_key_pair):
-        raise RuntimeError(
-            "PAYMENT_PROVIDER=razorpay_mcp requires RAZORPAY_MCP_TOKEN or "
-            "both RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET"
-        )
-    return RazorpayMCPClient()
+
+    if provider == "razorpay_rest":
+        has_key_pair = bool(settings.razorpay_key_id and settings.razorpay_key_secret)
+        if not has_key_pair:
+            raise RuntimeError(
+                "PAYMENT_PROVIDER=razorpay_rest requires both RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET"
+            )
+        return RazorpayRESTClient()
+
+    if provider == "razorpay_mcp":
+        has_token = bool(settings.razorpay_mcp_token)
+        has_key_pair = bool(settings.razorpay_key_id and settings.razorpay_key_secret)
+        if not (has_token or has_key_pair):
+            raise RuntimeError(
+                "PAYMENT_PROVIDER=razorpay_mcp requires RAZORPAY_MCP_TOKEN or "
+                "both RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET"
+            )
+        return RazorpayMCPClient()
+
+    raise ValueError(f"Unknown payment provider: {provider}")
+

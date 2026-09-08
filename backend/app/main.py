@@ -1,5 +1,6 @@
 """FastAPI orchestrator — the only process the frontend talks to."""
 from __future__ import annotations
+import hmac
 import time
 from contextlib import asynccontextmanager
 
@@ -9,7 +10,7 @@ from starlette.concurrency import run_in_threadpool
 from mcp.server.streamable_http_manager import TransportSecuritySettings
 
 from . import agent, agent_commerce, autopilot, catalog, commerce_mcp, demo_scenario, reconciler, store, voice
-from .buyer_auth import verify_merchant_admin
+from .buyer_auth import MERCHANT_ADMIN_KEY, verify_merchant_admin
 from .config import get_settings
 from .mcp_client import get_client
 from .models import (
@@ -120,7 +121,10 @@ def set_demo_scenario(req: demo_scenario.DemoScenarioRequest, request: Request) 
     client_host = request.client.host if request.client else ""
     is_loopback = client_host in ("127.0.0.1", "::1", "localhost", "testclient")
     auth_header = request.headers.get("Authorization", "")
-    is_merchant_admin = auth_header.startswith("Bearer merchant_admin")
+    # Constant-time compare against the configured key. A prefix match would accept
+    # any attacker-chosen token beginning with that literal.
+    presented = auth_header.split("Bearer ", 1)[1].strip() if auth_header.startswith("Bearer ") else ""
+    is_merchant_admin = bool(presented) and hmac.compare_digest(presented, MERCHANT_ADMIN_KEY)
 
     if not (is_loopback or is_merchant_admin):
         raise HTTPException(

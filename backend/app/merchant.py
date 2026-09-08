@@ -1,13 +1,26 @@
 """Single-merchant public capability projection for external AI buyers."""
 from __future__ import annotations
 
+from . import catalog, mcp_client
+from .authorization import digest
 from .buyer_models import MerchantCapabilities
 from .config import get_settings
 
 DEFAULT_MERCHANT_ID = "merchant_freshbasket"
 DEFAULT_MERCHANT_NAME = "FreshBasket for Business"
 SUPPORTED_MERCHANT_IDS = {"merchant_freshbasket", "merchant_demo"}
-CATALOG_REVISION = "cat_rev_20260905"
+def compute_catalog_revision() -> str:
+    """Content-derived catalog revision.
+
+    A frozen constant can never differ between quote time and checkout time, which
+    makes the REQUOTE_REQUIRED guard unreachable. Deriving it from catalog content
+    means any edit to data/catalog.json changes the revision and stale quotes are
+    correctly refused.
+    """
+    return "cat_" + digest(catalog.load_catalog())[:16]
+
+
+CATALOG_REVISION = compute_catalog_revision()
 
 
 def get_merchant_capabilities(merchant_id: str = DEFAULT_MERCHANT_ID) -> MerchantCapabilities:
@@ -28,7 +41,7 @@ def get_merchant_capabilities(merchant_id: str = DEFAULT_MERCHANT_ID) -> Merchan
         default_fulfillment_profile_id="dest_demo",
         catalog_revision=CATALOG_REVISION,
         environment=env,
-        payment_provider=settings.payment_provider,
+        payment_provider=mcp_client.get_active_provider_mode(),
         capabilities=[
             "catalog_search",
             "intent_drafting",

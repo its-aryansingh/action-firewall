@@ -26,6 +26,7 @@ from mcp.server.fastmcp import FastMCP
 from . import autopilot
 from . import catalog
 from . import demo_scenario
+from . import mcp_client
 from . import store
 from .approval_tokens import mint_approval_token
 from .authorization import canonical_json
@@ -68,7 +69,7 @@ def discover_storefront() -> dict[str, Any]:
         "action_name": profile.action_name,
         "catalog_revision": profile.catalog_revision,
         "store_readiness": "READY_FOR_AI_BUYERS",
-        "evidence_mode": settings.payment_provider,
+        "evidence_mode": mcp_client.get_active_provider_mode(),
     }
 
 
