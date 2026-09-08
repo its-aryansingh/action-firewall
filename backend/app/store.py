@@ -170,6 +170,61 @@ CREATE TABLE IF NOT EXISTS authority_ceilings (
     updated_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_ledger_user ON spend_ledger(user_id, created_at);
+
+CREATE TABLE IF NOT EXISTS buyer_requests (
+    agent_request_id TEXT PRIMARY KEY,
+    merchant_id TEXT NOT NULL,
+    buyer_agent_id TEXT NOT NULL,
+    shopper_session_id TEXT NOT NULL,
+    body_hash TEXT NOT NULL,
+    response_json TEXT NOT NULL,
+    status_code INTEGER NOT NULL,
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_buyer_requests_created ON buyer_requests(created_at);
+
+CREATE TABLE IF NOT EXISTS agent_orders (
+    order_id TEXT PRIMARY KEY,
+    purchase_attempt_id TEXT NOT NULL UNIQUE,
+    envelope_id TEXT,
+    merchant_id TEXT NOT NULL,
+    buyer_agent_id TEXT NOT NULL,
+    shopper_session_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    amount_paise INTEGER NOT NULL,
+    recovery_applied INTEGER NOT NULL DEFAULT 0,
+    payment_link TEXT,
+    grant_id TEXT,
+    receipt_id TEXT,
+    code TEXT,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agent_orders_merchant ON agent_orders(merchant_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_orders_status ON agent_orders(status);
+
+CREATE TABLE IF NOT EXISTS commerce_quotes (
+    id TEXT PRIMARY KEY,
+    merchant_id TEXT NOT NULL,
+    buyer_agent_id TEXT NOT NULL,
+    shopper_session_id TEXT NOT NULL,
+    envelope_id TEXT,
+    envelope_version INTEGER,
+    envelope_hash TEXT,
+    channel_policy_version INTEGER NOT NULL DEFAULT 1,
+    catalog_revision TEXT NOT NULL,
+    canonical_cart_json TEXT NOT NULL,
+    cart_hash TEXT NOT NULL,
+    quote_hash TEXT NOT NULL,
+    total_paise INTEGER NOT NULL,
+    valid_until REAL NOT NULL,
+    checked_out_at REAL,
+    checked_out_attempt_id TEXT,
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_commerce_quotes_merchant ON commerce_quotes(merchant_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_commerce_quotes_buyer ON commerce_quotes(buyer_agent_id, created_at DESC);
 """
 
 WINDOW_SECONDS = {
@@ -275,6 +330,74 @@ def _migrate(cx: sqlite3.Connection) -> None:
                user_id, window, ceiling_paise, version, created_at, updated_at
            ) VALUES ('user_demo', 'weekly', 200000, 1, ?, ?)""",
         (now, now),
+    )
+    cx.execute(
+        """CREATE TABLE IF NOT EXISTS buyer_requests (
+               agent_request_id TEXT PRIMARY KEY,
+               merchant_id TEXT NOT NULL,
+               buyer_agent_id TEXT NOT NULL,
+               shopper_session_id TEXT NOT NULL,
+               body_hash TEXT NOT NULL,
+               response_json TEXT NOT NULL,
+               status_code INTEGER NOT NULL,
+               created_at REAL NOT NULL
+           )"""
+    )
+    cx.execute(
+        "CREATE INDEX IF NOT EXISTS idx_buyer_requests_created ON buyer_requests(created_at)"
+    )
+    cx.execute(
+        """CREATE TABLE IF NOT EXISTS agent_orders (
+               order_id TEXT PRIMARY KEY,
+               purchase_attempt_id TEXT NOT NULL UNIQUE,
+               envelope_id TEXT,
+               merchant_id TEXT NOT NULL,
+               buyer_agent_id TEXT NOT NULL,
+               shopper_session_id TEXT NOT NULL,
+               status TEXT NOT NULL,
+               outcome TEXT NOT NULL,
+               amount_paise INTEGER NOT NULL,
+               recovery_applied INTEGER NOT NULL DEFAULT 0,
+               payment_link TEXT,
+               grant_id TEXT,
+               receipt_id TEXT,
+               code TEXT,
+               created_at REAL NOT NULL,
+               updated_at REAL NOT NULL
+           )"""
+    )
+    cx.execute(
+        "CREATE INDEX IF NOT EXISTS idx_agent_orders_merchant ON agent_orders(merchant_id, created_at DESC)"
+    )
+    cx.execute(
+        "CREATE INDEX IF NOT EXISTS idx_agent_orders_status ON agent_orders(status)"
+    )
+    cx.execute(
+        """CREATE TABLE IF NOT EXISTS commerce_quotes (
+               id TEXT PRIMARY KEY,
+               merchant_id TEXT NOT NULL,
+               buyer_agent_id TEXT NOT NULL,
+               shopper_session_id TEXT NOT NULL,
+               envelope_id TEXT,
+               envelope_version INTEGER,
+               envelope_hash TEXT,
+               channel_policy_version INTEGER NOT NULL DEFAULT 1,
+               catalog_revision TEXT NOT NULL,
+               canonical_cart_json TEXT NOT NULL,
+               cart_hash TEXT NOT NULL,
+               quote_hash TEXT NOT NULL,
+               total_paise INTEGER NOT NULL,
+               valid_until REAL NOT NULL,
+               checked_out_at REAL,
+               checked_out_attempt_id TEXT,
+               created_at REAL NOT NULL
+           )"""
+    )
+    cx.execute(
+        "CREATE INDEX IF NOT EXISTS idx_commerce_quotes_merchant ON commerce_quotes(merchant_id, created_at DESC)"
+    )
+    cx.execute(
+        "CREATE INDEX IF NOT EXISTS idx_commerce_quotes_buyer ON commerce_quotes(buyer_agent_id, created_at DESC)"
     )
 
 
@@ -2128,3 +2251,120 @@ def metrics(user_id: str = "user_demo") -> dict:
         "envelope_quotes_blocked": int(envelope_quotes_blocked),
         "in_envelope_recoveries": int(envelope_recoveries),
     }
+
+
+def record_buyer_request(
+    agent_request_id: str,
+    merchant_id: str,
+    buyer_agent_id: str,
+    shopper_session_id: str,
+    body_hash: str,
+    response_json: str,
+    status_code: int = 200,
+) -> None:
+    now = time.time()
+    with _conn() as cx:
+        cx.execute(
+            """INSERT OR REPLACE INTO buyer_requests (
+                   agent_request_id, merchant_id, buyer_agent_id, shopper_session_id,
+                   body_hash, response_json, status_code, created_at
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                agent_request_id,
+                merchant_id,
+                buyer_agent_id,
+                shopper_session_id,
+                body_hash,
+                response_json,
+                status_code,
+                now,
+            ),
+        )
+
+
+def lookup_buyer_request(agent_request_id: str) -> dict[str, Any] | None:
+    with _conn() as cx:
+        row = cx.execute(
+            "SELECT * FROM buyer_requests WHERE agent_request_id = ?",
+            (agent_request_id,),
+        ).fetchone()
+        if not row:
+            return None
+        return dict(row)
+
+
+def save_commerce_quote(
+    quote_id: str,
+    merchant_id: str,
+    buyer_agent_id: str,
+    shopper_session_id: str,
+    catalog_revision: str,
+    canonical_cart_json: str,
+    cart_hash: str,
+    quote_hash: str,
+    total_paise: int,
+    valid_until: float,
+    envelope_id: str | None = None,
+    envelope_version: int | None = None,
+    envelope_hash: str | None = None,
+    channel_policy_version: int = 1,
+) -> dict[str, Any]:
+    now = time.time()
+    with _conn() as cx:
+        cx.execute(
+            """INSERT OR REPLACE INTO commerce_quotes (
+                   id, merchant_id, buyer_agent_id, shopper_session_id,
+                   envelope_id, envelope_version, envelope_hash,
+                   channel_policy_version, catalog_revision,
+                   canonical_cart_json, cart_hash, quote_hash,
+                   total_paise, valid_until, created_at
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                quote_id,
+                merchant_id,
+                buyer_agent_id,
+                shopper_session_id,
+                envelope_id,
+                envelope_version,
+                envelope_hash,
+                channel_policy_version,
+                catalog_revision,
+                canonical_cart_json,
+                cart_hash,
+                quote_hash,
+                total_paise,
+                valid_until,
+                now,
+            ),
+        )
+    quote = get_commerce_quote(quote_id)
+    assert quote is not None
+    return quote
+
+
+def get_commerce_quote(quote_id: str) -> dict[str, Any] | None:
+    with _conn() as cx:
+        row = cx.execute(
+            "SELECT * FROM commerce_quotes WHERE id = ?",
+            (quote_id,),
+        ).fetchone()
+        if not row:
+            return None
+        return dict(row)
+
+
+def mark_commerce_quote_checked_out(quote_id: str, attempt_id: str) -> bool:
+    """Atomically mark a quote as checked out by attempt_id.
+
+    Returns True if CAS succeeded (quote was open), False if already checked out.
+    """
+    now = time.time()
+    with _conn() as cx:
+        cur = cx.execute(
+            """UPDATE commerce_quotes
+               SET checked_out_at = ?, checked_out_attempt_id = ?
+               WHERE id = ? AND checked_out_at IS NULL""",
+            (now, attempt_id, quote_id),
+        )
+        return cur.rowcount > 0
+

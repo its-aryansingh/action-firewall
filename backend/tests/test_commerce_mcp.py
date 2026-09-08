@@ -12,6 +12,7 @@ Verifies:
 """
 from __future__ import annotations
 
+import time
 import pytest
 
 from app.approval_tokens import redeem_approval_token
@@ -332,3 +333,124 @@ def test_southbound_tools_route_requires_merchant_admin():
         assert data["surface"] == "southbound_provider_surface"
         assert "never exposed to AI buyers" in data["notice"]
         assert any(t.get("name") == "create_payment_link" for t in data["tools"])
+
+
+def test_quote_persisted_in_commerce_quotes():
+    """Verify request_quote persists row to commerce_quotes table with canonical JSON and hash."""
+    items = [
+        {"sku": "SKU-PAS-002", "quantity": 2},
+        {"sku": "SKU-SAU-001", "quantity": 1},
+    ]
+    res = request_quote(items=items)
+    quote_id = res["quote_id"]
+    row = store.get_commerce_quote(quote_id)
+    assert row is not None
+    assert row["id"] == quote_id
+    assert row["merchant_id"] == "merchant_demo"
+    assert row["buyer_agent_id"] == "buyer_mcp"
+    assert row["total_paise"] == (8900 * 2) + 24900
+    assert row["quote_hash"] == res["quote_hash"]
+    assert len(row["cart_hash"]) == 64
+    assert row["checked_out_at"] is None
+    assert row["checked_out_attempt_id"] is None
+
+
+def test_quote_rejected_when_expired():
+    """Verify expired quote is rejected before checkout dispatch (QUOTE_EXPIRED)."""
+    draft = draft_purchase(intent="Buy supplies for a pasta dinner", agent_request_id="req_exp", budget_paise=60000)
+    token = draft["approval_url"].replace("/approve/", "")
+    redeem_approval_token(token)
+
+    quote = request_quote(items=[{"sku": "SKU-PAS-002", "quantity": 1}])
+    quote_id = quote["quote_id"]
+
+    # Manually expire the quote in DB
+    with store._conn() as cx:
+        cx.execute("UPDATE commerce_quotes SET valid_until = ? WHERE id = ?", (time.time() - 10, quote_id))
+
+    res = request_checkout(intent_id=draft["intent_id"], quote_id=quote_id, attempt_id="att_exp_01")
+    assert res["allowed"] is False
+    assert res["outcome"] == "STOPPED_BEFORE_RAZORPAY"
+    assert res["code"] == "QUOTE_EXPIRED"
+    assert res["razorpay_action_called"] is False
+    assert res["payment_link"] is None
+
+
+def test_quote_rejected_for_cross_buyer():
+    """Verify quote owned by another buyer is rejected with NOT FOUND (never 403, preventing enumeration)."""
+    draft = draft_purchase(intent="Buy supplies for a pasta dinner", agent_request_id="req_cross", budget_paise=60000)
+    token = draft["approval_url"].replace("/approve/", "")
+    redeem_approval_token(token)
+
+    quote = request_quote(items=[{"sku": "SKU-PAS-002", "quantity": 1}])
+    quote_id = quote["quote_id"]
+
+    # Alter buyer_agent_id to another buyer
+    with store._conn() as cx:
+        cx.execute("UPDATE commerce_quotes SET buyer_agent_id = ? WHERE id = ?", ("buyer_other_agent", quote_id))
+
+    res = request_checkout(intent_id=draft["intent_id"], quote_id=quote_id, attempt_id="att_cross_01")
+    assert res["allowed"] is False
+    assert res["outcome"] == "STOPPED_BEFORE_RAZORPAY"
+    assert res["code"] == "QUOTE_NOT_FOUND"
+    assert res["razorpay_action_called"] is False
+
+
+def test_quote_rejected_on_changed_catalog_revision():
+    """Verify changed catalog_revision returns REQUOTE_REQUIRED."""
+    draft = draft_purchase(intent="Buy supplies for a pasta dinner", agent_request_id="req_rev", budget_paise=60000)
+    token = draft["approval_url"].replace("/approve/", "")
+    redeem_approval_token(token)
+
+    quote = request_quote(items=[{"sku": "SKU-PAS-002", "quantity": 1}])
+    quote_id = quote["quote_id"]
+
+    # Alter catalog_revision to stale
+    with store._conn() as cx:
+        cx.execute("UPDATE commerce_quotes SET catalog_revision = ? WHERE id = ?", ("rev_2025_stale", quote_id))
+
+    res = request_checkout(intent_id=draft["intent_id"], quote_id=quote_id, attempt_id="att_rev_01")
+    assert res["allowed"] is False
+    assert res["outcome"] == "STOPPED_BEFORE_RAZORPAY"
+    assert res["code"] == "REQUOTE_REQUIRED"
+    assert res["razorpay_action_called"] is False
+
+
+def test_quote_cannot_be_checked_out_twice():
+    """Verify same quote cannot be checked out twice (QUOTE_ALREADY_CHECKED_OUT)."""
+    draft1 = draft_purchase(intent="Buy supplies for a pasta dinner 1", agent_request_id="req_double_1", budget_paise=60000)
+    token1 = draft1["approval_url"].replace("/approve/", "")
+    redeem_approval_token(token1)
+
+    quote = request_quote(items=[{"sku": "SKU-PAS-002", "quantity": 1}])
+    quote_id = quote["quote_id"]
+
+    # First checkout succeeds
+    res1 = request_checkout(intent_id=draft1["intent_id"], quote_id=quote_id, attempt_id="att_first_01")
+    assert res1["allowed"] is True
+    assert res1["outcome"] == "ACTION_ISSUED"
+
+    # Second active envelope tries to check out with the already-consumed quote
+    draft2 = draft_purchase(intent="Buy supplies for a pasta dinner 2", agent_request_id="req_double_2", budget_paise=60000)
+    token2 = draft2["approval_url"].replace("/approve/", "")
+    redeem_approval_token(token2)
+
+    res2 = request_checkout(intent_id=draft2["intent_id"], quote_id=quote_id, attempt_id="att_second_01")
+    assert res2["allowed"] is False
+    assert res2["outcome"] == "STOPPED_BEFORE_RAZORPAY"
+    assert res2["code"] == "QUOTE_ALREADY_CHECKED_OUT"
+    assert res2["razorpay_action_called"] is False
+
+
+def test_quote_authoritative_total_paise_used():
+    """Verify the quote row total_paise is authoritative and cannot be manipulated by caller."""
+    draft = draft_purchase(intent="Buy supplies for a pasta dinner", agent_request_id="req_auth_total", budget_paise=60000)
+    token = draft["approval_url"].replace("/approve/", "")
+    redeem_approval_token(token)
+
+    quote = request_quote(items=[{"sku": "SKU-PAS-002", "quantity": 1}])
+    quote_id = quote["quote_id"]
+
+    row = store.get_commerce_quote(quote_id)
+    assert row["total_paise"] == 8900
+

@@ -17,6 +17,7 @@ SAFETY INVARIANTS:
 """
 from __future__ import annotations
 
+import hashlib
 import time
 import uuid
 from typing import Any
@@ -27,6 +28,7 @@ from . import catalog
 from . import demo_scenario
 from . import store
 from .approval_tokens import mint_approval_token
+from .authorization import canonical_json
 from .envelope import compute_quote_hash
 from .buyer_models import (
     CommerceAttemptRequest,
@@ -37,7 +39,7 @@ from .buyer_models import (
 from .channel_policy import evaluate_channel_policy
 from .commerce_metrics import record_agent_order
 from .config import get_settings
-from .merchant import DEFAULT_MERCHANT_ID, get_merchant_capabilities
+from .merchant import CATALOG_REVISION, DEFAULT_MERCHANT_ID, get_merchant_capabilities
 from .models import (
     AutopilotExecuteRequest,
     AutopilotScenario,
@@ -187,14 +189,39 @@ def request_quote(
         substitutions=[],
         quote_hash="",
     )
-    quote = quote.model_copy(update={"quote_hash": compute_quote_hash(quote)})
+    quote_hash = compute_quote_hash(quote)
+    quote = quote.model_copy(update={"quote_hash": quote_hash})
+
+    # Persist the quote row
+    quote_id = f"q_{uuid.uuid4().hex[:12]}"
+    valid_until = time.time() + 900
+    canonical_cart_items = [
+        {"sku": line.sku, "qty": line.qty, "price_paise": line.unit_price_paise}
+        for line in cart.lines
+    ]
+    canonical_cart_json = canonical_json(canonical_cart_items)
+    cart_hash = hashlib.sha256(canonical_cart_json.encode("utf-8")).hexdigest()
+
+    store.save_commerce_quote(
+        quote_id=quote_id,
+        merchant_id=DEFAULT_MERCHANT_ID,
+        buyer_agent_id="buyer_mcp",
+        shopper_session_id="session_mcp_quote",
+        catalog_revision=CATALOG_REVISION,
+        canonical_cart_json=canonical_cart_json,
+        cart_hash=cart_hash,
+        quote_hash=quote_hash,
+        total_paise=cart.total_paise,
+        valid_until=valid_until,
+    )
 
     return {
-        "quote_id": f"q_{uuid.uuid4().hex[:12]}",
+        "quote_id": quote_id,
         "merchant_id": DEFAULT_MERCHANT_ID,
         "currency": "INR",
         "total_paise": cart.total_paise,
         "quote_hash": quote.quote_hash,
+        "catalog_revision": CATALOG_REVISION,
         "lines": [
             {
                 "sku": line.sku,
@@ -205,7 +232,7 @@ def request_quote(
             }
             for line in cart.lines
         ],
-        "valid_until": time.time() + 900,
+        "valid_until": valid_until,
     }
 
 
@@ -235,10 +262,70 @@ def request_checkout(
             "razorpay_action_called": False,
         }
 
-    # Evaluate merchant channel policy
+    # 1. Reload quote row BY ID
+    persisted_quote = store.get_commerce_quote(quote_id)
+    if not persisted_quote:
+        return {
+            "allowed": False,
+            "outcome": "STOPPED_BEFORE_RAZORPAY",
+            "code": "QUOTE_NOT_FOUND",
+            "error": f"Quote {quote_id} not found",
+            "payment_link": None,
+            "razorpay_action_called": False,
+        }
+
+    # 2. Ownership check: quote owned by another buyer is rejected (returns not-found, not forbidden)
+    expected_buyer_id = "buyer_mcp"
+    if persisted_quote["buyer_agent_id"] != expected_buyer_id:
+        return {
+            "allowed": False,
+            "outcome": "STOPPED_BEFORE_RAZORPAY",
+            "code": "QUOTE_NOT_FOUND",
+            "error": f"Quote {quote_id} not found",
+            "payment_link": None,
+            "razorpay_action_called": False,
+        }
+
+    # 3. Expiry check: expired quote is rejected
+    if time.time() > persisted_quote["valid_until"]:
+        return {
+            "allowed": False,
+            "outcome": "STOPPED_BEFORE_RAZORPAY",
+            "code": "QUOTE_EXPIRED",
+            "error": "Quote has expired. Fresh quote required.",
+            "payment_link": None,
+            "razorpay_action_called": False,
+        }
+
+    # 4. Catalog revision check: changed catalog_revision returns REQUOTE_REQUIRED
+    if persisted_quote["catalog_revision"] != CATALOG_REVISION:
+        return {
+            "allowed": False,
+            "outcome": "STOPPED_BEFORE_RAZORPAY",
+            "code": "REQUOTE_REQUIRED",
+            "error": "Catalog revision has changed since quote was generated. REQUOTE_REQUIRED.",
+            "payment_link": None,
+            "razorpay_action_called": False,
+        }
+
+    # 5. Check if same quote was already checked out
+    if persisted_quote.get("checked_out_at") is not None:
+        return {
+            "allowed": False,
+            "outcome": "STOPPED_BEFORE_RAZORPAY",
+            "code": "QUOTE_ALREADY_CHECKED_OUT",
+            "error": "Quote has already been checked out. Replay blocked.",
+            "payment_link": None,
+            "razorpay_action_called": False,
+        }
+
+    # Authoritative money value from the persisted quote row (caller-supplied values are ignored)
+    authoritative_amount_paise = persisted_quote["total_paise"]
+
+    # Evaluate merchant channel policy using authoritative quote amount
     channel_dec = evaluate_channel_policy(
         merchant_id=envelope.merchant_id,
-        amount_paise=envelope.max_total_paise,
+        amount_paise=authoritative_amount_paise,
         action_name="create_payment_link",
     )
     if not channel_dec.allowed:
@@ -247,6 +334,17 @@ def request_checkout(
             "outcome": "STOPPED_BEFORE_RAZORPAY",
             "code": channel_dec.code,
             "human_message": channel_dec.reason,
+            "payment_link": None,
+            "razorpay_action_called": False,
+        }
+
+    # Atomic CAS marking quote checked out
+    if not store.mark_commerce_quote_checked_out(quote_id, attempt_id):
+        return {
+            "allowed": False,
+            "outcome": "STOPPED_BEFORE_RAZORPAY",
+            "code": "QUOTE_ALREADY_CHECKED_OUT",
+            "error": "Quote was concurrently checked out. Replay blocked.",
             "payment_link": None,
             "razorpay_action_called": False,
         }
