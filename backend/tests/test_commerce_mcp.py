@@ -118,9 +118,9 @@ def test_unactivated_envelope_fails_closed_in_mcp():
         budget_paise=60000,
     )
     res = request_checkout(
-        envelope_id=draft["envelope_id"],
-        purchase_attempt_id="att_mcp_unact",
-        scenario="normal",
+        intent_id=draft["intent_id"],
+        quote_id="q_test_unact",
+        attempt_id="att_mcp_unact",
     )
     assert res["allowed"] is False
     assert res["outcome"] == "STOPPED_BEFORE_RAZORPAY"
@@ -143,11 +143,19 @@ def test_mcp_full_checkout_lifecycle():
     active = redeem_approval_token(raw_token)
     assert active.status.value == "active"
 
-    # 3. Request checkout via MCP
+    # 3. Request quote
+    quote = request_quote(
+        items=[
+            {"sku": "SKU-PAS-002", "quantity": 1},
+            {"sku": "SKU-SAU-001", "quantity": 1},
+        ]
+    )
+
+    # 4. Request checkout via MCP (without scenario parameter)
     res = request_checkout(
-        envelope_id=draft["envelope_id"],
-        purchase_attempt_id="att_mcp_success_01",
-        scenario="normal",
+        intent_id=draft["intent_id"],
+        quote_id=quote["quote_id"],
+        attempt_id="att_mcp_success_01",
     )
     assert res["allowed"] is True
     assert res["outcome"] == "ACTION_ISSUED"
@@ -155,10 +163,73 @@ def test_mcp_full_checkout_lifecycle():
     assert res["grant_id"] is not None
     assert res["razorpay_action_called"] is True
 
-    # 4. Polling status returns recorded outcome
+    # 5. Polling status returns recorded outcome
     stat = get_checkout_status("att_mcp_success_01")
     assert stat["status"] == "issued"
     assert stat["payment_link"] == res["payment_link"]
+
+
+def test_request_checkout_rejects_extra_fields():
+    """Verify scenario is deleted from MCP tool schema and extra fields fail closed."""
+    tool = next(t for t in mcp_server._tool_manager.list_tools() if t.name == "request_checkout")
+    props = tool.parameters.get("properties", {})
+    assert "scenario" not in props, "scenario must not be an MCP tool parameter!"
+    assert set(props.keys()) == {"intent_id", "quote_id", "attempt_id"}
+
+    # Calling with unexpected argument raises TypeError
+    with pytest.raises(TypeError, match="unexpected keyword argument"):
+        request_checkout(
+            intent_id="env_test",
+            quote_id="q_test",
+            attempt_id="att_test",
+            scenario="price_drift",  # type: ignore
+        )
+
+
+def test_demo_scenario_loopback_and_security(monkeypatch):
+    """Verify /demo/scenario route is loopback-only and DEMO_MODE=true-only."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app import demo_scenario
+
+    demo_scenario.reset_active_scenario()
+
+    # 1. Loopback caller in DEMO_MODE=true succeeds
+    with TestClient(app, base_url="http://localhost") as client:
+        r = client.post("/demo/scenario", json={"scenario": "price_drift"})
+        assert r.status_code == 200
+        assert r.json()["scenario"] == "price_drift"
+        assert demo_scenario.get_active_scenario().value == "price_drift"
+
+        # GET confirms active scenario
+        r_get = client.get("/demo/scenario")
+        assert r_get.status_code == 200
+        assert r_get.json()["scenario"] == "price_drift"
+
+        # Invalid scenario returns 422
+        r_inv = client.post("/demo/scenario", json={"scenario": "malicious_scenario"})
+        assert r_inv.status_code == 422
+
+    # 2. Non-loopback caller without merchant-admin auth returns 403
+    with TestClient(app, client=("198.51.100.25", 43210)) as remote_client:
+        r_remote = remote_client.post("/demo/scenario", json={"scenario": "normal"})
+        assert r_remote.status_code == 403
+        assert "restricted to loopback" in r_remote.json()["detail"]
+
+    # 3. DEMO_MODE=false returns 403 even for loopback
+    from app.config import get_settings
+    monkeypatch.setenv("DEMO_MODE", "false")
+    get_settings.cache_clear()
+    try:
+        with TestClient(app, base_url="http://localhost") as client:
+            r_blocked = client.post("/demo/scenario", json={"scenario": "normal"})
+            assert r_blocked.status_code == 403
+            assert "only permitted when DEMO_MODE=true" in r_blocked.json()["detail"]
+    finally:
+        monkeypatch.setenv("DEMO_MODE", "true")
+        get_settings.cache_clear()
+
+    demo_scenario.reset_active_scenario()
 
 
 @pytest.mark.anyio

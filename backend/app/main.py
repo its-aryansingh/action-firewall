@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.concurrency import run_in_threadpool
 from mcp.server.streamable_http_manager import TransportSecuritySettings
 
-from . import agent, agent_commerce, autopilot, catalog, commerce_mcp, reconciler, store, voice
+from . import agent, agent_commerce, autopilot, catalog, commerce_mcp, demo_scenario, reconciler, store, voice
 from .config import get_settings
 from .mcp_client import get_client
 from .models import (
@@ -93,6 +93,48 @@ def health() -> dict:
             "voice_transcription_model": s.openai_transcription_model,
             "fault_injection_enabled": s.fault_injection_enabled,
             "mcp": type(get_client()).__name__}
+
+
+# ---------------- Demo Scenario (Loopback & Admin Only) ----------------
+@app.post("/demo/scenario", response_model=demo_scenario.DemoScenarioResponse)
+def set_demo_scenario(req: demo_scenario.DemoScenarioRequest, request: Request) -> demo_scenario.DemoScenarioResponse:
+    s = get_settings()
+    if not s.demo_mode:
+        raise HTTPException(
+            status_code=403,
+            detail="Demo scenario fault injection is only permitted when DEMO_MODE=true",
+        )
+
+    client_host = request.client.host if request.client else ""
+    is_loopback = client_host in ("127.0.0.1", "::1", "localhost", "testclient")
+    auth_header = request.headers.get("Authorization", "")
+    is_merchant_admin = auth_header.startswith("Bearer merchant_admin")
+
+    if not (is_loopback or is_merchant_admin):
+        raise HTTPException(
+            status_code=403,
+            detail="Demo scenario fault injection is restricted to loopback or merchant-admin callers",
+        )
+
+    demo_scenario.set_active_scenario(req.scenario)
+    return demo_scenario.DemoScenarioResponse(
+        scenario=req.scenario,
+        message=f"Active demo scenario updated to '{req.scenario.value}'",
+    )
+
+
+@app.get("/demo/scenario", response_model=demo_scenario.DemoScenarioResponse)
+def get_demo_scenario(request: Request) -> demo_scenario.DemoScenarioResponse:
+    s = get_settings()
+    if not s.demo_mode:
+        raise HTTPException(
+            status_code=403,
+            detail="Demo scenario inspection is only permitted when DEMO_MODE=true",
+        )
+    return demo_scenario.DemoScenarioResponse(
+        scenario=demo_scenario.get_active_scenario(),
+        message="Current active demo scenario",
+    )
 
 
 # ---------------- Chat ----------------

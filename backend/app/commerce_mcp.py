@@ -24,6 +24,7 @@ from mcp.server.fastmcp import FastMCP
 
 from . import autopilot
 from . import catalog
+from . import demo_scenario
 from . import store
 from .approval_tokens import mint_approval_token
 from .envelope import compute_quote_hash
@@ -131,6 +132,7 @@ def draft_purchase(
 
     return {
         "agent_request_id": agent_request_id,
+        "intent_id": draft.id,
         "envelope_id": draft.id,
         "status": draft.status.value,
         "max_total_paise": draft.max_total_paise,
@@ -209,16 +211,16 @@ def request_quote(
 
 @mcp_server.tool()
 def request_checkout(
-    envelope_id: str,
-    purchase_attempt_id: str,
-    scenario: str = "normal",
+    intent_id: str,
+    quote_id: str,
+    attempt_id: str,
 ) -> dict[str, Any]:
     """Execute purchase attempt through Action Firewall.
 
     Fails closed if the envelope has not been explicitly activated by customer.
     Re-verifies quote and atomic headroom reservation before single CAS dispatch.
     """
-    envelope = store.get_envelope(envelope_id)
+    envelope = store.get_envelope(intent_id)
     if not envelope:
         return {"allowed": False, "error": "Unknown Purchase Envelope"}
 
@@ -249,13 +251,13 @@ def request_checkout(
             "razorpay_action_called": False,
         }
 
-    scen = AutopilotScenario(scenario) if scenario in AutopilotScenario._value2member_map_ else AutopilotScenario.NORMAL
+    scen = demo_scenario.get_active_scenario()
     exec_req = AutopilotExecuteRequest(
         envelope_id=envelope.id,
         expected_envelope_version=envelope.version,
         expected_envelope_hash=envelope.envelope_hash,
         session_id=f"sess_mcp_{uuid.uuid4().hex[:8]}",
-        purchase_attempt_id=purchase_attempt_id,
+        purchase_attempt_id=attempt_id,
         scenario=scen,
     )
 
@@ -272,7 +274,7 @@ def request_checkout(
         else "blocked"
     )
     record_agent_order(
-        purchase_attempt_id=purchase_attempt_id,
+        purchase_attempt_id=attempt_id,
         merchant_id=envelope.merchant_id,
         buyer_agent_id="buyer_mcp",
         shopper_session_id=exec_req.session_id,
@@ -288,8 +290,9 @@ def request_checkout(
     )
 
     return {
-        "attempt_id": purchase_attempt_id,
-        "envelope_id": envelope_id,
+        "attempt_id": attempt_id,
+        "intent_id": intent_id,
+        "envelope_id": intent_id,
         "allowed": res.envelope_decision.allowed,
         "outcome": outcome,
         "code": res.envelope_decision.code,
