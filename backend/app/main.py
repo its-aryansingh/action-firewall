@@ -1,6 +1,8 @@
 """FastAPI orchestrator — the only process the frontend talks to."""
 from __future__ import annotations
+import hashlib
 import hmac
+import json
 import time
 from contextlib import asynccontextmanager
 
@@ -422,3 +424,141 @@ def reconcile_open_actions(limit: int = 50) -> dict:
         "changed": sum(1 for r in results if r["changed"]),
         "results": results,
     }
+
+
+@app.post("/provider/webhooks/razorpay")
+async def handle_razorpay_webhook(request: Request) -> dict[str, Any]:
+    """Consume HMAC-SHA256 verified Razorpay webhooks.
+
+    Enforces:
+    1. Raw body HMAC-SHA256 signature verification (X-Razorpay-Signature) BEFORE parsing.
+    2. Rejects with 400 and an audit row on signature mismatch or missing signature.
+    3. Idempotent by provider event id; replayed webhooks are immediate no-ops.
+    4. Unmatched grants are audited and ignored (never auto-created).
+    5. State transition through the exact same reconciler.apply_observation state machine.
+    """
+    raw_body = await request.body()
+    signature = request.headers.get("X-Razorpay-Signature") or request.headers.get("x-razorpay-signature") or ""
+
+    settings = get_settings()
+    secret = settings.razorpay_webhook_secret
+    if not secret:
+        if settings.demo_mode or settings.payment_provider == "simulated":
+            secret = settings.action_receipt_secret or "whsec_action_firewall_demo"
+        else:
+            store.log_event(
+                event="WEBHOOK_REJECTED_UNCONFIGURED",
+                code="NO_WEBHOOK_SECRET",
+                payload={"error": "Webhook secret is not configured on server"},
+            )
+            raise HTTPException(status_code=500, detail="Webhook secret unconfigured")
+
+    computed_signature = hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
+    if not signature or not hmac.compare_digest(signature, computed_signature):
+        client_ip = request.client.host if request.client else "unknown"
+        store.log_event(
+            event="WEBHOOK_SIGNATURE_INVALID",
+            code="SIGNATURE_MISMATCH",
+            payload={
+                "received_signature": signature[:16] + "..." if signature else None,
+                "client_ip": client_ip,
+                "body_len": len(raw_body),
+            },
+        )
+        raise HTTPException(status_code=400, detail="Invalid webhook signature")
+
+    try:
+        data = json.loads(raw_body.decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Malformed JSON payload: {exc}")
+
+    event_id = data.get("event_id") or data.get("id") or f"body_{hashlib.sha256(raw_body).hexdigest()[:24]}"
+    event_type = data.get("event") or ""
+    payload_obj = data.get("payload") or {}
+
+    plink_entity = payload_obj.get("payment_link", {}).get("entity", {})
+    payment_entity = payload_obj.get("payment", {}).get("entity", {})
+
+    plink_id = plink_entity.get("id") or payment_entity.get("payment_link_id")
+    grant_id = (
+        plink_entity.get("notes", {}).get("grant_id")
+        or payment_entity.get("notes", {}).get("grant_id")
+    )
+    provider_ref = plink_id or payment_entity.get("id")
+
+    if not grant_id and plink_id:
+        existing_grant = store.get_action_grant_by_provider_ref(plink_id)
+        if existing_grant:
+            grant_id = existing_grant.id
+
+    # Idempotency check: record event id
+    is_new = store.record_webhook_event(
+        event_id=event_id,
+        event_type=event_type,
+        provider_ref=provider_ref,
+        payload=data,
+    )
+    if not is_new:
+        return {
+            "status": "already_processed",
+            "event_id": event_id,
+            "idempotent": True,
+        }
+
+    # If grant does not exist, audit and ignore
+    if not grant_id:
+        store.log_event(
+            event="WEBHOOK_UNMATCHED_GRANT",
+            code="UNKNOWN_GRANT",
+            payload={"event_id": event_id, "event_type": event_type, "provider_ref": provider_ref},
+        )
+        return {
+            "status": "unmatched_grant",
+            "event_id": event_id,
+            "provider_ref": provider_ref,
+        }
+
+    grant = store.get_action_grant(grant_id)
+    if not grant:
+        store.log_event(
+            event="WEBHOOK_UNMATCHED_GRANT",
+            code="GRANT_NOT_FOUND",
+            payload={"event_id": event_id, "grant_id": grant_id},
+        )
+        return {
+            "status": "unmatched_grant",
+            "event_id": event_id,
+            "grant_id": grant_id,
+        }
+
+    status_str = str(plink_entity.get("status") or payment_entity.get("status") or "").lower()
+    amount_paid = plink_entity.get("amount_paid") or payment_entity.get("amount") or 0
+
+    if event_type in ("payment_link.paid", "payment.captured") or status_str in ("paid", "captured"):
+        obs_status = "paid"
+    elif event_type in ("payment_link.cancelled", "payment_link.expired") or status_str in ("cancelled", "expired"):
+        obs_status = status_str
+    elif event_type == "payment.failed" or status_str == "failed":
+        obs_status = "failed"
+    else:
+        obs_status = status_str or "open"
+
+    obs = reconciler.Observation(
+        reachable=True,
+        provider_status=obs_status,
+        amount_paid_paise=int(amount_paid) if isinstance(amount_paid, int) else 0,
+        raw=data,
+    )
+
+    reconciliation = reconciler.apply_observation(grant, obs)
+
+    return {
+        "status": "processed",
+        "event_id": event_id,
+        "grant_id": grant.id,
+        "before": reconciliation.before.value,
+        "after": reconciliation.after.value,
+        "changed": reconciliation.changed,
+        "note": reconciliation.note,
+    }
+

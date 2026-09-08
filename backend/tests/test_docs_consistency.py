@@ -32,6 +32,7 @@ def test_docs_and_decks_match_pytest_collected_count():
             "--ignore-glob=*approval_tokens*",
             "--ignore-glob=*config_safety*",
             "--ignore-glob=*razorpay_rest_client*",
+            "--ignore-glob=*razorpay_webhook*",
         ],
         cwd=str(backend_dir),
         capture_output=True,

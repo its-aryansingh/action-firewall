@@ -1,5 +1,6 @@
 """SQLite persistence for policies, exact action grants, and event evidence."""
 from __future__ import annotations
+import hmac
 import json, sqlite3, time, uuid
 from contextlib import contextmanager
 from typing import Optional
@@ -286,6 +287,16 @@ CREATE TABLE IF NOT EXISTS approval_tokens (
 CREATE INDEX IF NOT EXISTS idx_approval_tokens_hash ON approval_tokens(token_hash);
 CREATE INDEX IF NOT EXISTS idx_approval_tokens_public ON approval_tokens(public_approval_id);
 CREATE INDEX IF NOT EXISTS idx_approval_tokens_envelope ON approval_tokens(envelope_id);
+CREATE INDEX IF NOT EXISTS idx_ledger_razorpay_ref ON spend_ledger(razorpay_ref);
+
+CREATE TABLE IF NOT EXISTS webhook_events (
+    event_id TEXT PRIMARY KEY,
+    event_type TEXT NOT NULL,
+    provider_ref TEXT,
+    payload_json TEXT NOT NULL,
+    processed_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_webhook_events_provider ON webhook_events(provider_ref);
 """
 
 WINDOW_SECONDS = {
@@ -328,6 +339,11 @@ def _conn():
 
 
 RESERVATION_TTL_SECONDS = 180
+
+# approval_tokens.shopper_session_id is NOT NULL, so an approval not yet bound to a
+# signed shopper session records this sentinel. A token carrying any other value is
+# BOUND, and redeeming it requires a matching session.
+UNBOUND_SESSION = "unbound"
 
 
 def init_db() -> None:
@@ -513,6 +529,18 @@ def _migrate(cx: sqlite3.Connection) -> None:
     for col, ddl in token_additions:
         if col not in token_cols:
             cx.execute(ddl)
+
+    cx.execute("CREATE INDEX IF NOT EXISTS idx_ledger_razorpay_ref ON spend_ledger(razorpay_ref)")
+    cx.execute(
+        """CREATE TABLE IF NOT EXISTS webhook_events (
+               event_id TEXT PRIMARY KEY,
+               event_type TEXT NOT NULL,
+               provider_ref TEXT,
+               payload_json TEXT NOT NULL,
+               processed_at REAL NOT NULL
+           )"""
+    )
+    cx.execute("CREATE INDEX IF NOT EXISTS idx_webhook_events_provider ON webhook_events(provider_ref)")
 
 
 
@@ -1124,6 +1152,39 @@ def get_action_grant(grant_id: str) -> ActionGrant | None:
     with _conn() as cx:
         row = cx.execute("SELECT * FROM spend_ledger WHERE id=?", (grant_id,)).fetchone()
     return _row_to_action_grant(row) if row else None
+
+
+def get_action_grant_by_provider_ref(provider_ref: str) -> ActionGrant | None:
+    if not provider_ref:
+        return None
+    with _conn() as cx:
+        row = cx.execute(
+            """SELECT * FROM spend_ledger
+               WHERE razorpay_ref=?
+               ORDER BY created_at DESC LIMIT 1""",
+            (provider_ref,),
+        ).fetchone()
+    return _row_to_action_grant(row) if row else None
+
+
+def record_webhook_event(
+    event_id: str,
+    event_type: str,
+    provider_ref: str | None,
+    payload: dict[str, Any],
+) -> bool:
+    """Record an incoming webhook event. Returns False if already processed (idempotency)."""
+    now = time.time()
+    with _conn() as cx:
+        try:
+            cx.execute(
+                """INSERT INTO webhook_events (event_id, event_type, provider_ref, payload_json, processed_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (event_id, event_type, provider_ref, canonical_json(payload), now),
+            )
+            return True
+        except sqlite3.IntegrityError:
+            return False
 
 
 def get_action_grant_for_attempt(
@@ -2004,6 +2065,12 @@ def settle_issued_action(
         if updated.rowcount != 1:
             raise RuntimeError("SETTLEMENT_TRANSITION_CONFLICT")
         row = cx.execute("SELECT * FROM spend_ledger WHERE id=?", (grant_id,)).fetchone()
+        cx.execute(
+            """UPDATE agent_orders
+               SET status='settled', outcome='SETTLED', updated_at=?
+               WHERE grant_id=?""",
+            (now, grant_id),
+        )
         _insert_audit_row(
             cx,
             event="ACTION_SETTLED",
@@ -2161,6 +2228,20 @@ def reconcile_unknown(
         if updated.rowcount != 1:
             raise RuntimeError("RECONCILIATION_TRANSITION_CONFLICT")
         row = cx.execute("SELECT * FROM spend_ledger WHERE id=?", (grant_id,)).fetchone()
+        if new_status == "settled":
+            cx.execute(
+                """UPDATE agent_orders
+                   SET status='settled', outcome='SETTLED', updated_at=?
+                   WHERE grant_id=?""",
+                (now, grant_id),
+            )
+        elif new_status == "definitive_failure":
+            cx.execute(
+                """UPDATE agent_orders
+                   SET status='failed', outcome='FAILED', updated_at=?
+                   WHERE grant_id=?""",
+                (now, grant_id),
+            )
         _insert_audit_row(
             cx,
             event="ACTION_RECONCILED",
@@ -2553,7 +2634,7 @@ def save_approval_token(
     public_approval_id: str,
     merchant_id: str,
     buyer_agent_id: str,
-    shopper_session_id: str,
+    shopper_session_id: str | None,
     envelope_id: str,
     envelope_version: int,
     envelope_hash: str,
@@ -2576,7 +2657,7 @@ def save_approval_token(
                 public_approval_id,
                 merchant_id,
                 buyer_agent_id,
-                shopper_session_id,
+                shopper_session_id or UNBOUND_SESSION,
                 intent_id,
                 envelope_id,
                 envelope_version,
@@ -2623,7 +2704,6 @@ def get_approval_token_by_public_id(public_approval_id: str) -> dict[str, Any] |
 def redeem_approval_token_and_activate(
     token_hash: str,
     expected_shopper_session_id: str | None = None,
-    _simulate_failure_at_activation: bool = False,
 ) -> PurchaseEnvelope:
     """Atomically redeem an approval token and activate the bound envelope in one BEGIN IMMEDIATE.
 
@@ -2679,9 +2759,17 @@ def redeem_approval_token_and_activate(
         if current.envelope_hash != compute_envelope_hash(current):
             raise ValueError("ENVELOPE_STORAGE_INTEGRITY_FAILURE")
 
-        # 4. Shopper session bind check
-        if expected_shopper_session_id is not None:
-            if token.get("shopper_session_id") and token["shopper_session_id"] != expected_shopper_session_id:
+        # 4. Shopper session bind check.
+        # A bound token REQUIRES a matching session. This branch was previously
+        # skipped whenever the caller passed None, which made possession of the raw
+        # approval link sufficient to activate.
+        bound_session = token.get("shopper_session_id")
+        if bound_session and bound_session != UNBOUND_SESSION:
+            if not expected_shopper_session_id:
+                raise ApprovalTokenInvalidError(
+                    "This approval is bound to a shopper session; a session is required to redeem it"
+                )
+            if not hmac.compare_digest(str(expected_shopper_session_id), str(bound_session)):
                 raise ApprovalTokenInvalidError("Shopper session does not match token binding")
 
         # 5. CAS token consume
@@ -2693,10 +2781,6 @@ def redeem_approval_token_and_activate(
         )
         if cur.rowcount != 1:
             raise ApprovalTokenConflictError("Concurrent redemption conflict")
-
-        # Testing hook: forced failure at activation rolls back everything
-        if _simulate_failure_at_activation:
-            raise RuntimeError("SIMULATED_ACTIVATION_FAILURE")
 
         # 6. Spend fence creation (mandate + policy revision)
         mandate_id = f"mnd_{uuid.uuid4().hex[:12]}"

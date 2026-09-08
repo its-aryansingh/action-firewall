@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     # Razorpay MCP
     razorpay_key_id: str = ""
     razorpay_key_secret: str = ""
+    razorpay_webhook_secret: str = ""
     razorpay_mcp_url: str = "https://mcp.razorpay.com/mcp"
     razorpay_mcp_token: str = ""
 

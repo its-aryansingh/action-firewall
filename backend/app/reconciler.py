@@ -36,13 +36,13 @@ from .models import ActionGrant, ActionState
 #: `partially_paid` is deliberately excluded: this MVP registers only
 #: `accept_partial: False` actions, so a partial payment is an anomaly to
 #: surface rather than a settlement to record.
-PAID_STATES = {"paid"}
+PAID_STATES = {"paid", "captured"}
 
 #: States that mean the link exists and is simply not paid yet.
-OPEN_STATES = {"created", "issued", "partially_paid"}
+OPEN_STATES = {"created", "issued", "partially_paid", "authorized"}
 
 #: States that mean this action will never collect.
-DEAD_STATES = {"cancelled", "expired"}
+DEAD_STATES = {"cancelled", "expired", "failed"}
 
 
 @dataclass(frozen=True)
@@ -98,16 +98,14 @@ def observe(provider_ref: str | None) -> Observation:
     )
 
 
-def reconcile(grant_id: str) -> Reconciliation:
-    """Resolve one action against the provider's own record.
+def apply_observation(grant: ActionGrant, obs: Observation) -> Reconciliation:
+    """Apply an authoritative provider observation to transition an action grant.
 
-    Takes a grant id and nothing else. Whatever the caller believes about the
-    payment is irrelevant; only `observe()` decides.
+    Shared state machine used by both:
+      1. Pull reconciler (reconcile / reconcile_open_actions)
+      2. Push webhook consumer (POST /provider/webhooks/razorpay)
     """
-    grant = store.get_action_grant(grant_id)
-    if grant is None:
-        raise LookupError("UNKNOWN_GRANT")
-
+    grant_id = grant.id
     before = grant.state
     if before not in (ActionState.ACTION_ISSUED, ActionState.UNKNOWN):
         return Reconciliation(
@@ -115,8 +113,6 @@ def reconcile(grant_id: str) -> Reconciliation:
             Observation(False, None, 0, {}, error="NOT_RECONCILABLE"),
             f"{before.value} is already terminal; nothing to reconcile.",
         )
-
-    obs = observe(grant.provider_ref)
 
     if not obs.reachable:
         # Invariant 9. We learned nothing, so we change nothing — including
@@ -148,9 +144,7 @@ def reconcile(grant_id: str) -> Reconciliation:
                 grant_id, before, ActionState.DEFINITIVE_FAILURE, True, obs,
                 f"Provider reports {obs.provider_status}; exposure released.",
             )
-        # An issued link that expired is a definite non-collection, but this MVP
-        # has no issued -> definitive_failure transition and inventing one here
-        # would be a second logical change. Reported, not acted on.
+        # An issued link that expired, cancelled, or failed
         return Reconciliation(
             grant_id, before, before, False, obs,
             f"Provider reports {obs.provider_status}. Issued actions are not "
@@ -172,6 +166,20 @@ def reconcile(grant_id: str) -> Reconciliation:
         grant_id, before, before, False, obs,
         f"Provider reports {obs.provider_status}; not yet collected.",
     )
+
+
+def reconcile(grant_id: str) -> Reconciliation:
+    """Resolve one action against the provider's own record.
+
+    Takes a grant id and nothing else. Whatever the caller believes about the
+    payment is irrelevant; only `observe()` decides.
+    """
+    grant = store.get_action_grant(grant_id)
+    if grant is None:
+        raise LookupError("UNKNOWN_GRANT")
+
+    obs = observe(grant.provider_ref)
+    return apply_observation(grant, obs)
 
 
 def reconcile_open_actions(limit: int = 50) -> list[Reconciliation]:
