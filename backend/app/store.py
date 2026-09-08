@@ -33,6 +33,45 @@ from .models import (
     AuthorityView,
 )
 
+
+class ApprovalTokenError(Exception):
+    """Base domain exception for approval token operations."""
+    status_code: int = 400
+    detail: str = "Approval token error"
+
+    def __init__(self, detail: str | None = None, status_code: int | None = None) -> None:
+        if detail:
+            self.detail = detail
+        if status_code is not None:
+            self.status_code = status_code
+        super().__init__(self.detail)
+
+
+class ApprovalTokenNotFoundError(ApprovalTokenError):
+    status_code = 404
+    detail = "Unknown approval token"
+
+
+class ApprovalTokenExpiredError(ApprovalTokenError):
+    status_code = 410
+    detail = "Approval token has expired"
+
+
+class ApprovalTokenAlreadyRedeemedError(ApprovalTokenError):
+    status_code = 409
+    detail = "Approval token has already been redeemed"
+
+
+class ApprovalTokenConflictError(ApprovalTokenError):
+    status_code = 409
+    detail = "Concurrent redemption conflict"
+
+
+class ApprovalTokenInvalidError(ApprovalTokenError):
+    status_code = 422
+    detail = "Invalid approval token state"
+
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS mandates (
     id TEXT PRIMARY KEY,
@@ -225,6 +264,28 @@ CREATE TABLE IF NOT EXISTS commerce_quotes (
 );
 CREATE INDEX IF NOT EXISTS idx_commerce_quotes_merchant ON commerce_quotes(merchant_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_commerce_quotes_buyer ON commerce_quotes(buyer_agent_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS approval_tokens (
+    id TEXT PRIMARY KEY,
+    public_approval_id TEXT NOT NULL,
+    merchant_id TEXT NOT NULL,
+    buyer_agent_id TEXT NOT NULL,
+    shopper_session_id TEXT NOT NULL,
+    intent_id TEXT,
+    envelope_id TEXT NOT NULL,
+    envelope_version INTEGER NOT NULL DEFAULT 1,
+    envelope_hash TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    state TEXT NOT NULL DEFAULT 'pending',
+    expires_at REAL NOT NULL,
+    consumed_at REAL,
+    declined_at REAL,
+    superseded_at REAL,
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_approval_tokens_hash ON approval_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_approval_tokens_public ON approval_tokens(public_approval_id);
+CREATE INDEX IF NOT EXISTS idx_approval_tokens_envelope ON approval_tokens(envelope_id);
 """
 
 WINDOW_SECONDS = {
@@ -256,6 +317,12 @@ def _conn():
     try:
         yield cx
         cx.commit()
+    except Exception:
+        try:
+            cx.rollback()
+        except Exception:
+            pass
+        raise
     finally:
         cx.close()
 
@@ -399,6 +466,54 @@ def _migrate(cx: sqlite3.Connection) -> None:
     cx.execute(
         "CREATE INDEX IF NOT EXISTS idx_commerce_quotes_buyer ON commerce_quotes(buyer_agent_id, created_at DESC)"
     )
+    cx.execute(
+        """CREATE TABLE IF NOT EXISTS approval_tokens (
+               id TEXT PRIMARY KEY,
+               public_approval_id TEXT NOT NULL,
+               merchant_id TEXT NOT NULL,
+               buyer_agent_id TEXT NOT NULL,
+               shopper_session_id TEXT NOT NULL,
+               intent_id TEXT,
+               envelope_id TEXT NOT NULL,
+               envelope_version INTEGER NOT NULL DEFAULT 1,
+               envelope_hash TEXT NOT NULL,
+               token_hash TEXT NOT NULL UNIQUE,
+               state TEXT NOT NULL DEFAULT 'pending',
+               expires_at REAL NOT NULL,
+               consumed_at REAL,
+               declined_at REAL,
+               superseded_at REAL,
+               created_at REAL NOT NULL
+           )"""
+    )
+    cx.execute(
+        "CREATE INDEX IF NOT EXISTS idx_approval_tokens_hash ON approval_tokens(token_hash)"
+    )
+    cx.execute(
+        "CREATE INDEX IF NOT EXISTS idx_approval_tokens_public ON approval_tokens(public_approval_id)"
+    )
+    cx.execute(
+        "CREATE INDEX IF NOT EXISTS idx_approval_tokens_envelope ON approval_tokens(envelope_id)"
+    )
+
+    token_cols = {r["name"] for r in cx.execute("PRAGMA table_info(approval_tokens)")}
+    token_additions = [
+        ("id", "ALTER TABLE approval_tokens ADD COLUMN id TEXT"),
+        ("public_approval_id", "ALTER TABLE approval_tokens ADD COLUMN public_approval_id TEXT"),
+        ("merchant_id", "ALTER TABLE approval_tokens ADD COLUMN merchant_id TEXT"),
+        ("buyer_agent_id", "ALTER TABLE approval_tokens ADD COLUMN buyer_agent_id TEXT"),
+        ("shopper_session_id", "ALTER TABLE approval_tokens ADD COLUMN shopper_session_id TEXT"),
+        ("intent_id", "ALTER TABLE approval_tokens ADD COLUMN intent_id TEXT"),
+        ("envelope_version", "ALTER TABLE approval_tokens ADD COLUMN envelope_version INTEGER NOT NULL DEFAULT 1"),
+        ("state", "ALTER TABLE approval_tokens ADD COLUMN state TEXT NOT NULL DEFAULT 'pending'"),
+        ("consumed_at", "ALTER TABLE approval_tokens ADD COLUMN consumed_at REAL"),
+        ("declined_at", "ALTER TABLE approval_tokens ADD COLUMN declined_at REAL"),
+        ("superseded_at", "ALTER TABLE approval_tokens ADD COLUMN superseded_at REAL"),
+    ]
+    for col, ddl in token_additions:
+        if col not in token_cols:
+            cx.execute(ddl)
+
 
 
 def _row_to_mandate(r: sqlite3.Row) -> Mandate:
@@ -2380,5 +2495,235 @@ def get_agent_order(attempt_id: str, merchant_id: str, buyer_agent_id: str) -> d
         if not row:
             return None
         return dict(row)
+
+
+def save_approval_token(
+    id: str,
+    public_approval_id: str,
+    merchant_id: str,
+    buyer_agent_id: str,
+    shopper_session_id: str,
+    envelope_id: str,
+    envelope_version: int,
+    envelope_hash: str,
+    token_hash: str,
+    expires_at: float,
+    intent_id: str | None = None,
+    state: str = "pending",
+) -> dict[str, Any]:
+    now = time.time()
+    with _conn() as cx:
+        cx.execute(
+            """INSERT INTO approval_tokens (
+                   id, public_approval_id, merchant_id, buyer_agent_id,
+                   shopper_session_id, intent_id, envelope_id,
+                   envelope_version, envelope_hash, token_hash,
+                   state, expires_at, created_at
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                id,
+                public_approval_id,
+                merchant_id,
+                buyer_agent_id,
+                shopper_session_id,
+                intent_id,
+                envelope_id,
+                envelope_version,
+                envelope_hash,
+                token_hash,
+                state,
+                expires_at,
+                now,
+            ),
+        )
+    row = get_approval_token_by_hash(token_hash)
+    assert row is not None
+    return row
+
+
+def get_approval_token_by_hash(token_hash: str) -> dict[str, Any] | None:
+    with _conn() as cx:
+        row = cx.execute(
+            "SELECT * FROM approval_tokens WHERE token_hash = ?",
+            (token_hash,),
+        ).fetchone()
+        if not row:
+            return None
+        data = dict(row)
+        if "redeemed_at" not in data or data["redeemed_at"] is None:
+            data["redeemed_at"] = data.get("consumed_at")
+        return data
+
+
+def get_approval_token_by_public_id(public_approval_id: str) -> dict[str, Any] | None:
+    with _conn() as cx:
+        row = cx.execute(
+            "SELECT * FROM approval_tokens WHERE public_approval_id = ?",
+            (public_approval_id,),
+        ).fetchone()
+        if not row:
+            return None
+        data = dict(row)
+        if "redeemed_at" not in data or data["redeemed_at"] is None:
+            data["redeemed_at"] = data.get("consumed_at")
+        return data
+
+
+def redeem_approval_token_and_activate(
+    token_hash: str,
+    expected_shopper_session_id: str | None = None,
+    _simulate_failure_at_activation: bool = False,
+) -> PurchaseEnvelope:
+    """Atomically redeem an approval token and activate the bound envelope in one BEGIN IMMEDIATE.
+
+    Order:
+    1. Token lookup
+    2. Expiry and state check
+    3. Envelope version + hash check
+    4. Shopper session bind check
+    5. CAS token consume
+    6. Spend fence creation (mandate + policy revision)
+    7. Envelope activation
+    8. Audit event
+
+    Any failure triggers rollback, leaving the token unconsumed and envelope in draft.
+    """
+    now = time.time()
+    with _conn() as cx:
+        cx.execute("BEGIN IMMEDIATE")
+
+        # 1. Token lookup
+        token_row = cx.execute(
+            "SELECT * FROM approval_tokens WHERE token_hash = ?",
+            (token_hash,),
+        ).fetchone()
+        if not token_row:
+            raise ApprovalTokenNotFoundError("Unknown approval token")
+
+        token = dict(token_row)
+
+        # 2. Expiry / state check
+        if token.get("state") == "consumed" or token.get("consumed_at") is not None:
+            raise ApprovalTokenAlreadyRedeemedError("Approval token has already been redeemed")
+        if token.get("state") in ("declined", "superseded"):
+            raise ApprovalTokenInvalidError(f"Approval token is {token.get('state')}")
+        if token["expires_at"] <= now:
+            raise ApprovalTokenExpiredError("Approval token has expired")
+
+        # 3. Envelope version + hash check
+        envelope_row = cx.execute(
+            "SELECT * FROM purchase_envelopes WHERE id = ?",
+            (token["envelope_id"],),
+        ).fetchone()
+        if not envelope_row:
+            raise LookupError(f"Envelope {token['envelope_id']} not found")
+
+        current = _row_to_envelope(envelope_row)
+        if current.status is not EnvelopeStatus.DRAFT:
+            raise ValueError(f"ENVELOPE_NOT_DRAFT: Envelope status is {current.status.value}")
+        if current.expires_at <= now:
+            raise ValueError("ENVELOPE_EXPIRED")
+        if current.envelope_hash != token["envelope_hash"]:
+            raise ValueError("ENVELOPE_HASH_CHANGED")
+        if current.envelope_hash != compute_envelope_hash(current):
+            raise ValueError("ENVELOPE_STORAGE_INTEGRITY_FAILURE")
+
+        # 4. Shopper session bind check
+        if expected_shopper_session_id is not None:
+            if token.get("shopper_session_id") and token["shopper_session_id"] != expected_shopper_session_id:
+                raise ApprovalTokenInvalidError("Shopper session does not match token binding")
+
+        # 5. CAS token consume
+        cur = cx.execute(
+            """UPDATE approval_tokens
+               SET state = 'consumed', consumed_at = ?
+               WHERE token_hash = ? AND (state = 'pending' OR state IS NULL) AND consumed_at IS NULL""",
+            (now, token_hash),
+        )
+        if cur.rowcount != 1:
+            raise ApprovalTokenConflictError("Concurrent redemption conflict")
+
+        # Testing hook: forced failure at activation rolls back everything
+        if _simulate_failure_at_activation:
+            raise RuntimeError("SIMULATED_ACTIVATION_FAILURE")
+
+        # 6. Spend fence creation (mandate + policy revision)
+        mandate_id = f"mnd_{uuid.uuid4().hex[:12]}"
+        cx.execute(
+            "UPDATE mandates SET active=0, version=version+1, updated_at=? "
+            "WHERE user_id=? AND agent_id=? AND active=1",
+            (now, current.user_id, current.agent_id),
+        )
+        cx.execute(
+            """INSERT INTO mandates (
+                   id, user_id, agent_id, label, cap_paise, window, per_txn_cap_paise,
+                   allowed_categories, blocked_categories, active, version, created_at, updated_at
+               ) VALUES (?, ?, ?, ?, ?, 'per_transaction', ?, '[]', ?, 1, 1, ?, ?)""",
+            (
+                mandate_id,
+                current.user_id,
+                current.agent_id,
+                "Purchase Envelope spend fence",
+                current.max_total_paise,
+                current.max_total_paise,
+                canonical_json(current.blocked_categories),
+                now,
+                now,
+            ),
+        )
+        mandate_row = cx.execute(
+            "SELECT * FROM mandates WHERE id = ?", (mandate_id,)
+        ).fetchone()
+        _insert_policy_revision(cx, _row_to_mandate(mandate_row))
+
+        # 7. Envelope activation
+        activated = current.model_copy(
+            update={
+                "status": EnvelopeStatus.ACTIVE,
+                "version": current.version + 1,
+                "mandate_id": mandate_id,
+                "updated_at": now,
+                "envelope_hash": "",
+            }
+        )
+        activated = activated.model_copy(
+            update={"envelope_hash": compute_envelope_hash(activated)}
+        )
+        env_cur = cx.execute(
+            """UPDATE purchase_envelopes
+               SET status=?, version=?, mandate_id=?, envelope_hash=?, updated_at=?
+               WHERE id=? AND version=? AND status='draft'""",
+            (
+                activated.status.value,
+                activated.version,
+                mandate_id,
+                activated.envelope_hash,
+                now,
+                current.id,
+                current.version,
+            ),
+        )
+        if env_cur.rowcount != 1:
+            raise ValueError("CONCURRENT_ENVELOPE_ACTIVATION_CONFLICT")
+
+        # 8. Audit event
+        _insert_audit_row(
+            cx,
+            event="ENVELOPE_ACTIVATED",
+            session_id=token.get("shopper_session_id"),
+            mandate_id=mandate_id,
+            mandate_version=1,
+            code="ACTIVE",
+            cap_paise=activated.max_total_paise,
+            payload={
+                "envelope_id": activated.id,
+                "envelope_version": activated.version,
+                "envelope_hash": activated.envelope_hash,
+                "public_approval_id": token.get("public_approval_id"),
+                "token_id": token.get("id"),
+            },
+        )
+        return activated
+
 
 
