@@ -148,7 +148,7 @@ issued, settled, and unknown value metrics.
 
 **Say:**
 
-> “The evaluator passes 650 generated boundary cases across 10 goal families. The 148-test integration suite
+> “The evaluator passes 650 generated boundary cases across 10 goal families. The 265-test integration suite
 > drives eight concurrent attempts under one envelope to one issued action,
 > reproduces revocation between authorization and dispatch, and proves UNKNOWN
 > suppresses redispatch. Vulcan can decide what is likely to work. Action

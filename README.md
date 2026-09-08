@@ -38,6 +38,8 @@ Vulcan API, SDK, model endpoint, partnership, or internal Razorpay access. The h
 positioning is: **Vulcan can decide what is likely to work. Action Firewall proves
 whether this agent is allowed to do it.**
 
+> **The Architectural Seam:** Razorpay's Agent Studio validation layer governs **Razorpay's own agents, acting for the merchant** — does this agent have scope to issue this refund? Action Firewall governs the other direction: **a third-party AI buyer, acting for the customer, at the merchant's storefront** — does this specific basket satisfy the rules this customer approved? One validates the *action*. The other validates the *purchase*. A merchant needs both, and only one of them exists today.
+
 ## Purchase Envelope
 
 One activation binds:
@@ -97,7 +99,7 @@ later provider observation can record `SETTLED`.
 
 ### Integration tests
 
-The current suite has **148 passing backend tests**. It includes:
+The current suite has **265 passing backend tests** (294 parametrized test cases). It includes:
 
 - pure spend-policy boundaries and integer-paise arithmetic;
 - proposal-only chat and strict planner schemas;
@@ -110,8 +112,14 @@ The current suite has **148 passing backend tests**. It includes:
 - exact idempotency replay and binding conflicts;
 - timeout-to-`UNKNOWN`, stale-dispatch recovery and reconciliation;
 - append-only SQLite audit enforcement;
-- application-signed Action Receipt verification.
-- server-side voice input boundaries, media validation, and provider-error redaction.
+- application-signed Action Receipt verification;
+- server-side voice input boundaries, media validation, and provider-error redaction;
+- dual southbound provider rails (`razorpay_rest` and `remote_mcp` with simulated fallback);
+- HMAC-SHA256 webhook consumer with timestamp replay defense and timing-safe signature check;
+- dynamic route isolation (internal demo vs external production mode);
+- merchant onboarding, kill switch, and active AI-channel gating;
+- server-owned integer stock validation and quote availability checks;
+- client-facing MCP server with semantic error taxonomy and opaque approval tokens.
 
 ### Generated authorization corpus
 
@@ -126,6 +134,21 @@ The current suite has **148 passing backend tests**. It includes:
 These are synthetic authorization-correctness results, not claims of production
 conversion, GMV, fraud reduction, or payment success. See
 [docs/EVALUATION.md](docs/EVALUATION.md).
+
+### Population Benchmark: 900-Case Agent Authorization Corpus
+
+`python scripts/benchmark_agent_authorization.py` evaluates **900 synthetic agent proposals** across 18 failure families and 50 fixed random seeds ($k=5$ repetitions per fixture):
+
+| Metric | Measured Result | Significance |
+|---|---|---|
+| **Completion under Policy (CuP)** | **56.4%** (508 / 900) | Completed orders compliant with merchant & customer policy |
+| **CuP on Compliant Proposals** | **100.0%** (250 / 250) | Zero valid baskets rejected (0% false positives) |
+| **Pass^5 ($k=5$)** | **100.0%** (180 / 180 runs) | Deterministic reproducibility across all 5 runs |
+| **Violation Escape Rate** | **0.0%** (0 / 650 violations escaped) | Zero unsafe/unauthorized actions dispatched |
+| **Deterministic Repair Rate** | **39.7%** (258 / 650 recovered) | Recovered under policy via valid in-envelope substitutions |
+| **Value Recovered** | **₹126,749** | Face value preserved without human re-approval |
+| **Blocked Non-Compliant Value** | **₹653,944** | Counterfactual violating value prevented from unauthorized dispatch |
+| **False Positive Cost** | **₹0** | No compliant baskets wrongly rejected |
 
 ### Action Receipt
 

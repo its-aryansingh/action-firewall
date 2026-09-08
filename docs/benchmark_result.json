@@ -1,0 +1,235 @@
+{
+  "schema_version": "agent-authorization-benchmark@1",
+  "scope": "Synthetic, deterministic policy-compliance measurement of the merchant authorization layer. Constructed proposals, not sampled live agent behaviour. No claim of production conversion, settlement, or recovered revenue. Rupee figures are face value of synthetic carts.",
+  "corpus": {
+    "seeds": 50,
+    "families": 18,
+    "cases": 900,
+    "goal_fixtures": [
+      "pasta dinner",
+      "breakfast run",
+      "office snacks",
+      "cleaning restock",
+      "bathroom restock",
+      "indian pantry",
+      "fresh produce box",
+      "cheese board",
+      "protein top-up",
+      "desk gadgets"
+    ],
+    "distinct_carts": 106,
+    "compliant_cases": 250,
+    "violating_cases": 650,
+    "k": 5
+  },
+  "headline": {
+    "completion_under_policy": 0.5644,
+    "cup_compliant_only": 1.0,
+    "replay_identity": 1.0,
+    "violation_escape_rate": 0.0,
+    "acceptance_rate_compliant": 1.0,
+    "repair_rate": 0.3969,
+    "false_positive_rate": 0.0
+  },
+  "money_paise": {
+    "proposed": 78669972,
+    "settled_with_layer": 25950400,
+    "recovered_by_repair": 12674900,
+    "false_positive_cost": 0,
+    "counterfactual_settled_without_layer": 78669972,
+    "counterfactual_violating_value_that_would_have_completed": 65394472
+  },
+  "cap_only_baseline": {
+    "what_it_checks": "cart total <= envelope cap, and nothing else",
+    "violations_it_would_authorise": 540,
+    "of_violating_cases": 650,
+    "escape_rate": 0.8308
+  },
+  "holdout": {
+    "dev_seeds": 35,
+    "held_out_seeds": 15,
+    "held_out_violation_escape_rate": 0.0,
+    "held_out_false_positive_rate": 0.0
+  },
+  "risk_by_dimension": {
+    "user_consent_and_action_confirmation": {
+      "cases": 50,
+      "policies_checked": 50,
+      "violations_escaped": 0,
+      "risk_ratio": 0.0,
+      "risk_band": "Low"
+    },
+    "boundary_and_scope_limitation": {
+      "cases": 300,
+      "policies_checked": 200,
+      "violations_escaped": 0,
+      "risk_ratio": 0.0,
+      "risk_band": "Low"
+    },
+    "strict_execution_and_hallucination": {
+      "cases": 300,
+      "policies_checked": 150,
+      "violations_escaped": 0,
+      "risk_ratio": 0.0,
+      "risk_band": "Low"
+    },
+    "hierarchy_adherence": {
+      "cases": 100,
+      "policies_checked": 100,
+      "violations_escaped": 0,
+      "risk_ratio": 0.0,
+      "risk_band": "Low"
+    },
+    "robustness_and_security": {
+      "cases": 100,
+      "policies_checked": 100,
+      "violations_escaped": 0,
+      "risk_ratio": 0.0,
+      "risk_band": "Low"
+    },
+    "error_handling_and_safety_nets": {
+      "cases": 50,
+      "policies_checked": 50,
+      "violations_escaped": 0,
+      "risk_ratio": 0.0,
+      "risk_band": "Low"
+    }
+  },
+  "by_family": {
+    "expired_envelope": {
+      "cases": 50,
+      "completed": 0,
+      "repaired": 0,
+      "refused": 50,
+      "escaped": 0
+    },
+    "price_drift": {
+      "cases": 50,
+      "completed": 33,
+      "repaired": 33,
+      "refused": 17,
+      "escaped": 0
+    },
+    "extra_blocked_item": {
+      "cases": 50,
+      "completed": 0,
+      "repaired": 0,
+      "refused": 50,
+      "escaped": 0
+    },
+    "forbidden_tag": {
+      "cases": 50,
+      "completed": 50,
+      "repaired": 50,
+      "refused": 0,
+      "escaped": 0
+    },
+    "stock_shortfall": {
+      "cases": 50,
+      "completed": 25,
+      "repaired": 25,
+      "refused": 25,
+      "escaped": 0
+    },
+    "near_cap_compliant": {
+      "cases": 50,
+      "completed": 50,
+      "repaired": 0,
+      "refused": 0,
+      "escaped": 0
+    },
+    "lookalike_tag_compliant": {
+      "cases": 50,
+      "completed": 50,
+      "repaired": 0,
+      "refused": 0,
+      "escaped": 0
+    },
+    "normal": {
+      "cases": 50,
+      "completed": 50,
+      "repaired": 0,
+      "refused": 0,
+      "escaped": 0
+    },
+    "stock_loss": {
+      "cases": 50,
+      "completed": 50,
+      "repaired": 0,
+      "refused": 0,
+      "escaped": 0
+    },
+    "exact_stock_compliant": {
+      "cases": 50,
+      "completed": 50,
+      "repaired": 0,
+      "refused": 0,
+      "escaped": 0
+    },
+    "slot_unsatisfiable": {
+      "cases": 50,
+      "completed": 0,
+      "repaired": 0,
+      "refused": 50,
+      "escaped": 0
+    },
+    "duplicate_slot_fill": {
+      "cases": 50,
+      "completed": 50,
+      "repaired": 50,
+      "refused": 0,
+      "escaped": 0
+    },
+    "quantity_mismatch": {
+      "cases": 50,
+      "completed": 50,
+      "repaired": 50,
+      "refused": 0,
+      "escaped": 0
+    },
+    "merchant_drift": {
+      "cases": 50,
+      "completed": 0,
+      "repaired": 0,
+      "refused": 50,
+      "escaped": 0
+    },
+    "fulfillment_drift": {
+      "cases": 50,
+      "completed": 0,
+      "repaired": 0,
+      "refused": 50,
+      "escaped": 0
+    },
+    "catalog_fact_tamper": {
+      "cases": 50,
+      "completed": 50,
+      "repaired": 50,
+      "refused": 0,
+      "escaped": 0
+    },
+    "quote_hash_tamper": {
+      "cases": 50,
+      "completed": 0,
+      "repaired": 0,
+      "refused": 50,
+      "escaped": 0
+    },
+    "substitution_exhausted": {
+      "cases": 50,
+      "completed": 0,
+      "repaired": 0,
+      "refused": 50,
+      "escaped": 0
+    }
+  },
+  "citations": {
+    "cup_and_risk_ratio": "Levy, Wiesel, Marreed et al., ST-WebAgentBench, arXiv:2410.06703, ICLR 2026",
+    "severity_bands": "OURS, not from any paper. ST-WebAgentBench defines the ratio and publishes no bands.",
+    "baseline_and_holdout_practice": "Kapoor, Stroebl et al., arXiv:2407.01502",
+    "prior_deterministic_commerce_benchmark": "AIP-Bench, arXiv:2607.21824",
+    "prior_merchant_side_architecture": "Sfiris, arXiv:2607.18347",
+    "real_agent_failure_rates": "Allouah et al., arXiv:2508.02630",
+    "reporting_checklist": "Agentic Benchmark Checklist, arXiv:2507.02825"
+  }
+}
