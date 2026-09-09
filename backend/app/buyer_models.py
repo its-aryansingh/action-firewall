@@ -212,3 +212,69 @@ class BuyerPlanResponse(BaseModel):
     latency_ms: float
 
 
+class RefundEvaluateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    payment_id: str
+    amount_paise: int
+    reason: str
+    original_amount_paise: int | None = None
+    already_refunded_paise: int = 0
+    order_age_days: int = 3
+    refunded_today_paise: int = 0
+
+
+class RefundEvaluateResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    allowed: bool
+    code: str
+    human_message: str
+    decision: dict[str, Any]
+    proposal: dict[str, Any]
+    repaired_proposal: dict[str, Any] | None = None
+    policy_hash: str
+
+
+class RefundExecuteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    payment_id: str
+    amount_paise: int
+    reason: str
+    attempt_id: str
+    auto_repair: bool = True
+    original_amount_paise: int | None = None
+    already_refunded_paise: int = 0
+    order_age_days: int = 3
+    refunded_today_paise: int = 0
+
+
+class RefundExecuteResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    allowed: bool
+    outcome: str
+    code: str
+    human_message: str
+    refund_id: str | None = None
+    amount_paise: int
+    payment_id: str
+    razorpay_action_called: bool
+    repaired: bool = False
+    decision: dict[str, Any] | None = None
+
+
+class SlippageDepleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sku: str
+
+
+class SlippageSetStockRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sku: str
+    units: int
+
+

@@ -86,6 +86,34 @@ class OutcomeMix:
     violations_refused_count: int = 0
 
 
+def default_configurations() -> dict[str, OutcomeMix]:
+    """Default outcome mixes from the 900-case authorization benchmark."""
+    return {
+        "no_layer": OutcomeMix(
+            authorised_correctly_paise=25_000_000,
+            authorised_correctly_count=250,
+            violations_authorised_paise=65_394_400,
+            violations_authorised_count=650,
+        ),
+        "cap_only_guard": OutcomeMix(
+            authorised_correctly_paise=25_000_000,
+            authorised_correctly_count=250,
+            violations_authorised_paise=54_000_000,
+            violations_authorised_count=540,
+            violations_refused_count=110,
+        ),
+        "action_firewall": OutcomeMix(
+            authorised_correctly_paise=25_000_000,
+            authorised_correctly_count=250,
+            violations_authorised_paise=0,
+            violations_authorised_count=0,
+            violations_refused_count=392,
+            repaired_paise=12_674_900,
+            repaired_count=258,
+        ),
+    }
+
+
 def cost_of(mix: OutcomeMix, a: CostAssumptions | None = None) -> dict[str, int]:
     """Total cost of one configuration, in paise, itemised.
 

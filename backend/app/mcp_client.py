@@ -237,6 +237,27 @@ class SimulatedMCPClient:
                 ]
             }
             return _persist_issued_or_unknown(grant.id, token, result)
+        if name == "refund":
+            refund_id = f"rfnd_{uuid.uuid4().hex[:14]}"
+            result = {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": json.dumps(
+                            {
+                                "id": refund_id,
+                                "payment_id": canonical.args["payment_id"],
+                                "amount": canonical.args["amount"],
+                                "currency": "INR",
+                                "status": "processed",
+                                "speed_processed": canonical.args.get("speed", "normal"),
+                                "receipt": canonical.args.get("receipt", ""),
+                            }
+                        ),
+                    }
+                ]
+            }
+            return _persist_issued_or_unknown(grant.id, token, result)
         store.mark_action_unknown(grant.id, token, "SIMULATOR_ACTION_UNHANDLED")
         raise ActionOutcomeUnknown(grant.id, "Simulated action outcome is unknown.")
 
@@ -349,7 +370,20 @@ class RazorpayRESTClient:
                     },
                     "required": ["amount", "currency", "description"],
                 },
-            }
+            },
+            {
+                "name": "refund",
+                "description": "Issue a refund against a payment via REST API",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "payment_id": {"type": "string"},
+                        "amount": {"type": "integer"},
+                        "currency": {"type": "string"},
+                    },
+                    "required": ["payment_id", "amount", "currency"],
+                },
+            },
         ]
 
     def call_tool(
@@ -363,26 +397,41 @@ class RazorpayRESTClient:
         canonical = _canonical_or_block(name, args, grant_id)
         grant, token = _claim_or_raise(canonical, grant_id, context, cart_hash)
 
-        if name != "create_payment_link":
+        if name == "create_payment_link":
+            payload = {
+                "amount": canonical.args["amount"],
+                "currency": canonical.args.get("currency", "INR"),
+                "description": canonical.args.get("description", "Agent Purchase"),
+                "notes": {
+                    "grant_id": grant.id,
+                    "merchant_id": getattr(context, "merchant_id", "merchant_freshbasket"),
+                    "agent_id": getattr(context, "agent_id", "buyer_agent"),
+                    "session_id": getattr(context, "session_id", ""),
+                },
+            }
+            endpoint_url = f"{self.base_url}/payment_links"
+        elif name == "refund":
+            payment_id = canonical.args["payment_id"]
+            payload = {
+                "amount": canonical.args["amount"],
+                "speed": canonical.args.get("speed", "normal"),
+                "receipt": canonical.args.get("receipt", f"rcpt_{grant.id[:12]}"),
+                "notes": {
+                    "grant_id": grant.id,
+                    "merchant_id": getattr(context, "merchant_id", "merchant_freshbasket"),
+                    "agent_id": getattr(context, "agent_id", "buyer_agent"),
+                    "session_id": getattr(context, "session_id", ""),
+                },
+            }
+            endpoint_url = f"{self.base_url}/payments/{payment_id}/refund"
+        else:
             store.cancel_action_grant(grant_id, "UNSUPPORTED_REST_ACTION")
             raise MandateViolation(f"Action '{name}' is not supported via REST client")
-
-        payload = {
-            "amount": canonical.args["amount"],
-            "currency": canonical.args.get("currency", "INR"),
-            "description": canonical.args.get("description", "Agent Purchase"),
-            "notes": {
-                "grant_id": grant.id,
-                "merchant_id": getattr(context, "merchant_id", "merchant_freshbasket"),
-                "agent_id": getattr(context, "agent_id", "buyer_agent"),
-                "session_id": getattr(context, "session_id", ""),
-            },
-        }
 
         try:
             with httpx.Client(timeout=45.0) as client:
                 resp = client.post(
-                    f"{self.base_url}/payment_links",
+                    endpoint_url,
                     json=payload,
                     auth=(self.key_id, self.key_secret),
                 )
@@ -406,23 +455,43 @@ class RazorpayRESTClient:
                 "Razorpay REST did not return a final result; reconciliation is required.",
             ) from exc
 
-        result = {
-            "content": [
-                {
-                    "type": "text",
-                    "text": json.dumps(
-                        {
-                            "id": data.get("id"),
-                            "amount": data.get("amount"),
-                            "currency": data.get("currency", "INR"),
-                            "status": data.get("status", "created"),
-                            "short_url": data.get("short_url"),
-                            "description": data.get("description"),
-                        }
-                    ),
-                }
-            ]
-        }
+        if name == "refund":
+            result = {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": json.dumps(
+                            {
+                                "id": data.get("id", f"rfnd_{uuid.uuid4().hex[:12]}"),
+                                "payment_id": canonical.args["payment_id"],
+                                "amount": data.get("amount", canonical.args["amount"]),
+                                "currency": data.get("currency", "INR"),
+                                "status": data.get("status", "processed"),
+                                "speed_processed": data.get("speed_processed", "normal"),
+                                "receipt": canonical.args.get("receipt", ""),
+                            }
+                        ),
+                    }
+                ]
+            }
+        else:
+            result = {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": json.dumps(
+                            {
+                                "id": data.get("id"),
+                                "amount": data.get("amount"),
+                                "currency": data.get("currency", "INR"),
+                                "status": data.get("status", "created"),
+                                "short_url": data.get("short_url"),
+                                "description": data.get("description"),
+                            }
+                        ),
+                    }
+                ]
+            }
         return _persist_issued_or_unknown(grant.id, token, result)
 
     def fetch_action_status(self, provider_ref: str) -> dict:

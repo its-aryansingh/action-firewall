@@ -89,6 +89,21 @@ def compute_policy_hash(policy: RefundPolicy) -> str:
     return digest(policy.payload())
 
 
+def get_default_refund_policy(merchant_id: str = "merchant_freshbasket") -> RefundPolicy:
+    """Return default canonical RefundPolicy for merchant."""
+    policy = RefundPolicy(
+        id=f"rpol_{merchant_id}",
+        merchant_id=merchant_id,
+        max_refund_paise=50_000,
+        max_refund_ratio=1.0,
+        window_days=30,
+        daily_cap_paise=200_000,
+        escalate_reasons=["chargeback", "fraud"],
+        version=1,
+    )
+    return policy.model_copy(update={"policy_hash": compute_policy_hash(policy)})
+
+
 class RefundProposal(BaseModel):
     """What an agent is asking to do. Every figure here is server-supplied.
 

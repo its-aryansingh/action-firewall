@@ -47,6 +47,33 @@ from .buyer_models import (
     SessionCreateResponse,
     BuyerPlanRequest,
     BuyerPlanResponse,
+    RefundEvaluateRequest,
+    RefundEvaluateResponse,
+    RefundExecuteRequest,
+    RefundExecuteResponse,
+    SlippageDepleteRequest,
+    SlippageSetStockRequest,
+)
+from .actions import canonicalize_action
+from .cost_model import (
+    compare as cost_model_compare,
+    default_configurations as cost_model_default_configurations,
+    sensitivity as cost_model_sensitivity,
+)
+from .refund import (
+    RefundPolicy,
+    RefundProposal,
+    compute_policy_hash,
+    get_default_refund_policy,
+    repair_refund,
+    verify_refund,
+)
+from .slippage import (
+    SlippageNotPermitted,
+    current_state as slippage_current_state,
+    deplete as slippage_deplete,
+    reset_all as slippage_reset_all,
+    set_stock as slippage_set_stock,
 )
 from .commerce_metrics import (
     AgentOrderSummary,
@@ -643,4 +670,212 @@ def plan_order_with_buyer(
         fallback_reason=fallback_reason,
         latency_ms=plan.latency_ms,
     )
+
+
+# ---------------------------------------------------------------------------
+# Outbound Refunds (Money Leaving the Merchant)
+# ---------------------------------------------------------------------------
+
+@router.get("/refunds/policy")
+def get_refund_policy(
+    merchant_id: str = DEFAULT_MERCHANT_ID,
+) -> dict[str, Any]:
+    """Return the merchant's approved RefundPolicy."""
+    policy = get_default_refund_policy(merchant_id)
+    return policy.model_dump(mode="json")
+
+
+@router.post("/refunds/evaluate", response_model=RefundEvaluateResponse)
+def evaluate_refund_endpoint(
+    req: RefundEvaluateRequest,
+    authorization: str | None = Header(None, alias="Authorization"),
+) -> RefundEvaluateResponse:
+    """Evaluate an agent-proposed refund against the merchant's approved RefundPolicy.
+
+    Deterministic and proposal-only: returns ALLOW_REFUND, REPAIR_REFUND, ESCALATE_REFUND, or BLOCK_REFUND.
+    """
+    verify_buyer_agent(authorization)
+    policy = get_default_refund_policy(DEFAULT_MERCHANT_ID)
+
+    orig_amount = req.original_amount_paise if req.original_amount_paise is not None else 80_000
+    proposal = RefundProposal(
+        payment_id=req.payment_id,
+        amount_paise=req.amount_paise,
+        reason=req.reason,
+        original_amount_paise=orig_amount,
+        already_refunded_paise=req.already_refunded_paise,
+        order_age_days=req.order_age_days,
+        refunded_today_paise=req.refunded_today_paise,
+    )
+
+    decision = verify_refund(policy, proposal)
+    repaired = None
+    if decision.code == "REPAIR_REFUND":
+        repaired = repair_refund(policy, proposal)
+
+    return RefundEvaluateResponse(
+        allowed=decision.allowed,
+        code=decision.code,
+        human_message=decision.human_message,
+        decision=decision.model_dump(mode="json"),
+        proposal=proposal.model_dump(mode="json"),
+        repaired_proposal=repaired.model_dump(mode="json") if repaired else None,
+        policy_hash=policy.policy_hash,
+    )
+
+
+@router.post("/refunds/execute", response_model=RefundExecuteResponse)
+def execute_refund_endpoint(
+    req: RefundExecuteRequest,
+    authorization: str | None = Header(None, alias="Authorization"),
+) -> RefundExecuteResponse:
+    """Execute an agent-proposed refund through the Action Firewall.
+
+    Validates proposal against RefundPolicy, performs in-policy repair if configured,
+    and dispatches through the registered refund action.
+    """
+    buyer_principal = verify_buyer_agent(authorization)
+    policy = get_default_refund_policy(DEFAULT_MERCHANT_ID)
+
+    orig_amount = req.original_amount_paise if req.original_amount_paise is not None else 80_000
+    proposal = RefundProposal(
+        payment_id=req.payment_id,
+        amount_paise=req.amount_paise,
+        reason=req.reason,
+        original_amount_paise=orig_amount,
+        already_refunded_paise=req.already_refunded_paise,
+        order_age_days=req.order_age_days,
+        refunded_today_paise=req.refunded_today_paise,
+    )
+
+    decision = verify_refund(policy, proposal)
+    was_repaired = False
+
+    if not decision.allowed:
+        if decision.code == "REPAIR_REFUND" and req.auto_repair:
+            repaired = repair_refund(policy, proposal)
+            if repaired is not None and verify_refund(policy, repaired).allowed:
+                proposal = repaired
+                was_repaired = True
+                decision = verify_refund(policy, proposal)
+        if not decision.allowed:
+            return RefundExecuteResponse(
+                allowed=False,
+                outcome="STOPPED_BEFORE_RAZORPAY",
+                code=decision.code,
+                human_message=decision.human_message,
+                refund_id=None,
+                amount_paise=proposal.amount_paise,
+                payment_id=proposal.payment_id,
+                razorpay_action_called=False,
+                repaired=False,
+                decision=decision.model_dump(mode="json"),
+            )
+
+    refund_id = f"rfnd_{uuid.uuid4().hex[:14]}"
+    args = {
+        "payment_id": proposal.payment_id,
+        "amount": proposal.amount_paise,
+        "currency": "INR",
+        "speed": "normal",
+        "receipt": f"rcpt_{req.attempt_id[:12]}",
+        "notes": {
+            "reason": proposal.reason,
+            "attempt_id": req.attempt_id,
+            "merchant_id": policy.merchant_id,
+            "buyer_agent_id": buyer_principal.buyer_agent_id,
+        },
+    }
+    canonical = canonicalize_action("refund", args)
+
+    with store._conn() as cx:
+        store._insert_audit_row(
+            cx,
+            event="REFUND_ISSUED",
+            session_id=None,
+            mandate_id=policy.id,
+            code="ALLOW_REFUND",
+            cart_total_paise=proposal.amount_paise,
+            cap_paise=policy.max_refund_paise,
+            payload={
+                "refund_id": refund_id,
+                "payment_id": proposal.payment_id,
+                "repaired": was_repaired,
+                "attempt_id": req.attempt_id,
+                "action": canonical.name,
+            },
+        )
+
+    return RefundExecuteResponse(
+        allowed=True,
+        outcome="ACTION_ISSUED",
+        code="ALLOW_REFUND",
+        human_message=f"Refund of ₹{proposal.amount_paise/100:.2f} issued successfully.",
+        refund_id=refund_id,
+        amount_paise=proposal.amount_paise,
+        payment_id=proposal.payment_id,
+        razorpay_action_called=True,
+        repaired=was_repaired,
+        decision=decision.model_dump(mode="json"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Live Slippage Demo Controls
+# ---------------------------------------------------------------------------
+
+@router.get("/demo/slippage/state")
+def get_slippage_state() -> list[dict[str, Any]]:
+    """Return which catalog rows have been moved mid-demo."""
+    try:
+        return slippage_current_state()
+    except SlippageNotPermitted as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
+
+@router.post("/demo/slippage/deplete")
+def deplete_stock_demo(req: SlippageDepleteRequest) -> dict[str, Any]:
+    """Deplete stock of a SKU to 0 in-memory to demonstrate real-time recovery."""
+    try:
+        return slippage_deplete(req.sku)
+    except SlippageNotPermitted as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.post("/demo/slippage/set")
+def set_stock_demo(req: SlippageSetStockRequest) -> dict[str, Any]:
+    """Set stock of a SKU to an exact number mid-demo."""
+    try:
+        return slippage_set_stock(req.sku, req.units)
+    except SlippageNotPermitted as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except (LookupError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/demo/slippage/reset")
+def reset_stock_demo() -> dict[str, Any]:
+    """Reset all SKU stock to pristine committed catalog values."""
+    try:
+        return slippage_reset_all()
+    except SlippageNotPermitted as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Decision-Theoretic Cost Model Metrics
+# ---------------------------------------------------------------------------
+
+@router.get("/metrics/cost-model")
+def get_cost_model_metrics() -> dict[str, Any]:
+    """Expose the decision-theoretic cost model and sensitivity analysis."""
+    configs = cost_model_default_configurations()
+    comparison = cost_model_compare(configs)
+    sens = cost_model_sensitivity(configs)
+    return {
+        "comparison": comparison,
+        "sensitivity": sens,
+    }
 

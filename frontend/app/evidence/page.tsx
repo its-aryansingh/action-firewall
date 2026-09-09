@@ -199,6 +199,77 @@ export default function EvidencePage() {
         </div>
       </Card>
 
+      {/* Cost Model & Concurrency Comparison (§Viveka & Apex Steals) */}
+      <Card
+        title="Decision-Theoretic Cost Model & Concurrency Protection"
+        subtitle="Rupee-priced outcomes over 900 agent proposals and 16-thread race conditions"
+        badge={
+          <span className="font-mono text-xs text-success font-semibold">
+            Ordering Robust: 100% Parameter Sweeps
+          </span>
+        }
+      >
+        <div className="grid gap-6 lg:grid-cols-2">
+          {/* Cost Model */}
+          <div className="space-y-3 rounded-xl border border-border bg-canvas/40 p-4">
+            <h4 className="text-sm font-semibold text-text">Modelled Merchant Cost by Architecture</h4>
+            <p className="text-xs text-muted">
+              Based on empirical outcome mix from 900 cases (remediation ₹300, 60% refusal loss, relationship ₹1,000):
+            </p>
+            <div className="space-y-2 text-xs font-mono">
+              <div className="flex justify-between items-center p-2 rounded-lg bg-danger/10 border border-danger/20">
+                <span className="text-danger font-semibold">No Safety Layer:</span>
+                <span className="text-danger font-bold">₹14,98,945 cost</span>
+              </div>
+              <div className="flex justify-between items-center p-2 rounded-lg bg-warning/10 border border-warning/20">
+                <span className="text-warning font-semibold">Spend-Cap Only (540 breaches):</span>
+                <span className="text-warning font-bold">₹9,64,060 cost</span>
+              </div>
+              <div className="flex justify-between items-center p-2 rounded-lg bg-success/10 border border-success/30">
+                <span className="text-success font-semibold">Action Firewall (Ours):</span>
+                <span className="text-success font-bold">-₹1,21,589 (Net Positive)</span>
+              </div>
+            </div>
+            <p className="text-[11px] text-muted italic">
+              *Action Firewall is the only configuration with a negative cost — repaired revenue (₹1,26,749) exceeds enforcement friction.
+            </p>
+          </div>
+
+          {/* Concurrency Under Contention */}
+          <div className="space-y-3 rounded-xl border border-border bg-canvas/40 p-4">
+            <h4 className="text-sm font-semibold text-text">Concurrency Benchmark (16 Threads Arrive at Once)</h4>
+            <p className="text-xs text-muted">
+              20 trials × 16 threads attempting ₹200 orders simultaneously under a ₹1,000 cap (only 5 fit):
+            </p>
+            <div className="space-y-2 text-xs font-mono">
+              <div className="flex justify-between items-center p-2 rounded-lg bg-danger/10 border border-danger/20">
+                <div>
+                  <div className="text-danger font-semibold">Read-Compare-Write:</div>
+                  <div className="text-[11px] text-muted">Field standard pattern</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-danger font-bold">20/20 breached (100%)</div>
+                  <div className="text-[11px] text-danger">Mean overspend: ₹2,190</div>
+                </div>
+              </div>
+              <div className="flex justify-between items-center p-2 rounded-lg bg-success/10 border border-success/30">
+                <div>
+                  <div className="text-success font-semibold">Authorize-and-Reserve (Ours):</div>
+                  <div className="text-[11px] text-muted">Atomic CAS & reservation</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-success font-bold">0/20 breached (0%)</div>
+                  <div className="text-[11px] text-success">Overspend: ₹0.00</div>
+                </div>
+              </div>
+            </div>
+            <p className="text-[11px] text-muted italic">
+              *Zero double-spends or duplicate refunds. Verified by benchmark_concurrency.py.
+            </p>
+          </div>
+        </div>
+      </Card>
+
       {/* Razorpay Alignment Panel */}
       <Card
         title="Razorpay Architectural Alignment"

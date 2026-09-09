@@ -582,7 +582,131 @@ export const api = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(req),
       }).then(j<{ plan: any; model_used: string; latency_ms: number; raw_plan_untrusted: boolean }>),
+
+    getRefundPolicy: () =>
+      fetch(`${API}/agent-commerce/v1/refunds/policy`, { cache: "no-store" }).then(j<RefundPolicy>),
+
+    evaluateRefund: (req: {
+      payment_id: string;
+      amount_paise: number;
+      reason: string;
+      original_amount_paise?: number;
+      already_refunded_paise?: number;
+      order_age_days?: number;
+    }) =>
+      fetch(`${API}/agent-commerce/v1/refunds/evaluate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req),
+      }).then(j<RefundEvaluateResponse>),
+
+    executeRefund: (req: {
+      payment_id: string;
+      amount_paise: number;
+      reason: string;
+      attempt_id: string;
+      auto_repair?: boolean;
+      original_amount_paise?: number;
+      already_refunded_paise?: number;
+    }) =>
+      fetch(`${API}/agent-commerce/v1/refunds/execute`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req),
+      }).then(j<RefundExecuteResponse>),
+
+    getSlippageState: () =>
+      fetch(`${API}/agent-commerce/v1/demo/slippage/state`, { cache: "no-store" }).then(j<SlippageItem[]>),
+
+    depleteStock: (sku: string) =>
+      fetch(`${API}/agent-commerce/v1/demo/slippage/deplete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sku }),
+      }).then(j<any>),
+
+    resetStock: () =>
+      fetch(`${API}/agent-commerce/v1/demo/slippage/reset`, {
+        method: "POST",
+      }).then(j<any>),
+
+    costModel: () =>
+      fetch(`${API}/agent-commerce/v1/metrics/cost-model`, { cache: "no-store" }).then(j<CostModelResponse>),
   },
+};
+
+export type RefundPolicy = {
+  id: string;
+  merchant_id: string;
+  max_refund_paise: number;
+  max_refund_ratio: number;
+  window_days: number;
+  daily_cap_paise: number;
+  escalate_reasons: string[];
+  version: number;
+  policy_hash: string;
+};
+
+export type RefundProposal = {
+  payment_id: string;
+  amount_paise: number;
+  reason: string;
+  original_amount_paise: number;
+  already_refunded_paise: number;
+  order_age_days: number;
+  refunded_today_paise: number;
+};
+
+export type RefundEvaluateResponse = {
+  allowed: boolean;
+  code: string;
+  human_message: string;
+  decision: any;
+  proposal: RefundProposal;
+  repaired_proposal: RefundProposal | null;
+  policy_hash: string;
+};
+
+export type RefundExecuteResponse = {
+  allowed: boolean;
+  outcome: string;
+  code: string;
+  human_message: string;
+  refund_id: string | null;
+  amount_paise: number;
+  payment_id: string;
+  razorpay_action_called: boolean;
+  repaired: boolean;
+  decision?: any;
+};
+
+export type SlippageItem = {
+  sku: string;
+  name: string;
+  committed_stock: number;
+  live_stock: number;
+};
+
+export type CostModelResponse = {
+  comparison: {
+    assumptions: Record<string, any>;
+    configurations: Record<string, {
+      violations_authorised_paise: number;
+      legitimate_refused_paise: number;
+      revenue_kept_by_repair_paise: number;
+      total_paise: number;
+    }>;
+    lowest_cost: string;
+    highest_cost: string;
+    difference_paise: number;
+    caveat: string;
+  };
+  sensitivity: {
+    baseline_winner: string;
+    ordering_is_robust: boolean;
+    assumptions_that_change_the_answer: string[];
+    per_assumption: Record<string, any>;
+  };
 };
 
 export const inr = (paise: number) =>
