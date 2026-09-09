@@ -30,6 +30,7 @@ from .models import (
     PolicyDelta,
     PurchaseEnvelope,
     QuoteSubstitution,
+    UNBOUND_FULFILLMENT_PROFILE_ID,
 )
 
 ENVELOPE_AGENT_ID = "agent_safe_autopilot"
@@ -92,9 +93,14 @@ def compute_quote_hash(quote: MerchantQuote) -> str:
 FIXTURE_PATH = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "llm_envelope_drafts.json"
 
 
+MIN_ENVELOPE_SLOTS = 1
+MAX_ENVELOPE_SLOTS = 4
+MAX_SLOT_QUANTITY = 20
+
+
 def validate_slots(slots: list[EnvelopeSlot] | None) -> list[EnvelopeSlot] | None:
     """Strictly validate slots from any drafter before creating an envelope draft."""
-    if not slots or not (1 <= len(slots) <= 4):
+    if not slots or not (MIN_ENVELOPE_SLOTS <= len(slots) <= MAX_ENVELOPE_SLOTS):
         return None
     vocabulary = {
         tag.lower()
@@ -103,7 +109,7 @@ def validate_slots(slots: list[EnvelopeSlot] | None) -> list[EnvelopeSlot] | Non
     }
     validated: list[EnvelopeSlot] = []
     for slot in slots:
-        if not (1 <= slot.quantity <= 100):
+        if not (1 <= slot.quantity <= MAX_SLOT_QUANTITY):
             return None
         if not slot.required_tags:
             return None
@@ -364,7 +370,7 @@ def build_quote(
             else envelope.merchant_id
         ),
         fulfillment_profile_id=(
-            "unknown_address"
+            UNBOUND_FULFILLMENT_PROFILE_ID
             if scenario is AutopilotScenario.FULFILLMENT_DRIFT
             else envelope.fulfillment_profile_id
         ),

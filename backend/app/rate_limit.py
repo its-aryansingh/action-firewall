@@ -52,7 +52,7 @@ def get_limiter() -> SlidingWindowRateLimiter:
 
 
 def enforce_rate_limit(
-    buyer_agent_id: str,
+    buyer: str | Any,
     shopper_session_id: str,
     max_buyer_requests: int = 60,
     max_session_requests: int = 30,
@@ -60,17 +60,18 @@ def enforce_rate_limit(
 ) -> None:
     """Enforce rate limits per buyer agent and per shopper session."""
     limiter = get_limiter()
+    buyer_id = buyer.buyer_agent_id if hasattr(buyer, "buyer_agent_id") else str(buyer)
 
     # 1. Check buyer limit
     allowed, retry_after = limiter.check_and_record(
-        f"buyer:{buyer_agent_id}",
+        f"buyer:{buyer_id}",
         max_requests=max_buyer_requests,
         window_seconds=window_seconds,
     )
     if not allowed:
         raise HTTPException(
             status_code=429,
-            detail=f"Buyer rate limit exceeded for '{buyer_agent_id}'. Retry in {int(retry_after)} seconds.",
+            detail=f"Buyer rate limit exceeded for '{buyer_id}'. Retry in {int(retry_after)} seconds.",
             headers={"Retry-After": str(int(retry_after))},
         )
 

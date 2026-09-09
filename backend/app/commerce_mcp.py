@@ -30,6 +30,10 @@ from . import mcp_client
 from . import store
 from .approval_tokens import mint_approval_token
 from .authorization import canonical_json
+from fastapi import HTTPException
+
+from .buyer_auth import AgentPrincipal, ShopperPrincipal, verify_buyer_agent
+from .commerce_service import CheckoutPrincipals, execute_checkout
 from .envelope import compute_quote_hash
 from .buyer_models import (
     CommerceAttemptRequest,
@@ -50,6 +54,86 @@ from .models import (
     EnvelopeDraftRequest,
     MerchantQuote,
 )
+
+def _quote_owner() -> str:
+    """The buyer identity this call presents, for rows keyed by owner.
+
+    Falls back to MCP_BUYER_AGENT_ID only when no principal can be resolved at
+    all, so a quote is always attributable to someone.
+    """
+    principals, _refusal = _resolve_mcp_principals()
+    if principals is None:
+        return MCP_BUYER_AGENT_ID
+    return principals.buyer.buyer_agent_id
+
+
+def _bearer_from_request_context() -> str | None:
+    """The Authorization header of the live MCP request, if there is one.
+
+    FastMCP's RequestContext carries the underlying Starlette request on the
+    Streamable HTTP transport, so the same header the HTTP surface reads is
+    reachable here. Outside a request — a direct call from a test, or a stdio
+    transport with no HTTP layer — `get_context()` raises, and that is not an
+    error: it means no credential was presented, which is exactly what gets
+    passed to verify_buyer_agent to decide.
+    """
+    try:
+        request = mcp_server.get_context().request_context.request
+    except Exception:  # noqa: BLE001 — absence of a request is a normal state here
+        return None
+    headers = getattr(request, "headers", None)
+    if headers is None:
+        return None
+    return headers.get("authorization") or headers.get("Authorization")
+
+
+def _resolve_mcp_principals() -> tuple[CheckoutPrincipals | None, dict[str, Any] | None]:
+    """Resolve who is calling, or say why we will not proceed.
+
+    This exists because the MCP surface is the one we ADVERTISE to AI buyers, and
+    until now it built its own principal from constants:
+
+        AgentPrincipal(buyer_agent_id=MCP_BUYER_AGENT_ID, ...)
+
+    `AgentPrincipal.authenticated` defaults to True, so that object asserted an
+    authentication that had never happened. The guard sequence downstream then
+    trusted it. Identity asserted rather than verified is the same hole the
+    field's weakest entries have; routing through verify_buyer_agent — the exact
+    function the HTTP twin uses — is what closes it.
+
+    verify_buyer_agent already encodes the three cases correctly: a valid key
+    yields an authenticated principal, an invalid or revoked key raises, and no
+    key in demo mode yields a principal explicitly marked authenticated=False
+    rather than a fabricated one.
+
+    Returns (principals, None) or (None, refusal_dict). MCP tools answer; they do
+    not throw, so a rejected credential comes back as a structured refusal.
+    """
+    try:
+        buyer = verify_buyer_agent(_bearer_from_request_context())
+    except HTTPException as exc:
+        return None, {
+            "allowed": False,
+            "outcome": "STOPPED_BEFORE_RAZORPAY",
+            "code": "UNAUTHENTICATED_BUYER_AGENT",
+            "human_message": str(exc.detail),
+            "payment_link": None,
+            "razorpay_action_called": False,
+        }
+
+    return (
+        CheckoutPrincipals(
+            buyer=buyer,
+            shopper=ShopperPrincipal(
+                user_id="user_mcp",
+                shopper_session_id=MCP_QUOTE_SESSION_ID,
+                authenticated=buyer.authenticated,
+            ),
+            transport="mcp",
+        ),
+        None,
+    )
+
 
 #: Identity this MCP transport presents to the shared commerce layer.
 #: These are constants, not inline literals, for one reason: request_quote WRITES
@@ -224,7 +308,10 @@ def request_quote(
     store.save_commerce_quote(
         quote_id=quote_id,
         merchant_id=DEFAULT_MERCHANT_ID,
-        buyer_agent_id=MCP_BUYER_AGENT_ID,
+        # Resolved, not constant. request_checkout reads this row back to decide
+        # ownership, so the writer and the reader must derive identity the same
+        # way — otherwise a caller mints a quote it cannot then spend.
+        buyer_agent_id=_quote_owner(),
         shopper_session_id=MCP_QUOTE_SESSION_ID,
         catalog_revision=CATALOG_REVISION,
         canonical_cart_json=canonical_cart_json,
@@ -266,183 +353,24 @@ def request_checkout(
     Fails closed if the envelope has not been explicitly activated by customer.
     Re-verifies quote and atomic headroom reservation before single CAS dispatch.
     """
-    envelope = store.get_envelope(intent_id)
-    if not envelope:
-        return {"allowed": False, "error": "Unknown Purchase Envelope"}
-
-    # Fails closed if not activated
-    if envelope.status.value != "active":
-        return {
-            "allowed": False,
-            "outcome": "STOPPED_BEFORE_RAZORPAY",
-            "code": "AWAITING_CUSTOMER_APPROVAL",
-            "human_message": "Purchase Envelope is in draft status. Customer approval via approval_url required before checkout.",
-            "payment_link": None,
-            "razorpay_action_called": False,
-        }
-
-    # 1. Reload quote row BY ID
-    persisted_quote = store.get_commerce_quote(quote_id)
-    if not persisted_quote:
-        return {
-            "allowed": False,
-            "outcome": "STOPPED_BEFORE_RAZORPAY",
-            "code": "QUOTE_NOT_FOUND",
-            "error": f"Quote {quote_id} not found",
-            "payment_link": None,
-            "razorpay_action_called": False,
-        }
-
-    # 2. Ownership check: quote owned by another buyer is rejected (returns not-found, not forbidden)
-    expected_buyer_id = MCP_BUYER_AGENT_ID
-    if persisted_quote["buyer_agent_id"] != expected_buyer_id:
-        return {
-            "allowed": False,
-            "outcome": "STOPPED_BEFORE_RAZORPAY",
-            "code": "QUOTE_NOT_FOUND",
-            "error": f"Quote {quote_id} not found",
-            "payment_link": None,
-            "razorpay_action_called": False,
-        }
-
-    # 3. Expiry check: expired quote is rejected
-    if time.time() > persisted_quote["valid_until"]:
-        return {
-            "allowed": False,
-            "outcome": "STOPPED_BEFORE_RAZORPAY",
-            "code": "QUOTE_EXPIRED",
-            "error": "Quote has expired. Fresh quote required.",
-            "payment_link": None,
-            "razorpay_action_called": False,
-        }
-
-    # 4. Catalog revision check: changed catalog_revision returns REQUOTE_REQUIRED
-    if persisted_quote["catalog_revision"] != CATALOG_REVISION:
-        return {
-            "allowed": False,
-            "outcome": "STOPPED_BEFORE_RAZORPAY",
-            "code": "REQUOTE_REQUIRED",
-            "error": "Catalog revision has changed since quote was generated. REQUOTE_REQUIRED.",
-            "payment_link": None,
-            "razorpay_action_called": False,
-        }
-
-    # 5. Check if same quote was already checked out
-    if persisted_quote.get("checked_out_at") is not None:
-        return {
-            "allowed": False,
-            "outcome": "STOPPED_BEFORE_RAZORPAY",
-            "code": "QUOTE_ALREADY_CHECKED_OUT",
-            "error": "Quote has already been checked out. Replay blocked.",
-            "payment_link": None,
-            "razorpay_action_called": False,
-        }
-
-    # Authoritative money value from the persisted quote row (caller-supplied values are ignored)
-    authoritative_amount_paise = persisted_quote["total_paise"]
-
-    persisted_cart = (
-        Cart.model_validate_json(persisted_quote["cart_json"])
-        if persisted_quote.get("cart_json")
-        else None
+    principals, refusal = _resolve_mcp_principals()
+    if refusal is not None:
+        return refusal
+    result = execute_checkout(
+        principals=principals,
+        envelope_id=intent_id,
+        attempt_id=attempt_id,
+        quote_id=quote_id,
     )
+    return result.to_mcp_dict()
 
-    # Evaluate merchant channel policy using authoritative quote amount and cart
-    channel_dec = evaluate_channel_policy(
-        merchant_id=envelope.merchant_id,
-        cart=persisted_cart,
-        amount_paise=authoritative_amount_paise,
-        action_name="create_payment_link",
-    )
-    if not channel_dec.allowed:
-        return {
-            "allowed": False,
-            "outcome": "STOPPED_BEFORE_RAZORPAY",
-            "code": channel_dec.code,
-            "human_message": channel_dec.reason,
-            "payment_link": None,
-            "razorpay_action_called": False,
-        }
-
-    # Atomic CAS marking quote checked out
-    if not store.mark_commerce_quote_checked_out(quote_id, attempt_id):
-        return {
-            "allowed": False,
-            "outcome": "STOPPED_BEFORE_RAZORPAY",
-            "code": "QUOTE_ALREADY_CHECKED_OUT",
-            "error": "Quote was concurrently checked out. Replay blocked.",
-            "payment_link": None,
-            "razorpay_action_called": False,
-        }
-
-    scen = demo_scenario.get_active_scenario()
-    exec_req = AutopilotExecuteRequest(
-        envelope_id=envelope.id,
-        expected_envelope_version=envelope.version,
-        expected_envelope_hash=envelope.envelope_hash,
-        session_id=f"sess_mcp_{uuid.uuid4().hex[:8]}",
-        purchase_attempt_id=attempt_id,
-        scenario=scen,
-    )
-
-    res = autopilot.execute(exec_req)
-    if res.action_status == "action_issued":
-        outcome = "RECOVERED_INSIDE_ENVELOPE" if res.recovery_applied else "ACTION_ISSUED"
-    elif res.action_status == "unknown":
-        outcome = "UNKNOWN"
-    elif not res.envelope_decision.allowed:
-        outcome = "POLICY_DELTA_REQUIRED" if res.envelope_decision.deltas else "STOPPED_BEFORE_RAZORPAY"
-    else:
-        # Reachable and previously fatal. autopilot.execute can return allowed=True
-        # with action_status in {AUTHORIZED, DISPATCHING, SETTLED, DEFINITIVE_FAILURE,
-        # CANCELLED, None} — for example the ActionInProgress path, where a second
-        # concurrent MCP checkout observes DISPATCHING. Without this branch `outcome`
-        # was never bound and the tool raised UnboundLocalError instead of answering.
-        # The HTTP surface has always had this fallback; the MCP surface did not.
-        outcome = "READY_FOR_CHECKOUT"
-    order_status = (
-        "issued" if res.action_status == "action_issued"
-        else "unknown" if res.action_status == "unknown"
-        else "blocked"
-    )
-    record_agent_order(
-        purchase_attempt_id=attempt_id,
-        merchant_id=envelope.merchant_id,
-        buyer_agent_id=MCP_BUYER_AGENT_ID,
-        shopper_session_id=exec_req.session_id,
-        status=order_status,
-        outcome=outcome,
-        amount_paise=res.envelope_decision.quote_total_paise,
-        envelope_id=envelope.id,
-        recovery_applied=res.recovery_applied,
-        payment_link=res.payment_link,
-        grant_id=res.grant_id,
-        receipt_id=res.receipt.grant_id if res.receipt else None,
-        code=res.envelope_decision.code,
-    )
-
-    return {
-        "attempt_id": attempt_id,
-        "intent_id": intent_id,
-        "envelope_id": intent_id,
-        "allowed": res.envelope_decision.allowed,
-        "outcome": outcome,
-        "code": res.envelope_decision.code,
-        "human_message": res.envelope_decision.human_message,
-        "payment_link": res.payment_link,
-        "grant_id": res.grant_id,
-        "receipt_id": res.receipt.grant_id if res.receipt else None,
-        "recovery_applied": res.recovery_applied,
-        "provider_mode": res.provider_mode,
-        "razorpay_action_called": bool(res.payment_link or res.action_status in ("action_issued", "unknown")),
-    }
 
 
 @mcp_server.tool()
 def get_checkout_status(attempt_id: str) -> dict[str, Any]:
     """Query telemetry status of a purchase attempt. Polling never re-dispatches."""
     merchant_id = DEFAULT_MERCHANT_ID
-    buyer_agent_id = MCP_BUYER_AGENT_ID
+    buyer_agent_id = _quote_owner()
     data = store.get_agent_order(
         attempt_id=attempt_id,
         merchant_id=merchant_id,

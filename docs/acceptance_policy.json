@@ -1,0 +1,67 @@
+{
+  "schema": "action-firewall/acceptance-policy@1",
+  "merchant_id": "merchant_freshbasket",
+  "display_name": "FreshBasket for Business",
+  "currency": "INR",
+  "amounts_are_in": "integer paise",
+  "catalog_revision": "cat_71b438a130358058",
+  "will_accept": {
+    "categories": [
+      "bakery",
+      "beverages",
+      "dairy",
+      "household",
+      "pantry",
+      "personal_care",
+      "produce",
+      "snacks"
+    ],
+    "actions": [
+      "create_payment_link",
+      "refund"
+    ],
+    "max_order_paise": 1000000
+  },
+  "will_refuse": {
+    "categories": [
+      "alcohol",
+      "electronics",
+      "gift_cards",
+      "lottery",
+      "tobacco"
+    ],
+    "ingredient_tags": [
+      "eggs",
+      "gelatin",
+      "meat"
+    ],
+    "any_action_not_listed_in": "will_accept.actions",
+    "orders_above_paise": 1000000
+  },
+  "requires": {
+    "human_activation": "A Purchase Envelope must be explicitly activated by the customer before any proposal against it can be authorised. No API call can perform that activation.",
+    "server_priced_quote": "Prices, totals and availability are computed server-side from the catalog revision above. Client-supplied prices are discarded, and a proposal whose line facts disagree with the catalog is refused.",
+    "single_use_authorization": "An authorization is bound to one cart, one amount and one purchase attempt. It cannot be replayed against a different proposal.",
+    "stock_at_dispatch": "Availability is re-read when the order is authorised, not when it was quoted. A quote priced when four units were on the shelf will not dispatch once one remains."
+  },
+  "on_refusal": {
+    "returns": "a list of Policy Deltas, each naming one field, its expected value, the observed value, and a recovery",
+    "recoveries": {
+      "repair": "The intent is acceptable and the arguments are not. A corrected proposal derived from the deltas may be resubmitted without a new human approval.",
+      "fresh_approval": "Outside what the customer authorised. A human must widen the envelope before any equivalent proposal can succeed. Do not retry unchanged.",
+      "stop": "No correction of this proposal can be authorised. Do not retry, with or without changes to the arguments."
+    }
+  },
+  "not_covered_by_this_document": "Publication prevents mistakes, not attacks. Proposals that forge catalog facts or a quote digest are refused by verification at authorization time regardless of anything stated here, and reading this document confers no additional trust.",
+  "registered_actions": {
+    "create_payment_link": {
+      "version": "create_payment_link@2",
+      "schema_hash": "0da0d3b8ad4edc04f2e5cc779d6a87fd5d8007e9092f7feb201f2662bbb09cb9"
+    },
+    "refund": {
+      "version": "refund@1",
+      "schema_hash": "a3d439bc9cd8a2345a007a12b71253dd6b3144b2c28edf8b9a7d946c12f419bb"
+    }
+  },
+  "policy_hash": "0abf994761914b3e62b266b142def6d731a8a73a3da1d02f2c44fa36861d8901"
+}

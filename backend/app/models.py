@@ -12,7 +12,14 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt, computed_field, mo
 #: a fulfillment_profile_id delta between the envelope and the quote, which the
 #: verifier reads as a cart mismatch and blocks a legitimate order.
 DEFAULT_FULFILLMENT_PROFILE_ID = "dest_demo"
+#: Sentinel indicating an unbound or deliberately unapproved fulfilment profile.
+#: Used by fault injection scenarios and unrouted intent drafts; never a valid delivery destination.
+UNBOUND_FULFILLMENT_PROFILE_ID = "unknown_address"
 
+
+# =============================================================================
+# GENERATION 1: SPEND POLICY & EXACT-CART CONFIRMATION BASELINE
+# =============================================================================
 
 class Window(str, Enum):
     PER_TXN = "per_transaction"
@@ -102,7 +109,16 @@ class DecisionCode(str, Enum):
     BLOCK_CART_CHANGED = "BLOCK_CART_CHANGED"
     BLOCK_INVALID_ACTION = "BLOCK_INVALID_ACTION"
     BLOCK_USER_CEILING_EXCEEDED = "BLOCK_USER_CEILING_EXCEEDED"
+    # Channel policy codes
+    BLOCK_CHANNEL_CATEGORY_RESTRICTED = "BLOCK_CHANNEL_CATEGORY_RESTRICTED"
+    BLOCK_CHANNEL_ORDER_CAP_EXCEEDED = "BLOCK_CHANNEL_ORDER_CAP_EXCEEDED"
+    BLOCK_UNAUTHORIZED_RAIL_ACTION = "BLOCK_UNAUTHORIZED_RAIL_ACTION"
+    BLOCK_MERCHANT_AI_CHANNEL_DISABLED = "BLOCK_MERCHANT_AI_CHANNEL_DISABLED"
 
+
+# =============================================================================
+# GENERATION 2: PURCHASE ENVELOPE & SAFE AUTOPILOT
+# =============================================================================
 
 class EnvelopeStatus(str, Enum):
     DRAFT = "draft"
@@ -145,7 +161,10 @@ class PurchaseEnvelope(BaseModel):
     #: approved is the rule that is enforced at dispatch.
     blocked_tags: list[str] = Field(default_factory=list)
     max_purchases: Literal[1] = 1
-    action_name: Literal["create_payment_link"] = "create_payment_link"
+    # Widened from a single literal when the registry gained its second action.
+    # The envelope still binds exactly ONE action — that invariant is unchanged —
+    # but which one is now a choice the policy records rather than a constant.
+    action_name: Literal["create_payment_link", "refund"] = "create_payment_link"
     status: EnvelopeStatus
     version: int = Field(..., ge=1)
     envelope_hash: str

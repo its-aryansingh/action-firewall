@@ -1,0 +1,76 @@
+{
+  "schema_version": "ablation@1",
+  "scope": "One rule neutralised at a time on the same corpus, by changing the envelope rather than the verifier. Each row except the last is a configuration a merchant could actually choose.",
+  "rows": [
+    {
+      "ablation": "full_layer",
+      "description": "every rule active \u2014 the shipped configuration",
+      "violations_checked": 800,
+      "violations_authorised": 0,
+      "escape_rate": 0.0,
+      "legitimate_orders_refused": 0,
+      "legitimate_checked": 250
+    },
+    {
+      "ablation": "no_ingredient_tag_rule",
+      "description": "merchant sets no blocked_tags",
+      "violations_checked": 800,
+      "violations_authorised": 50,
+      "escape_rate": 0.0625,
+      "legitimate_orders_refused": 0,
+      "legitimate_checked": 250
+    },
+    {
+      "ablation": "no_category_rule",
+      "description": "merchant sets no blocked_categories",
+      "violations_checked": 800,
+      "violations_authorised": 50,
+      "escape_rate": 0.0625,
+      "legitimate_orders_refused": 0,
+      "legitimate_checked": 250
+    },
+    {
+      "ablation": "no_spend_cap",
+      "description": "cap raised beyond any cart in the corpus",
+      "violations_checked": 800,
+      "violations_authorised": 50,
+      "escape_rate": 0.0625,
+      "legitimate_orders_refused": 0,
+      "legitimate_checked": 250
+    },
+    {
+      "ablation": "no_expiry",
+      "description": "envelope never expires",
+      "violations_checked": 800,
+      "violations_authorised": 50,
+      "escape_rate": 0.0625,
+      "legitimate_orders_refused": 0,
+      "legitimate_checked": 250
+    },
+    {
+      "ablation": "no_slot_requirements",
+      "description": "slots accept almost anything",
+      "violations_checked": 800,
+      "violations_authorised": 190,
+      "escape_rate": 0.2375,
+      "legitimate_orders_refused": 0,
+      "legitimate_checked": 250
+    },
+    {
+      "ablation": "no_stock_check",
+      "description": "every shelf refilled, so availability never binds",
+      "violations_checked": 800,
+      "violations_authorised": 100,
+      "escape_rate": 0.125
+    },
+    {
+      "ablation": "envelope_widened_and_rehashed",
+      "description": "ATTACK, not a setting: every rule removed and the digest recomputed",
+      "violations_checked": 800,
+      "violations_authorised": 200,
+      "escape_rate": 0.25
+    }
+  ],
+  "rules_that_never_changed_an_outcome": [],
+  "every_rule_is_load_bearing": true
+}

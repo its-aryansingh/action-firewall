@@ -1628,10 +1628,13 @@ def authorize_and_reserve(request: AuthorizationRequest) -> AuthorizationOutcome
             action_name=request.action_name,
         )
         if not channel_dec.allowed:
+            specific_code = getattr(
+                DecisionCode, channel_dec.code, DecisionCode.BLOCK_INVALID_ACTION
+            )
             decision = _action_denial(
                 mandate,
                 request,
-                DecisionCode.BLOCK_INVALID_ACTION,
+                specific_code,
                 channel_dec.reason,
             )
             _insert_audit_row(

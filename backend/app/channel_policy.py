@@ -45,7 +45,9 @@ DEFAULT_CHANNEL_POLICY = {
         "lottery",
     ],
     "max_order_paise": 1_000_000,  # ₹10,000.00
-    "allowed_actions": ["create_payment_link"],
+    # Inbound and outbound. Still a CLOSED registry — anything not named here is
+    # refused at the actuator boundary, which is the invariant that matters.
+    "allowed_actions": ["create_payment_link", "refund"],
 }
 
 

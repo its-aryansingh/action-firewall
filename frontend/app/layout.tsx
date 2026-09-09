@@ -5,7 +5,7 @@ import { MerchantShell } from "@/components/layout/MerchantShell";
 export const metadata: Metadata = {
   title: "Action Firewall — AI Commerce Permissions for Razorpay Merchants",
   description:
-    "Razorpay MCP makes payment operations callable. Action Firewall makes one checkout customer-authorizable.",
+    "Your store can't say yes to an AI buyer yet. Action Firewall is the layer that lets it — completing valid checkouts under catalog drift and stopping unapproved drift before Razorpay is called.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -1,0 +1,26 @@
+# One-click deploy. `render.yaml` at the repo root is what Render reads.
+#
+# No secrets here. The demo runs against the simulated provider, so there is
+# nothing to leak and a judge can reach it without any account of ours being
+# involved.
+services:
+  - type: web
+    name: action-firewall
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: DEMO_MODE
+        value: "true"
+      - key: PAYMENT_PROVIDER
+        value: simulated
+      - key: FAULT_INJECTION_ENABLED
+        value: "true"
+      - key: ENVELOPE_DRAFTING_MODE
+        value: replay
+      - key: CATALOG_RETRIEVAL_MODE
+        value: keyword
+      - key: DB_PATH
+        value: /tmp/action_firewall.db

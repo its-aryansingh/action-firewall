@@ -103,3 +103,57 @@ def test_public_agent_catalog_jsonld_endpoint(client: TestClient):
         assert "profit" not in item
         assert "cost" not in offer
         assert "margin" not in offer
+
+        # Verify Schema.org additionalProperty and isRelatedTo (WO-5)
+        assert "additionalProperty" in item
+        prop_names = {p["name"] for p in item["additionalProperty"]}
+        assert "category" in prop_names
+        assert "tags" in prop_names
+        assert "available_stock" in prop_names
+        for prop in item["additionalProperty"]:
+            assert prop["@type"] == "PropertyValue"
+
+    # Verify at least one item has related product recommendations
+    has_related = any("isRelatedTo" in item for item in items)
+    assert has_related, "At least one product must have isRelatedTo recommendations"
+    for item in items:
+        if "isRelatedTo" in item:
+            for rel in item["isRelatedTo"]:
+                assert rel["@type"] == "Product"
+                assert rel["sku"].startswith("SKU-")
+                assert len(rel["name"]) > 0
+
+
+def test_ucp_manifest_endpoint(client: TestClient):
+    for path in ("/.well-known/ucp", "/.well-known/ucp.json"):
+        resp = client.get(path)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["protocol"] == "ucp/1.0"
+        assert data["spec_alignment"]["standard"] == "Universal Commerce Protocol"
+        assert data["spec_alignment"]["mandate_profile"] == "ap2_mandate_compatible"
+        assert data["merchant"]["id"] == "merchant_freshbasket"
+        assert data["endpoints"]["mcp"] == "/agent-commerce/mcp"
+
+
+def test_permissions_policy_summary_endpoint(client: TestClient):
+    resp = client.get("/agent-commerce/v1/permissions/policy-summary")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "money_in" in data
+    assert "money_out" in data
+
+    money_in = data["money_in"]
+    assert money_in["merchant_id"] == "merchant_freshbasket"
+    assert money_in["max_order_paise"] == 800000
+    assert money_in["currency"] == "INR"
+    assert "eggs" in money_in["blocked_tags"] or "egg" in money_in["blocked_tags"]
+    assert money_in["action_name"] == "create_payment_link"
+
+    money_out = data["money_out"]
+    assert money_out["enabled"] is True
+    assert money_out["max_refund_paise"] == 50000
+    assert money_out["window_days"] == 30
+    assert money_out["daily_cap_paise"] == 200000
+    assert "fraud" in money_out["escalate_reasons"]
+    assert money_out["action_name"] == "refund"

@@ -22,6 +22,7 @@ from .approval_tokens import (
     lookup_approval_token,
     redeem_approval_token,
 )
+from .commerce_service import CheckoutPrincipals, execute_checkout
 from .buyer_auth import (
     check_replay_or_mutation,
     mint_shopper_session,
@@ -53,10 +54,12 @@ from .commerce_metrics import (
     get_comprehensive_metrics,
     record_agent_order,
 )
+from .channel_policy import DEFAULT_CHANNEL_POLICY
 from .config import get_settings
-from .envelope import compute_quote_hash
+from .envelope import DEFAULT_BLOCKED_TAGS, compute_quote_hash
 from .mcp_client import unwrap
-from .merchant import CATALOG_REVISION, DEFAULT_MERCHANT_ID, get_merchant_capabilities
+from .acceptance_policy import build_acceptance_policy
+from .merchant import CATALOG_REVISION, DEFAULT_MERCHANT_ID, DEFAULT_MERCHANT_NAME, get_merchant_capabilities
 from .openai_buyer import OpenAIBuyer
 from .replay_buyer import ReplayBuyer
 from .models import (
@@ -74,10 +77,54 @@ from .receipts import build_receipt
 router = APIRouter(tags=["agent-commerce"])
 
 
+@router.get("/acceptance-policy")
+def get_acceptance_policy() -> dict[str, Any]:
+    """What this merchant will refuse — published so an agent need not find out
+    by being refused.
+
+    Every other discovery surface here answers "what do you sell?". This answers
+    "what will you turn down?", which is the half no agentic-commerce protocol
+    currently standardises and the half that decides whether a first attempt
+    succeeds.
+
+    Unauthenticated and cacheable by design: these are the rules the store is
+    willing to state in public, and an agent that reads them before proposing is
+    the outcome this endpoint exists to produce. `policy_hash` is echoed on every
+    checkout response, so a caller can confirm the rules it read are the rules
+    that were applied.
+    """
+    return build_acceptance_policy()
+
+
 @router.get("/merchant", response_model=MerchantCapabilities)
 def get_merchant() -> MerchantCapabilities:
     """Return public merchant identity, catalog revision, and supported capabilities."""
     return get_merchant_capabilities(DEFAULT_MERCHANT_ID)
+
+
+@router.get("/permissions/policy-summary")
+def get_policy_summary() -> dict[str, Any]:
+    """Return active money-in and money-out policy parameters."""
+    return {
+        "money_in": {
+            "merchant_id": DEFAULT_MERCHANT_ID,
+            "merchant_name": "FreshBasket",
+            "full_merchant_name": DEFAULT_MERCHANT_NAME,
+            "max_order_paise": 800000,
+            "currency": "INR",
+            "blocked_tags": list(DEFAULT_BLOCKED_TAGS),
+            "allowed_categories": DEFAULT_CHANNEL_POLICY.get("allowed_categories", []),
+            "action_name": "create_payment_link",
+        },
+        "money_out": {
+            "enabled": True,
+            "max_refund_paise": 50000,
+            "window_days": 30,
+            "daily_cap_paise": 200000,
+            "escalate_reasons": ["chargebacks", "fraud"],
+            "action_name": "refund",
+        },
+    }
 
 
 @router.get("/catalog")
@@ -118,14 +165,14 @@ def get_agent_catalog(
 def get_catalog_jsonld() -> dict[str, Any]:
     """Public Schema.org JSON-LD ItemList representation of the catalog.
 
-    Conforms to Schema.org Product specifications without cost or margin fields.
+    Conforms to Schema.org Product specifications with additionalProperty and isRelatedTo.
     """
     items = catalog.load_catalog()
     elements = []
     for item in items:
         in_stock = item.get("stock", 1) > 0
         price_in_rupees = f"{item['price_paise'] / 100:.2f}"
-        product_node = {
+        product_node: dict[str, Any] = {
             "@type": "Product",
             "sku": item["sku"],
             "name": item["name"],
@@ -136,9 +183,27 @@ def get_catalog_jsonld() -> dict[str, Any]:
                 "priceCurrency": item.get("currency", "INR"),
                 "availability": "https://schema.org/InStock" if in_stock else "https://schema.org/OutOfStock",
             },
+            "additionalProperty": [
+                {"@type": "PropertyValue", "name": "category", "value": item.get("category", "General")},
+                {"@type": "PropertyValue", "name": "tags", "value": ", ".join(item.get("tags", []))},
+                {"@type": "PropertyValue", "name": "available_stock", "value": str(item.get("stock", 0))},
+            ],
         }
         if item.get("description"):
             product_node["description"] = item["description"]
+
+        # Cross-sell recommendations from same category or compatible tags
+        related = [
+            {"@type": "Product", "sku": other["sku"], "name": other["name"]}
+            for other in items
+            if other["sku"] != item["sku"] and (
+                other.get("category") == item.get("category")
+                or any(t in other.get("tags", []) for t in item.get("tags", []))
+            )
+        ][:3]
+        if related:
+            product_node["isRelatedTo"] = related
+
         elements.append(product_node)
 
     return {
@@ -418,13 +483,6 @@ def submit_attempt(
     """
     buyer_principal = verify_buyer_agent(authorization)
     shopper_principal = verify_shopper_session(session_token, expected_session_id=req.shopper_session_id)
-    enforce_rate_limit(buyer_principal, shopper_principal.shopper_session_id)
-
-    envelope = store.get_envelope(req.envelope_id)
-    if not envelope:
-        raise HTTPException(404, "Unknown Purchase Envelope")
-
-    verify_merchant_access(envelope.merchant_id, buyer_principal)
 
     # Transport identity is authoritative; request body overrides are strictly rejected
     if req.buyer_agent_id and req.buyer_agent_id != buyer_principal.buyer_agent_id:
@@ -433,168 +491,23 @@ def submit_attempt(
             detail=f"Identity mismatch: body-supplied buyer_agent_id '{req.buyer_agent_id}' does not match transport principal '{buyer_principal.buyer_agent_id}'. Body overrides are prohibited.",
         )
 
-    cached = check_replay_or_mutation(
-        agent_request_id=req.purchase_attempt_id,
-        merchant_id=envelope.merchant_id,
-        buyer_agent_id=buyer_principal.buyer_agent_id,
-        shopper_session_id=shopper_principal.shopper_session_id,
-        body_data=req.model_dump(mode="json"),
+    principals = CheckoutPrincipals(
+        buyer=buyer_principal,
+        shopper=shopper_principal,
+        transport="http",
     )
-    if cached:
-        return CommerceAttemptResponse(**cached)
-
-    # If unactivated, reject before provider transport
-    if envelope.status.value != "active":
-        stages = [
-            CommerceAttemptStage(stage="understand", name="Draft Intent", status="completed", detail="Envelope created"),
-            CommerceAttemptStage(stage="quote", name="Server Quote", status="completed", detail="Catalog verified"),
-            CommerceAttemptStage(stage="authorize", name="Authority Gate", status="blocked", detail=f"Envelope is {envelope.status.value}"),
-            CommerceAttemptStage(stage="razorpay_action", name="Razorpay Action", status="blocked", detail="Razorpay action not called"),
-        ]
-        return CommerceAttemptResponse(
-            attempt_id=req.purchase_attempt_id,
-            envelope_id=req.envelope_id,
-            outcome="STOPPED_BEFORE_RAZORPAY",
-            stages=stages,
-            allowed=False,
-            code=f"BLOCK_ENVELOPE_{envelope.status.value.upper()}",
-            human_message=f"Purchase Envelope is {envelope.status.value}. Explicit human activation is required before checkout.",
-            quote_total_paise=0,
-            payment_link=None,
-            grant_id=None,
-            receipt=None,
-            deltas=[],
-            recovery_applied=False,
-            provider_mode="simulated",
-            razorpay_action_called=False,
-        )
-
-    if req.quote_id:
-        persisted_quote = store.get_commerce_quote(req.quote_id)
-        if not persisted_quote or persisted_quote["buyer_agent_id"] != buyer_principal.buyer_agent_id:
-            raise HTTPException(404, f"Quote {req.quote_id} not found")
-        if time.time() > persisted_quote["valid_until"]:
-            raise HTTPException(409, "Quote has expired. Fresh quote required.")
-        if persisted_quote["catalog_revision"] != CATALOG_REVISION:
-            raise HTTPException(409, "Catalog revision changed. REQUOTE_REQUIRED.")
-        if persisted_quote.get("checked_out_at") is not None:
-            raise HTTPException(409, "Quote has already been checked out")
-        if not store.mark_commerce_quote_checked_out(req.quote_id, req.purchase_attempt_id):
-            raise HTTPException(409, "Quote has already been checked out")
-
-    exp_version = req.expected_envelope_version if req.expected_envelope_version is not None else envelope.version
-    exp_hash = req.expected_envelope_hash or envelope.envelope_hash
-
-    session_id = req.shopper_session_id if len(req.shopper_session_id) >= 8 else f"session_{req.shopper_session_id}"
-    exec_req = AutopilotExecuteRequest(
+    result = execute_checkout(
+        principals=principals,
         envelope_id=req.envelope_id,
-        expected_envelope_version=exp_version,
-        expected_envelope_hash=exp_hash,
-        session_id=session_id,
-        purchase_attempt_id=req.purchase_attempt_id,
-        scenario=req.scenario,
-    )
-
-    try:
-        res = autopilot.execute(exec_req)
-    except ValueError as exc:
-        raise HTTPException(409, str(exc)) from exc
-    except LookupError as exc:
-        raise HTTPException(404, str(exc)) from exc
-
-    # Stages breakdown
-    auth_status = "completed" if res.envelope_decision.allowed else "blocked"
-    action_status = (
-        "completed" if res.action_status == "action_issued"
-        else "unknown" if res.action_status == "unknown"
-        else "blocked"
-    )
-
-    stages = [
-        CommerceAttemptStage(
-            stage="understand",
-            name="Draft Intent",
-            status="completed",
-            detail="Intent translated to Purchase Envelope",
-        ),
-        CommerceAttemptStage(
-            stage="quote",
-            name="Server Quote",
-            status="completed",
-            detail=f"Quote rehydrated: {res.envelope_decision.quote_total_paise / 100:.2f} INR",
-        ),
-        CommerceAttemptStage(
-            stage="authorize",
-            name="Authority Gate",
-            status=auth_status,
-            detail=res.envelope_decision.code,
-        ),
-        CommerceAttemptStage(
-            stage="razorpay_action",
-            name="Razorpay Action",
-            status=action_status,
-            detail=f"Provider state: {res.action_status or 'none'}",
-        ),
-    ]
-
-    # Human-readable outcome classification
-    if res.action_status == "action_issued":
-        outcome = "RECOVERED_INSIDE_ENVELOPE" if res.recovery_applied else "ACTION_ISSUED"
-    elif res.action_status == "unknown":
-        outcome = "UNKNOWN"
-    elif not res.envelope_decision.allowed:
-        outcome = "POLICY_DELTA_REQUIRED" if res.envelope_decision.deltas else "STOPPED_BEFORE_RAZORPAY"
-    else:
-        outcome = "READY_FOR_CHECKOUT"
-
-    razorpay_called = bool(res.payment_link or res.action_status in ("action_issued", "unknown"))
-
-    resp = CommerceAttemptResponse(
         attempt_id=req.purchase_attempt_id,
-        envelope_id=req.envelope_id,
-        outcome=outcome,
-        stages=stages,
-        allowed=res.envelope_decision.allowed,
-        code=res.envelope_decision.code,
-        human_message=res.envelope_decision.human_message,
-        quote_total_paise=res.envelope_decision.quote_total_paise,
-        payment_link=res.payment_link,
-        grant_id=res.grant_id,
-        receipt=res.receipt,
-        deltas=res.envelope_decision.deltas,
-        recovery_applied=res.recovery_applied,
-        provider_mode=res.provider_mode,
-        razorpay_action_called=razorpay_called,
-    )
-    order_status = (
-        "issued" if res.action_status == "action_issued"
-        else "unknown" if res.action_status == "unknown"
-        else "blocked"
-    )
-    record_agent_order(
-        purchase_attempt_id=req.purchase_attempt_id,
-        merchant_id=envelope.merchant_id,
-        buyer_agent_id=buyer_principal.buyer_agent_id,
-        shopper_session_id=shopper_principal.shopper_session_id,
-        status=order_status,
-        outcome=outcome,
-        amount_paise=res.envelope_decision.quote_total_paise,
-        envelope_id=envelope.id,
-        recovery_applied=res.recovery_applied,
-        payment_link=res.payment_link,
-        grant_id=res.grant_id,
-        receipt_id=res.receipt.grant_id if res.receipt else None,
-        code=res.envelope_decision.code,
-    )
-    record_successful_request(
-        agent_request_id=req.purchase_attempt_id,
-        merchant_id=envelope.merchant_id,
-        buyer_agent_id=buyer_principal.buyer_agent_id,
-        shopper_session_id=shopper_principal.shopper_session_id,
+        quote_id=req.quote_id,
+        scenario=req.scenario,
+        expected_envelope_version=req.expected_envelope_version,
+        expected_envelope_hash=req.expected_envelope_hash,
         body_data=req.model_dump(mode="json"),
-        response_data=resp.model_dump(mode="json"),
     )
-    return resp
+    return result.to_http_response()
+
 
 
 @router.get("/attempts/{attempt_id}", response_model=CommerceAttemptResponse)

@@ -163,6 +163,22 @@ def get_agent_commerce_manifest() -> dict[str, Any]:
     }
 
 
+@app.get("/.well-known/ucp")
+@app.get("/.well-known/ucp.json")
+def get_ucp_manifest() -> dict[str, Any]:
+    """Universal Commerce Protocol (UCP) / AP2 discovery manifest alias."""
+    manifest = get_agent_commerce_manifest()
+    manifest["protocol"] = "ucp/1.0"
+    manifest["spec_alignment"] = {
+        "standard": "Universal Commerce Protocol",
+        "semantic_authority": "Action Firewall Purchase Envelope",
+        "rail": "Razorpay Payments",
+        "mandate_profile": "ap2_mandate_compatible",
+    }
+    return manifest
+
+
+
 @app.get("/health")
 def health() -> dict:
     s = get_settings()

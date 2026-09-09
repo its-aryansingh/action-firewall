@@ -1,0 +1,39 @@
+{
+  "schema_version": "concurrency-benchmark@1",
+  "scope": "Local SQLite, one process, threads through a barrier. Measures one specific race: check-then-act on a shared budget. Does not measure network partitions, provider duplicates, or clock skew. The read-compare-write arm is a faithful reproduction of the common pattern, written here, not copied from anyone's repository.",
+  "setup": {
+    "cap_rupees": 1000,
+    "order_rupees": 200,
+    "orders_that_fit": 5,
+    "concurrent_orders": 16,
+    "trials": 20
+  },
+  "read_compare_write": {
+    "implementation": "read-compare-write",
+    "trials": 20,
+    "threads_per_trial": 16,
+    "cap_paise": 100000,
+    "seats_inside_cap": 5,
+    "trials_that_breached_the_cap": 20,
+    "breach_rate": 1.0,
+    "mean_overspend_paise": 219000,
+    "max_overspend_paise": 220000,
+    "total_overspend_paise": 4380000,
+    "mean_granted": 15.95,
+    "errors": 0
+  },
+  "authorize_and_reserve": {
+    "implementation": "authorize-and-reserve",
+    "trials": 20,
+    "threads_per_trial": 16,
+    "cap_paise": 100000,
+    "seats_inside_cap": 5,
+    "trials_that_breached_the_cap": 0,
+    "breach_rate": 0.0,
+    "mean_overspend_paise": 0,
+    "max_overspend_paise": 0,
+    "total_overspend_paise": 0,
+    "mean_granted": 5,
+    "errors": 0
+  }
+}

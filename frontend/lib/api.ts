@@ -356,6 +356,27 @@ export type IntentCreateResponse = {
   provider_action_called: boolean;
 };
 
+export type PolicySummary = {
+  money_in: {
+    merchant_id: string;
+    merchant_name: string;
+    full_merchant_name: string;
+    max_order_paise: number;
+    currency: string;
+    blocked_tags: string[];
+    allowed_categories: string[];
+    action_name: string;
+  };
+  money_out: {
+    enabled: boolean;
+    max_refund_paise: number;
+    window_days: number;
+    daily_cap_paise: number;
+    escalate_reasons: string[];
+    action_name: string;
+  };
+};
+
 async function j<T>(r: Response): Promise<T> {
   if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
   return r.json() as Promise<T>;
@@ -474,6 +495,9 @@ export const api = {
     }).then(j<AuthorityView>),
 
   agentCommerce: {
+    policySummary: () =>
+      fetch(`${API}/agent-commerce/v1/permissions/policy-summary`, { cache: "no-store" }).then(j<PolicySummary>),
+
     merchant: () =>
       fetch(`${API}/agent-commerce/v1/merchant`, { cache: "no-store" }).then(j<MerchantCapabilities>),
 

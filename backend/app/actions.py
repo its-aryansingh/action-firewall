@@ -34,6 +34,35 @@ class CreatePaymentLinkArgs(BaseModel):
         return self
 
 
+class RefundArgs(BaseModel):
+    """Razorpay Refunds API: POST /v1/payments/{payment_id}/refund.
+
+    The second registered action, and the first that moves money OUT. It is here
+    to prove the registry does what it was built for: the grant, the atomic
+    reservation, the single compare-and-set dispatch owner and the UNKNOWN
+    outcome are all action-agnostic, so a new action is a schema and a name, not
+    a second engine.
+
+    `speed` is pinned to "normal" deliberately. "optimum" costs the merchant more
+    and is a business decision, not one an agent should make unattended.
+    """
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    payment_id: str = Field(..., min_length=4, max_length=64)
+    amount: StrictInt = Field(..., ge=100, le=100_000_000)
+    currency: Literal["INR"]
+    speed: Literal["normal"] = "normal"
+    receipt: str = Field(..., min_length=1, max_length=40)
+    notes: dict[str, str] = Field(default_factory=dict, max_length=15)
+
+    @model_validator(mode="after")
+    def validate_note_values(self) -> "RefundArgs":
+        if any(len(value) > 256 for value in self.notes.values()):
+            raise ValueError("Refund note values must be at most 256 characters")
+        return self
+
+
 @dataclass(frozen=True)
 class ActionSpec:
     name: str
@@ -64,6 +93,11 @@ ACTION_REGISTRY: dict[str, ActionSpec] = {
         name="create_payment_link",
         version="create_payment_link@2",
         arguments_model=CreatePaymentLinkArgs,
+    ),
+    "refund": ActionSpec(
+        name="refund",
+        version="refund@1",
+        arguments_model=RefundArgs,
     ),
 }
 

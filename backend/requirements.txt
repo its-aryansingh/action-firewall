@@ -11,3 +11,7 @@ mcp==1.27.0
 razorpay==2.0.1
 google-genai==2.22.0
 pytest==8.3.4
+# Property-based authorization tests (tests/test_authorization_properties.py).
+# These generate envelopes and carts from a grammar and assert invariants, so
+# the suite does not depend on labels this repository planted for itself.
+hypothesis>=6.100

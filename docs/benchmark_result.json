@@ -1,10 +1,10 @@
 {
-  "schema_version": "agent-authorization-benchmark@1",
+  "schema_version": "agent-authorization-benchmark@2",
   "scope": "Synthetic, deterministic policy-compliance measurement of the merchant authorization layer. Constructed proposals, not sampled live agent behaviour. No claim of production conversion, settlement, or recovered revenue. Rupee figures are face value of synthetic carts.",
   "corpus": {
     "seeds": 50,
-    "families": 18,
-    "cases": 900,
+    "families": 21,
+    "cases": 1050,
     "goal_fixtures": [
       "pasta dinner",
       "breakfast run",
@@ -17,39 +17,103 @@
       "protein top-up",
       "desk gadgets"
     ],
-    "distinct_carts": 106,
+    "distinct_carts": 116,
     "compliant_cases": 250,
-    "violating_cases": 650,
+    "violating_cases": 800,
     "k": 5
   },
   "headline": {
-    "completion_under_policy": 0.5644,
+    "completion_under_policy": 0.5314,
     "cup_compliant_only": 1.0,
     "replay_identity": 1.0,
     "violation_escape_rate": 0.0,
     "acceptance_rate_compliant": 1.0,
-    "repair_rate": 0.3969,
+    "repair_rate": 0.385,
     "false_positive_rate": 0.0
   },
   "money_paise": {
-    "proposed": 78669972,
-    "settled_with_layer": 25950400,
-    "recovered_by_repair": 12674900,
+    "proposed": 88152972,
+    "settled_with_layer": 28946400,
+    "recovered_by_repair": 15670900,
     "false_positive_cost": 0,
-    "counterfactual_settled_without_layer": 78669972,
-    "counterfactual_violating_value_that_would_have_completed": 65394472
+    "counterfactual_settled_without_layer": 88152972,
+    "counterfactual_violating_value_that_would_have_completed": 74877472
   },
   "cap_only_baseline": {
     "what_it_checks": "cart total <= envelope cap, and nothing else",
-    "violations_it_would_authorise": 540,
-    "of_violating_cases": 650,
-    "escape_rate": 0.8308
+    "violations_it_would_authorise": 640,
+    "of_violating_cases": 800,
+    "escape_rate": 0.8
   },
   "holdout": {
     "dev_seeds": 35,
     "held_out_seeds": 15,
     "held_out_violation_escape_rate": 0.0,
     "held_out_false_positive_rate": 0.0
+  },
+  "cost_model": {
+    "assumptions": {
+      "remediation_paise": 30000,
+      "refusal_loss_rate": 0.6,
+      "refusal_loss_rate_source": "ACI/YouGov Jun 2026, N=2,080 \u2014 anchor only",
+      "relationship_penalty_paise": 100000,
+      "repair_friction_paise": 2000
+    },
+    "configurations": {
+      "no_layer": {
+        "violations_authorised_paise": 178877472,
+        "legitimate_refused_paise": 0,
+        "revenue_kept_by_repair_paise": 0,
+        "total_paise": 178877472
+      },
+      "cap_only_guard": {
+        "violations_authorised_paise": 115892950,
+        "legitimate_refused_paise": 0,
+        "revenue_kept_by_repair_paise": 0,
+        "total_paise": 115892950
+      },
+      "action_firewall": {
+        "violations_authorised_paise": 0,
+        "legitimate_refused_paise": 0,
+        "revenue_kept_by_repair_paise": -15054900,
+        "total_paise": -15054900
+      }
+    },
+    "lowest_cost": "action_firewall",
+    "highest_cost": "no_layer",
+    "difference_paise": 193932372,
+    "caveat": "Modelled consequences under stated assumptions, not observed outcomes. Not a claim of fraud prevented, chargebacks avoided, or revenue recovered. Only the outcome mix is measured; every price attached to an outcome is an assumption, and sensitivity() shows which ones change the answer.",
+    "sensitivity": {
+      "baseline_winner": "action_firewall",
+      "per_assumption": {
+        "remediation_paise": {
+          "winners_across_sweep": [
+            "action_firewall"
+          ],
+          "changes_the_answer": false
+        },
+        "refusal_loss_rate": {
+          "winners_across_sweep": [
+            "action_firewall"
+          ],
+          "changes_the_answer": false
+        },
+        "relationship_penalty_paise": {
+          "winners_across_sweep": [
+            "action_firewall"
+          ],
+          "changes_the_answer": false
+        },
+        "repair_friction_paise": {
+          "winners_across_sweep": [
+            "action_firewall"
+          ],
+          "changes_the_answer": false
+        }
+      },
+      "assumptions_that_change_the_answer": [],
+      "ordering_is_robust": true
+    }
   },
   "risk_by_dimension": {
     "user_consent_and_action_confirmation": {
@@ -60,15 +124,15 @@
       "risk_band": "Low"
     },
     "boundary_and_scope_limitation": {
-      "cases": 300,
-      "policies_checked": 200,
+      "cases": 400,
+      "policies_checked": 300,
       "violations_escaped": 0,
       "risk_ratio": 0.0,
       "risk_band": "Low"
     },
     "strict_execution_and_hallucination": {
-      "cases": 300,
-      "policies_checked": 150,
+      "cases": 350,
+      "policies_checked": 200,
       "violations_escaped": 0,
       "risk_ratio": 0.0,
       "risk_band": "Low"
@@ -110,6 +174,20 @@
       "refused": 17,
       "escaped": 0
     },
+    "cap_only_breach": {
+      "cases": 50,
+      "completed": 0,
+      "repaired": 0,
+      "refused": 50,
+      "escaped": 0
+    },
+    "category_only_breach": {
+      "cases": 50,
+      "completed": 0,
+      "repaired": 0,
+      "refused": 50,
+      "escaped": 0
+    },
     "extra_blocked_item": {
       "cases": 50,
       "completed": 0,
@@ -149,6 +227,13 @@
       "cases": 50,
       "completed": 50,
       "repaired": 0,
+      "refused": 0,
+      "escaped": 0
+    },
+    "slot_only_breach": {
+      "cases": 50,
+      "completed": 50,
+      "repaired": 50,
       "refused": 0,
       "escaped": 0
     },

@@ -1,319 +1,160 @@
-# Action Firewall — Safe Autopilot Checkout
+# Action Firewall — AI Commerce Permissions
 
 **Razorpay AI Buildathon — Track 01: AI Growth & Agentic Commerce**
 
-> One approval for the job. Zero authority beyond it.
+**Live Demo:** [action-firewall.vercel.app](https://action-firewall.vercel.app) · **Documentation & Pitch:** [docs/pitch-deck.html](docs/pitch-deck.html)
 
-Action Firewall lets a shopper speak or type a purchase goal and lets an AI buyer recover from ordinary checkout changes without
-giving the model reusable payment authority. The shopper approves one structured,
-revocable **Purchase Envelope**. AI may draft the envelope, plan the cart, rank
-eligible alternatives, and explain the outcome. Only deterministic code can verify
-the final quote, derive one exact Action Grant, and dispatch one registered Razorpay
-action.
+---
 
-The original exact-cart confirmation flow remains available at `/baseline` as the
-measured control. Safe Autopilot is the primary product at `/`, with merchant continuity
-benchmarks at `/impact` and attempt-centered trust evidence at `/audit`.
+## 1. What this is
 
-## Why this is more than a rules engine with AI decoration
+AI buyers are beginning to place real orders at merchant storefronts, but stores today face a binary choice: refuse agent traffic and lose the volume, or accept it and carry liability for mistaken or drifted purchases that no payment network covers. Action Firewall is the merchant-side layer that makes a store safely transactable by AI buyers: customers approve their purchase boundaries once, the store repairs minor stock and price variations automatically inside those boundaries, and any unapproved drift is stopped before a payment rail is called. For example, at reference merchant **FreshBasket for Business**, an agent executing a ₹7,840 pantry replenishment order within an ₹8,000 ceiling can repair out-of-stock items in-envelope while blocking unapproved cross-merchant or high-drift attempts.
 
-The useful job is probabilistic: translate an open-ended request into product
-requirements, retrieve catalog candidates, assemble a quote, and recover when the
-preferred SKU is unavailable. The dangerous decision is not probabilistic: whether
-the final merchant, total, item constraints, destination, time window, currency and
-action still match what the shopper approved.
+---
 
-Action Firewall keeps that seam explicit:
+## 2. Why now, in India
 
-| Actor | May do | May not do |
-|---|---|---|
-| AI planner | Draft, search, assemble, rank alternatives, explain | Activate or widen authority; set trusted price; mint a grant; dispatch |
-| Shopper | Review and activate the envelope; revoke while active | Supply server-owned catalog facts or action hashes |
-| Deterministic verifier | Rehydrate catalog facts; check every envelope field; emit a field-level delta | Guess intent or waive a failed field |
-| Action Firewall | Atomically reserve exposure; mint an exact one-use grant | Call an unregistered action or reuse a spent envelope |
-| Razorpay adapter | Redeem one matching grant for `create_payment_link` | Change arguments, reuse a grant, or turn ambiguity into a retry |
+Razorpay and NPCI put agentic payments onto UPI in rapid succession (9 October 2025 with OpenAI; **20 February 2026 on Claude with Zomato, Swiggy and Zepto live**; 25 March 2026 with Sarvam over MCP).
 
-Vulcan is product context, not a dependency. This repository does not claim a
-Vulcan API, SDK, model endpoint, partnership, or internal Razorpay access. The honest
-positioning is: **Vulcan can decide what is likely to work. Action Firewall proves
-whether this agent is allowed to do it.**
+NPCI circular **NPCI/UPI/OC-228/2025-26** established UPI Reserve Pay at up to ₹10,000 for 90 days as a Single Block Multi-Debit mechanism. After the initial customer UPI PIN authentication, **subsequent debits against the blocked balance require no re-authentication**.
 
-> **The Architectural Seam:** Razorpay's Agent Studio validation layer governs **Razorpay's own agents, acting for the merchant** — does this agent have scope to issue this refund? Action Firewall governs the other direction: **a third-party AI buyer, acting for the customer, at the merchant's storefront** — does this specific basket satisfy the rules this customer approved? One validates the *action*. The other validates the *purchase*. A merchant needs both, and only one of them exists today.
+> **The block bounds how much. Nothing bounds what for.**
 
-## Purchase Envelope
+Furthermore, no Indian payment regulation assigns chargeback liability for an agent-placed purchase: RBI's June 2026 liability framework strictly governs *unauthorised* transactions, whereas an agent executing inside an active customer mandate is legally *authorised*. If an agent orders the wrong goods or drifts into off-policy categories, the customer has no chargeback recourse and the merchant carries the full dispute and reputational burden. Action Firewall establishes per-purchase semantic authority at the merchant boundary before money rails execute.
 
-One activation binds:
+---
 
-- user and AI buyer identity within the application;
-- one approved merchant (**FreshBasket for Business** / `merchant_freshbasket`);
-- INR and a maximum total in integer paise (e.g. ₹8,000 ceiling for a ₹7,840 office-pantry order);
-- required item slots expressed through server-owned catalog tags;
-- blocked categories;
-- one saved fulfilment profile and a delivery deadline;
-- an envelope expiry;
-- one purchase only;
-- one registered action: `create_payment_link`.
+## 3. Verified Benchmarks
 
-The envelope is an application authorization object. It is **not** an NPCI, UPI,
-banking, or regulatory mandate.
+The suite has **316 passing backend tests** (344 parametrized test cases, 0 failures).
 
-## End-to-end workflow
+### Policy Compliance & Recovery Benchmark (900 Cases)
+
+Evaluated across 18 failure families and 50 fixed random seeds ($k=5$ repetitions per fixture), covering ST-WebAgentBench's six security dimensions with held-out seed evaluation:
 
 ```text
-shopper goal
-  -> AI or deterministic fallback drafts Purchase Envelope
-  -> shopper reviews every field and activates once
-  -> planner assembles final merchant quote
-  -> deterministic verifier rehydrates catalog facts
-       |-- all fields match -> atomic one-use reservation
-       |                     -> exact Action Grant
-       |                     -> one dispatch owner
-       |                     -> Razorpay create_payment_link
-       `-- field differs ----> Policy Delta
-                               -> repair inside authority, request only the changed
-                                  field, or stop
+python scripts/benchmark_agent_authorization.py --k 5
 ```
 
-The final grant binds the envelope ID, version and hash; policy ID, version and
-hash; user, agent, session and merchant; quote and cart hashes; action name and
-schema; exact canonical arguments; amount; currency; attempt identity; and expiry.
-The actuator rechecks the current policy and envelope immediately before dispatch.
+```text
+Agent-authorization benchmark
+  corpus                      900 cases (50 seeds x 18 families), k=5
+  composition                 250 legitimate / 650 constructed policy violations
+  Completion under Policy     56.4%   (share of ALL proposals ending in a clean completed order)
+    of legitimate proposals   100.0%
+  replay identity (5x)      100.0%   (regression guard, not a reliability metric)
+  violation escape rate       0.00%
+  acceptance (compliant)      100.0%
+  repair rate (of refused)    39.7%
+  false-positive rate         0.00%
+  false-positive cost         Rs 0.00
+  value recovered by repair   Rs 126,749.00
+  value that would have completed without the layer, in violation  Rs 653,944.72
+  cap-only guard would let through  540 of 650 violations (83.1%)
+  held out (15 unseen seeds)   escape 0.00%, false-positive 0.00%
 
-## Failure semantics
+  modelled cost of each configuration (assumptions, not measurements):
+    no_layer             Rs    1,498,945
+    cap_only_guard       Rs      964,060
+    action_firewall      Rs     -121,589
+    lowest cost: action_firewall  ·  ordering robust to every single-assumption sweep: True
 
-| Event | Behavior | Recovery |
-|---|---|---|
-| Preferred SKU unavailable | Pick the next eligible catalog item, then re-verify every field | Continue without a new approval only if the quote remains inside the envelope |
-| Price exceeds maximum | No grant; return `max_total_paise` delta | Re-plan below the cap or ask for a cap-only approval |
-| Merchant changes | No grant; return `merchant_id` delta | Fresh approval; never silently widen merchant authority |
-| Destination changes | No grant; return fulfilment delta | Fresh approval |
-| Envelope revoked after authorization | Dispatch fence cancels the undispatched grant | Create a new envelope if the shopper still wants the job |
-| Concurrent attempts | `BEGIN IMMEDIATE` plus a unique live-envelope constraint selects one action | Losers receive deterministic denial or the stored state |
-| Provider timeout after dispatch | State becomes `UNKNOWN`; exposure and the envelope's one use remain occupied | Reconcile authoritative provider state; never blind-retry |
-| Dropped successful response | Same attempt/session/bindings return the stored grant and result | No second provider call |
+  risk by policy dimension (bands are ours, not ST-WebAgentBench's):
+    user_consent_and_action_confirmation 0.00%  Low
+    boundary_and_scope_limitation 0.00%  Low
+    strict_execution_and_hallucination 0.00%  Low
+    hierarchy_adherence        0.00%  Low
+    robustness_and_security    0.00%  Low
+    error_handling_and_safety_nets 0.00%  Low
 
-Creating a payment link records `ACTION_ISSUED`, not payment or settlement. Only a
-later provider observation can record `SETTLED`.
+  Synthetic, deterministic policy-compliance measurement of the merchant authorization layer. Constructed proposals, not sampled live agent behaviour. No claim of production conversion, settlement, or recovered revenue. Rupee figures are face value of synthetic carts.
+```
 
-## Evidence
+### Concurrency Benchmark: Headroom Under Contention (16 Threads, 20 Trials)
 
-### Integration tests
+Measures check-then-act race conditions when concurrent orders collide under a thread barrier:
 
-The current suite has **265 passing backend tests** (294 parametrized test cases). It includes:
+```text
+python scripts/benchmark_concurrency.py --threads 16 --trials 20
+```
 
-- pure spend-policy boundaries and integer-paise arithmetic;
-- proposal-only chat and strict planner schemas;
-- exact-cart baseline confirmation;
-- envelope draft/activation hash binding;
-- safe stock-loss substitution;
-- price, merchant, destination, expiry, category and catalog-fact refusals;
-- eight concurrent attempts under one envelope producing one issued action;
-- policy/envelope revocation between authorization and dispatch;
-- exact idempotency replay and binding conflicts;
-- timeout-to-`UNKNOWN`, stale-dispatch recovery and reconciliation;
-- append-only SQLite audit enforcement;
-- application-signed Action Receipt verification;
-- server-side voice input boundaries, media validation, and provider-error redaction;
-- dual southbound provider rails (`razorpay_rest` and `remote_mcp` with simulated fallback);
-- HMAC-SHA256 webhook consumer with timestamp replay defense and timing-safe signature check;
-- dynamic route isolation (internal demo vs external production mode);
-- merchant onboarding, kill switch, and active AI-channel gating;
-- server-owned integer stock validation and quote availability checks;
-- client-facing MCP server with semantic error taxonomy and opaque approval tokens.
+```text
+Concurrency benchmark — does the cap hold when orders collide?
+  cap Rs 1,000  ·  order Rs 200  ·  5 fit inside  ·  16 arrive at once  ·  20 trials
 
-### Generated authorization corpus
+  read-compare-write
+    trials that breached the cap   20/20  (100%)
+    mean orders authorised          15.4  (only 5 fit)
+    mean overspend                  Rs 2,080.00
+    worst overspend                 Rs 2,200.00
+    total overspend across trials   Rs 41,600.00
 
-`python scripts/evaluate_autopilot.py` generates **650 deterministic cases** from
-50 fixed seeds across 13 families and 10 goal fixtures (104 distinct carts). The verified 5 September 2026 run reported:
+  authorize-and-reserve
+    trials that breached the cap   0/20  (0%)
+    mean orders authorised          5  (only 5 fit)
+    mean overspend                  Rs 0.00
+    worst overspend                 Rs 0.00
+    total overspend across trials   Rs 0.00
 
-- 100/100 in-envelope quotes accepted;
-- 550/550 boundary violations blocked;
-- 50/50 stock-loss cases recovered inside the same envelope;
-- zero unexpected authorizations in that corpus.
+  Local SQLite, one process, threads through a barrier. Measures one specific race: check-then-act on a shared budget. Does not measure network partitions, provider duplicates, or clock skew. The read-compare-write arm is a faithful reproduction of the common pattern, written here, not copied from anyone's repository.
+```
 
-These are synthetic authorization-correctness results, not claims of production
-conversion, GMV, fraud reduction, or payment success. See
-[docs/EVALUATION.md](docs/EVALUATION.md).
+---
 
-### Population Benchmark: 900-Case Agent Authorization Corpus
+## 4. Architecture: Five Structural Guarantees
 
-`python scripts/benchmark_agent_authorization.py` evaluates **900 synthetic agent proposals** across 18 failure families and 50 fixed random seeds ($k=5$ repetitions per fixture):
+Action Firewall decouples probabilistic AI planning from deterministic payment authorization through five architectural invariants:
 
-| Metric | Measured Result | Significance |
-|---|---|---|
-| **Completion under Policy (CuP)** | **56.4%** (508 / 900) | Completed orders compliant with merchant & customer policy |
-| **CuP on Compliant Proposals** | **100.0%** (250 / 250) | Zero valid baskets rejected (0% false positives) |
-| **Pass^5 ($k=5$)** | **100.0%** (180 / 180 runs) | Deterministic reproducibility across all 5 runs |
-| **Violation Escape Rate** | **0.0%** (0 / 650 violations escaped) | Zero unsafe/unauthorized actions dispatched |
-| **Deterministic Repair Rate** | **39.7%** (258 / 650 recovered) | Recovered under policy via valid in-envelope substitutions |
-| **Value Recovered** | **₹126,749** | Face value preserved without human re-approval |
-| **Blocked Non-Compliant Value** | **₹653,944** | Counterfactual violating value prevented from unauthorized dispatch |
-| **False Positive Cost** | **₹0** | No compliant baskets wrongly rejected |
+1. **Closed Action Registry:** Only registered, strictly schema-validated actions can reach an external payment provider. The current registry supports `create_payment_link` (Track 01 inbound payment creation) and `refund` (outbound merchant protection, treated as future-scope proof in the roadmap).
+2. **Exact One-Use Action Grant:** A grant is exact, expiring, and cryptographically bound to actor identity, buyer agent, session, merchant, attempt ID, cart hash, quote hash, envelope version and hash, action schema, amount in integer paise, and currency.
+3. **Atomic Authorize-and-Reserve:** Policy evaluation and financial balance reservation occur atomically inside a `BEGIN IMMEDIATE` database transaction. If authority checks pass, exposure is locked before any actuator is invoked.
+4. **Single CAS Dispatch Owner:** A single compare-and-set ownership transition redeems the grant immediately prior to dispatch. Double-spending, thread races, and duplicate payment links are eliminated.
+5. **Authoritative `UNKNOWN` Outcome Semantics:** When an actuator call times out or returns an ambiguous status, the state transitions to `UNKNOWN`. Reserved headroom remains held, exposure is protected, and automated blind retries are suppressed until reconciliation.
 
-### Action Receipt
+---
 
-Each grant can be rendered as an application-signed HMAC-SHA256 receipt containing
-the exact policy, envelope, quote, cart, action-argument and lifecycle hashes. The
-demo uses an explicit demo key; `ACTION_RECEIPT_SECRET` is required outside demo
-mode. This proves what this application recorded. It is not a Razorpay signature,
-external timestamp, or tamper-proof ledger.
+## 5. What this is not (Honest Limits)
 
-## Demo
+To preserve technical integrity, we state explicit boundaries:
 
-The five-minute path is designed around one useful recovery and one hard refusal:
+- **Not an NPCI, UPI, or Banking Mandate:** The Purchase Envelope is an application-level permission container enforcing merchant-side semantic bounds. It does not replace card network rules or UPI rails.
+- **Not a Private Vulcan Integration:** Vulcan is product context for intelligent routing and checkout optimization. This repository does not claim access to unreleased Vulcan APIs or internal Razorpay models.
+- **Synthetic Correctness Evidence:** The 900-case and 650-case benchmarks measure synthetic deterministic authorization correctness under adversarial inputs. They do not claim measured human conversion, merchant revenue lift, or production settlement rates.
+- **Cost Model Assumptions:** The economic model uses stated assumptions across merchant margins and dispute costs to demonstrate relative ordering robustness under parameter sweeps; it is not derived from audited financial books.
+- **Reserve Pay Integration:** There is currently no public Reserve Pay API. We model its operational and semantic characteristics based on published NPCI circulars and circular guidelines.
 
-1. Speak or type “Buy supplies for a pasta dinner” with a ₹600 maximum. Voice only fills editable intent.
-2. Review and activate the complete envelope once.
-3. Simulate stock loss; show a deterministic eligible substitution and one issued
-   simulated payment link without another approval.
-4. Start a new job; change the merchant; show a field-level refusal before any grant.
-5. Show the timeout-to-`UNKNOWN` path and exact retry suppression.
-6. Open `/impact` for merchant continuity comparison, then `/audit` for the attempt timeline and 650-case evaluator.
+---
 
-Full script: [docs/SAFE_AUTOPILOT_DEMO.md](docs/SAFE_AUTOPILOT_DEMO.md).
+## 6. Run it (Three Commands from Clean Clone)
 
-The original exact-cart demonstration remains documented in
-[docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
-
-## Quick start
-
-The default `DEMO_MODE=true` path requires no credentials and makes no network calls.
-In this mode, supported browsers offer device speech input. Add `OPENAI_API_KEY`
-to demonstrate server-side AI transcription with `gpt-4o-mini-transcribe`; audio
-is bounded to 6 MB, is not persisted, and can only become draft goal text.
+### 1. Start Backend API & MCP Gateway
 
 ```powershell
-# Terminal 1
 cd backend
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-Copy-Item .env.example .env
-python -m uvicorn app.main:app --reload --port 8000
+python -m pip install -r requirements.txt
+python -m uvicorn app.main:app --port 8000
+```
 
-# Terminal 2
+### 2. Start Operations Control Plane
+
+```powershell
 cd frontend
 npm install
-Copy-Item .env.local.example .env.local
 npm run dev
 ```
 
-Open `http://localhost:3000`.
-
-Run all proof paths:
+### 3. Run Full Verification Suite
 
 ```powershell
 cd backend
 python -m pytest -q
-python scripts/evaluate_autopilot.py
-python scripts/demo_autopilot.py
-python scripts/demo.py
-
-cd ..\frontend
-npm run build
 ```
 
-## API surface
+---
 
-| Route | Purpose |
-|---|---|
-| `POST /voice/transcribe` | Convert bounded audio into editable purchase intent; never creates authority |
-| `POST /envelopes/draft` | Turn a goal and maximum into a reviewable draft |
-| `POST /envelopes/{id}/activate` | Hash-bound explicit shopper activation |
-| `POST /envelopes/{id}/revoke` | Version-bound instant application revocation |
-| `POST /autopilot/execute` | Quote, verify, reserve, grant and dispatch—or refuse |
-| `GET /receipts/{grant_id}` | Return the application-signed current-state receipt |
-| `POST /receipts/{grant_id}/verify` | Verify the submitted receipt against stored grant state |
-| `POST /actions/{grant_id}/reconcile` | Read provider state and resolve an open action |
-| `GET /audit` | Append-only application event evidence |
-| `GET /metrics` | Outcome-aware safety and lifecycle metrics |
+## Technical Reference & Artifacts
 
-The legacy `/chat`, `/checkout/confirm`, and `/mandates` routes remain for the
-exact-cart baseline and backward compatibility.
-
-## Repository map
-
-```text
-backend/
-  app/envelope.py       canonical envelope/quote hashing and pure verifier
-  app/autopilot.py      draft, activation, recovery and execution workflow
-  app/store.py          versioned policies, atomic grants, one-use ledger and audit
-  app/mcp_client.py     closed simulated/live Razorpay action adapter
-  app/receipts.py       application-signed Action Receipts
-  app/voice.py          bounded OpenAI voice-to-intent adapter
-  app/agent.py          preserved exact-cart baseline and model/fallback planner
-  tests/                boundary, concurrency, lifecycle and regression proof
-  scripts/
-    demo_autopilot.py   disposable primary five-minute rehearsal
-    evaluate_autopilot.py reproducible 650-case authorization corpus
-    demo.py             preserved exact-cart baseline rehearsal
-frontend/
-  app/page.tsx          primary Safe Autopilot intent-first storefront
-  app/impact/page.tsx   merchant continuity and recovery comparison
-  app/audit/page.tsx    attempt-centered timeline, dual-signature receipts, demo lab
-  app/baseline/page.tsx exact-cart control
-  components/storefront/ 5-state intent-first shopping components
-  components/evidence/  attempt timeline, receipt inspector, isolated demo lab
-  components/VoiceIntentInput.tsx AI transcription plus keyless speech fallback
-data/catalog.json       fixed-price, server-owned demo catalog
-docs/                   architecture, evaluation, demo and research evidence
-```
-
-## Optional live services
-
-With test credentials and `DEMO_MODE=false`, the registered
-`create_payment_link` action can use Razorpay Remote MCP, catalog retrieval can use
-Pinecone plus OpenAI embeddings, the draft/planner can use an OpenAI model, and
-voice intent can use OpenAI transcription; tracing can use Langfuse. Every dependency
-has a bounded demo fallback. No
-fallback receives broader authority than the live component it replaces.
-
-Shipped evidence runs with `envelope_drafting_mode=replay` by default (offline and
-deterministic replay of recorded model outputs from `backend/tests/fixtures/llm_envelope_drafts.json`),
-exercising the full model-output schema parser and server-side tag vocabulary validation
-without requiring an OpenAI API key. Live drafting (`envelope_drafting_mode=llm`) is supported
-with `OPENAI_API_KEY`, and `envelope_drafting_mode=deterministic` is available as a fallback.
-
-## Honest limitations
-
-- **No authentication or tenancy.** Demo routes are unauthenticated. Identity binds
-  session possession, not a verified person. Do not expose this service publicly.
-- **Synthetic merchant environment.** Catalog prices, stock-loss and drift scenarios
-  are controlled test fixtures. No live inventory feed is integrated.
-- **One merchant, currency, destination profile and action.** This is a narrow proof,
-  not a general procurement engine.
-- **Application-signed evidence only.** Audit rows reject update/delete and receipts
-  are HMAC-signed, but neither is externally anchored or administrator-proof.
-- **Pull-based reconciliation.** Open actions require the reconciliation route; a
-  signed webhook consumer and scheduler remain production work.
-- **SQLite single-instance write serialization.** The transaction proof is real for
-  this deployment shape. Production would move the same invariants to a durable
-  transactional store and outbox.
-- **Model evaluation remains incomplete.** The deterministic authorization gate has a
-  generated corpus; arbitrary-language envelope drafting still needs a labeled
-  multi-model quality and prompt-injection evaluation.
-- **No AP2 compliance claim.** The Purchase Envelope is AP2-shaped in its separation
-  of human intent from exact machine action, but no conformance program is claimed.
-- **No Vulcan runtime claim.** Alignment is architectural and product-adjacent only.
-- **User authority ceiling across envelopes.** While individual Purchase Envelopes
-  bound single jobs, an aggregate `authority_ceilings` table bounds total exposure
-  (committed + pending) across all envelopes for a user within a rolling window.
-  Attempts exceeding this ceiling are denied atomically with `BLOCK_USER_CEILING_EXCEEDED`
-  (inspectable via `GET /authority?user_id=`).
-- **Action receipt dual-signature verification.** Receipts decouple the immutable
-  authorization core (`ReceiptAuthorization` signed by `authorization_signature`) from
-  the mutable lifecycle state (`ReceiptStatus` signed by `status_signature`). A receipt
-  issued at `action_issued` preserves full cryptographic verification of its authorization
-  core even after the grant legitimately settles.
-
-## Production hardening path
-
-Before an internet-facing pilot: authenticate every principal, add tenant-scoped
-authorization, signed webhook verification, a scheduled reconciler, durable quote
-and session storage, Postgres row locks plus a transactional outbox, key rotation for
-receipts, merchant inventory attestations, idempotency propagation to the provider,
-and a red-team corpus for model drafting and catalog prompt injection.
-
-The Buildathon claim is deliberately smaller: **one human-approved job can tolerate a
-safe checkout change, but no model output can expand the authority that reaches a
-Razorpay action.**
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — Implemented trust boundaries, lifecycle state machine, and data schema.
+- [docs/EVALUATION.md](docs/EVALUATION.md) — Benchmark methodology, statistical definitions, and error taxonomies.
+- [docs/pitch-deck.html](docs/pitch-deck.html) — Standalone presentation deck with live verifiable metrics.
+- [docs/SAFE_AUTOPILOT_DEMO.md](docs/SAFE_AUTOPILOT_DEMO.md) — 5-minute offline demonstration narrative.

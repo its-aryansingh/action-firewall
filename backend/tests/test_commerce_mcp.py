@@ -16,6 +16,7 @@ import time
 import pytest
 
 from app.approval_tokens import redeem_approval_token
+from app.commerce_mcp import _quote_owner
 from app.commerce_mcp import (
     discover_storefront,
     draft_purchase,
@@ -349,7 +350,10 @@ def test_quote_persisted_in_commerce_quotes():
     assert row is not None
     assert row["id"] == quote_id
     assert row["merchant_id"] in ("merchant_freshbasket", "merchant_demo")
-    assert row["buyer_agent_id"] == "buyer_mcp"
+    assert row["buyer_agent_id"] == _quote_owner(), (
+        "the quote must be attributed to whoever presented the credential, and "
+        "request_checkout must read back that same identity"
+    )
     assert row["total_paise"] == (8900 * 2) + 24900
     assert row["quote_hash"] == res["quote_hash"]
     assert len(row["cart_hash"]) == 64
@@ -473,15 +477,15 @@ def test_get_checkout_status_ownership_isolation():
         envelope_id="env_foreign",
     )
 
-    # 2. MCP status check (scoped to buyer_mcp) returns not_found
+    # 2. MCP status check (scoped to the resolved caller) returns not_found
     stat_foreign = get_checkout_status("att_foreign_buyer_01")
     assert stat_foreign["status"] == "not_found"
 
-    # 3. Record an order owned by buyer_mcp
+    # 3. Record an order owned by the resolved caller
     record_agent_order(
         purchase_attempt_id="att_mcp_owned_01",
         merchant_id="merchant_demo",
-        buyer_agent_id="buyer_mcp",
+        buyer_agent_id=_quote_owner(),
         shopper_session_id="sess_mcp",
         status="issued",
         outcome="ACTION_ISSUED",
@@ -504,7 +508,7 @@ def test_get_checkout_status_polling_never_redispatches():
     record_agent_order(
         purchase_attempt_id="att_poll_01",
         merchant_id="merchant_demo",
-        buyer_agent_id="buyer_mcp",
+        buyer_agent_id=_quote_owner(),
         shopper_session_id="sess_poll",
         status="issued",
         outcome="ACTION_ISSUED",
@@ -522,3 +526,72 @@ def test_get_checkout_status_polling_never_redispatches():
     assert r1["grant_id"] == "grant_poll_01"
 
 
+def test_mcp_concurrent_checkout_returns_structured_conflict():
+    """Verify concurrent checkout attempts on the same quote/envelope safely serialize or return structured conflict."""
+    import concurrent.futures
+
+    draft = draft_purchase(
+        intent="Buy supplies for a pasta dinner concurrent",
+        agent_request_id="req_mcp_conc",
+        budget_paise=60000,
+    )
+    token = draft["approval_url"].replace("/approve/", "")
+    redeem_approval_token(token)
+
+    quote = request_quote(items=[{"sku": "SKU-PAS-002", "quantity": 1}])
+    quote_id = quote["quote_id"]
+
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        f1 = executor.submit(
+            request_checkout,
+            intent_id=draft["intent_id"],
+            quote_id=quote_id,
+            attempt_id="att_mcp_conc_01",
+        )
+        f2 = executor.submit(
+            request_checkout,
+            intent_id=draft["intent_id"],
+            quote_id=quote_id,
+            attempt_id="att_mcp_conc_02",
+        )
+        for f in concurrent.futures.as_completed([f1, f2]):
+            results.append(f.result())
+
+    # Exactly one must succeed with ACTION_ISSUED; the other must fail closed
+    outcomes = [r["outcome"] for r in results]
+    assert "ACTION_ISSUED" in outcomes
+    success_count = sum(1 for r in results if r.get("allowed") is True)
+    assert success_count == 1, f"Expected exactly 1 successful checkout, got: {results}"
+    failed = next(r for r in results if not r.get("allowed"))
+    assert failed["outcome"] in ("STOPPED_BEFORE_RAZORPAY", "READY_FOR_CHECKOUT")
+    assert failed["razorpay_action_called"] is False
+
+
+def test_request_checkout_with_revoked_key_fails_closed(monkeypatch):
+    """Verify an invalid or revoked bearer token calling request_checkout fails closed with structured refusal."""
+    from app import buyer_auth
+    import app.commerce_mcp as cmcp
+
+    revoked_key = "af_test_revoked_key_mcp"
+    buyer_auth.register_buyer_key(revoked_key, "buyer_agent_revoked")
+    buyer_auth.revoke_buyer_key(revoked_key)
+
+    monkeypatch.setattr(
+        cmcp,
+        "_bearer_from_request_context",
+        lambda: f"Bearer {revoked_key}",
+    )
+    try:
+        res = request_checkout(
+            intent_id="env_test_revoked",
+            quote_id="q_test_revoked",
+            attempt_id="att_test_revoked",
+        )
+        assert res["allowed"] is False
+        assert res["outcome"] == "STOPPED_BEFORE_RAZORPAY"
+        assert res["code"] == "UNAUTHENTICATED_BUYER_AGENT"
+        assert res["razorpay_action_called"] is False
+        assert res["payment_link"] is None
+    finally:
+        buyer_auth.reset_buyer_keys()
