@@ -177,4 +177,10 @@ def test_mcp_auth_failure_triggers_fallback_to_rest(monkeypatch: pytest.MonkeyPa
     assert get_active_provider_mode() == "razorpay_rest"
     fb = get_provider_fallback_info()
     assert fb["active_provider"] == "razorpay_rest"
-    assert "Remote MCP auth failed" in str(fb["fallback_reason"])
+    # Assert on the two facts an operator needs, not on the exact prose: that the
+    # reason names Remote MCP as what failed, and names what took over. Pinning
+    # the sentence is what broke this test when the message was reworded — the
+    # behaviour never changed, only the wording did.
+    reason = str(fb["fallback_reason"])
+    assert "Remote MCP" in reason
+    assert "razorpay_rest" in reason
