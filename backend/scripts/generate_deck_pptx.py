@@ -334,7 +334,7 @@ def build_deck():
              "650", "Generated boundary cases\n\n10 goal families, 104 distinct carts across 13 adversarial drift families (100% pass).",
              title_color=C_BLUE, border_color=C_BLUE)
     add_card(s8, Inches(6.8), Inches(2.4), Inches(2.7), Inches(2.6),
-             "800 / 800", "Violations blocked\n\nAcross 21 failure families. A spend-cap-only guard — what most \"AI guardrails\" are — lets 640 of the same 800 through.",
+             "850 / 850", "Violations blocked\n\nAcross 22 failure families. A spend-cap-only guard — what most \"AI guardrails\" are — lets 690 of the same 850 through.",
              title_color=C_RED, border_color=C_RED)
     add_card(s8, Inches(9.8), Inches(2.4), Inches(2.7), Inches(2.6),
              "20/20 → 0/20", "Cap breaches under contention\n\n16 threads, one Rs 1,000 cap. Read-compare-write breaches every trial; authorize-and-reserve never does.",

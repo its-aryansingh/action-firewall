@@ -244,10 +244,21 @@ is named `agentic-checkout-confirmation`; an allowed attempt contains
 - actuator binding mismatches denied;
 - non-authorizing cart-policy previews.
 
-SQLite triggers reject updates and deletes against `audit_log`, so append-only
-behavior is enforced below the application service. It is still not a
-tamper-evident hash chain, an independently signed record, or protection against
-a database administrator replacing the file.
+SQLite triggers reject updates and deletes against `audit_log`, enforcing append-only
+behavior below the application service.
+
+### Tamper-evident audit hash chain
+
+Each event written to `audit_log` is hash-linked to its predecessor:
+
+- **Genesis constant:** The chain begins at `AUDIT_CHAIN_GENESIS = hashlib.sha256(b"action-firewall/audit-chain@1/genesis").hexdigest()`.
+- **Anti-fork mechanism:** Sequence anti-forking is enforced by a `UNIQUE(seq)` constraint on `audit_log`. If concurrent transactions race to append to the same tail, SQLite rejects the collision and the loser retries up to 8 times (`_AUDIT_CHAIN_MAX_RETRIES`), guaranteeing a linear sequence without silent forks.
+- **Digest coverage:** The SHA-256 entry hash covers every single stored column in canonical JSON format (`seq`, `id`, `session_id`, `actor_type`, `actor_id`, `event`, `code`, `payload`, `policy_version`, `grant_id`, `envelope_hash`, `created_at`, `prev_hash`). No field is omitted, preventing silent in-place modifications.
+- **Verification:** `GET /evidence/audit-chain/verify` walks the chain from genesis and reports whether the sequence is contiguous and unbroken, naming the exact failure position if corrupted.
+
+**Honest blind spots:**
+1. *Tail truncation:* Truncating the tail leaves a shorter chain that remains internally consistent. Only a `head_hash` published or anchored outside the database detects tail truncation.
+2. *Retroactive migration:* Entries logged before the introduction of the hash chain were linked retroactively at migration based on existing row state; `verify_audit_chain` explicitly counts and reports `retroactively_linked` rows.
 
 ## Deterministic operation and failure handling
 
@@ -301,8 +312,9 @@ fallback, not evidence of a live Razorpay transaction.
 - Only `create_payment_link` is registered. The build does not demonstrate
   capture, refund, subscription, or arbitrary MCP action authorization.
 - The primary demo proves payment-link issuance, not payment settlement.
-- The audit log rejects row updates and deletes, but is not cryptographically
-  tamper-evident or independently anchored.
+- The audit log is hash-linked against interior modification, but tail truncation
+  cannot be detected without an external head-hash anchor, and pre-migration rows
+  were linked retroactively.
 - The deterministic planner and simulated actuator make the offline demo
   reliable, but they must be labelled as fallbacks rather than live AI or live
   Razorpay evidence.

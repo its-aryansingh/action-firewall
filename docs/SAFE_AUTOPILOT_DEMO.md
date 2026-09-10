@@ -26,24 +26,26 @@ The offline path uses the same envelope verifier, atomic reservation, exact
 grant, actuator boundary, lifecycle store, and receipt code as the UI. It uses
 a simulated provider and must be labeled as such.
 
-## 0:00–0:30 — show the product
+## 0:00–0:30 — the thesis: evidence beats assertion
 
 **Screen:** `/`.
 
 **Say:**
 
-> “Agentic checkout breaks when every inventory change needs a new cart
-> approval, but giving the model broad payment access is worse. Action Firewall
-> lets the shopper approve the job once—merchant, maximum, item constraints,
-> destination, deadline, expiry, one use—and gives the AI zero authority beyond
-> those fields.”
+> “In agentic commerce, evidence you can re-run beats assertion you have to trust.
+> Early on, we thought publishing merchant rules could prevent 88% of order
+> failures—until an audit caught us conflating store rules with customer envelopes.
+> The true measured figure was 47.1% (400 of 850 violations). We didn’t hide it;
+> we put the error in the docstring and locked it in CI.
+>
+> That discipline taught us what’s really broken: a spend cap does almost none
+> of the work. On this demo envelope, our admission readback shows `cap_binds = false`:
+> the dearest permitted basket is ₹527 against a ₹7,840 ceiling. A budget limits
+> amount, but an Envelope limits meaning—and a cap-only guard leaks 81.2% of
+> policy violations.”
 
-Point to the benchmark first: 100/100 legitimate jobs completed without action-time
-intervention, 50/50 eligible stock losses recovered, and 0/150 unsafe drift attempts
-automatically authorized. Label it as a synthetic workflow benchmark.
-
-Then point to the live authorization path: AI drafts; the shopper activates; code
-verifies; the actuator accepts one exact grant.
+Point to the four-step pipeline: published rules, customer-approved Envelope,
+agent execution, and tamper-evident dispute pack.
 
 ## 0:30–1:20 — activate bounded authority
 
