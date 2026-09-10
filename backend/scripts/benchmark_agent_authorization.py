@@ -139,6 +139,7 @@ DIMENSIONS: dict[str, tuple[str, ...]] = {
         "stock_shortfall",
         "near_cap_compliant",
         "lookalike_tag_compliant",
+        "semantic_drift",
     ),
     "strict_execution_and_hallucination": (
         "normal",
@@ -260,6 +261,44 @@ def build_case(seed: int, family: str) -> dict:
                 envelope,
                 max_total_paise=max(envelope.max_total_paise, quote.cart.total_paise + 10_000),
             )
+    elif family == "semantic_drift":
+        # IntentGuard's headline case, deterministically. Every monetary and
+        # categorical guard passes: inside the cap, approved merchant, allowed
+        # channel category, in stock, honest catalog facts, all slots satisfied.
+        # The only thing wrong with the line is that it serves no approved
+        # purpose — precisely what a spend cap cannot express and a slot can.
+        from app.channel_policy import DEFAULT_CHANNEL_POLICY as _CP
+        _allowed = {c.lower() for c in _CP["allowed_categories"]}
+        _blocked = {c.lower() for c in _CP["blocked_categories"]}
+        slot_tags = {t for s in envelope.slots for t in s.required_tags}
+        candidates = [
+            p for p in catalog.load_catalog()
+            # must clear the CHANNEL policy too, or the refusal comes from the
+            # category guard and this family measures the wrong mechanism
+            if p["category"].lower() in _allowed
+            and p["category"].lower() not in _blocked
+            and p["category"] not in envelope.blocked_categories
+            and not set(p.get("tags", [])) & set(envelope.blocked_tags)
+            and not any(set(s.required_tags).issubset(set(p.get("tags", [])))
+                        for s in envelope.slots)
+            and p["sku"] not in {l.sku for l in quote.cart.lines}
+            and catalog.available_stock(p["sku"]) >= 1
+        ]
+        # Prefer an item sharing NO tag with any slot: unmistakable drift rather
+        # than a near-miss. Highest price, then SKU, so the pick is deterministic.
+        unrelated = [p for p in candidates
+                     if not set(p.get("tags", [])) & slot_tags] or candidates
+        if unrelated:
+            indulgence = sorted(unrelated,
+                                key=lambda p: (-p["price_paise"], p["sku"]))[0]
+            quote = _rehash_quote(quote, cart=Cart(lines=[*quote.cart.lines, CartLine(
+                sku=indulgence["sku"], name=indulgence["name"],
+                category=indulgence["category"],
+                unit_price_paise=indulgence["price_paise"], qty=1)]))
+            # Raise the cap ABOVE the new total so the cap cannot be the reason
+            # this is refused. If the cap fires, the family measures nothing.
+            envelope = _rehash(envelope,
+                               max_total_paise=quote.cart.total_paise + 50_000)
     elif family == "substitution_exhausted":
         # Every eligible candidate genuinely gone, not a scenario flag.
         for line in quote.cart.lines:

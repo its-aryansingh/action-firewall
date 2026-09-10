@@ -3,8 +3,8 @@
   "scope": "Synthetic, deterministic policy-compliance measurement of the merchant authorization layer. Constructed proposals, not sampled live agent behaviour. No claim of production conversion, settlement, or recovered revenue. Rupee figures are face value of synthetic carts.",
   "corpus": {
     "seeds": 50,
-    "families": 21,
-    "cases": 1050,
+    "families": 22,
+    "cases": 1100,
     "goal_fixtures": [
       "pasta dinner",
       "breakfast run",
@@ -17,33 +17,33 @@
       "protein top-up",
       "desk gadgets"
     ],
-    "distinct_carts": 116,
+    "distinct_carts": 126,
     "compliant_cases": 250,
-    "violating_cases": 800,
+    "violating_cases": 850,
     "k": 5
   },
   "headline": {
-    "completion_under_policy": 0.5314,
+    "completion_under_policy": 0.5527,
     "cup_compliant_only": 1.0,
     "replay_identity": 1.0,
     "violation_escape_rate": 0.0,
     "acceptance_rate_compliant": 1.0,
-    "repair_rate": 0.385,
+    "repair_rate": 0.4212,
     "false_positive_rate": 0.0
   },
   "money_paise": {
-    "proposed": 88152972,
-    "settled_with_layer": 28946400,
-    "recovered_by_repair": 15670900,
+    "proposed": 95393972,
+    "settled_with_layer": 31942400,
+    "recovered_by_repair": 18666900,
     "false_positive_cost": 0,
-    "counterfactual_settled_without_layer": 88152972,
-    "counterfactual_violating_value_that_would_have_completed": 74877472
+    "counterfactual_settled_without_layer": 95393972,
+    "counterfactual_violating_value_that_would_have_completed": 82118472
   },
   "cap_only_baseline": {
     "what_it_checks": "cart total <= envelope cap, and nothing else",
-    "violations_it_would_authorise": 640,
-    "of_violating_cases": 800,
-    "escape_rate": 0.8
+    "violations_it_would_authorise": 690,
+    "of_violating_cases": 850,
+    "escape_rate": 0.8118
   },
   "holdout": {
     "dev_seeds": 35,
@@ -61,27 +61,27 @@
     },
     "configurations": {
       "no_layer": {
-        "violations_authorised_paise": 178877472,
+        "violations_authorised_paise": 192618472,
         "legitimate_refused_paise": 0,
         "revenue_kept_by_repair_paise": 0,
-        "total_paise": 178877472
+        "total_paise": 192618472
       },
       "cap_only_guard": {
-        "violations_authorised_paise": 115892950,
+        "violations_authorised_paise": 129633950,
         "legitimate_refused_paise": 0,
         "revenue_kept_by_repair_paise": 0,
-        "total_paise": 115892950
+        "total_paise": 129633950
       },
       "action_firewall": {
         "violations_authorised_paise": 0,
         "legitimate_refused_paise": 0,
-        "revenue_kept_by_repair_paise": -15054900,
-        "total_paise": -15054900
+        "revenue_kept_by_repair_paise": -17950900,
+        "total_paise": -17950900
       }
     },
     "lowest_cost": "action_firewall",
     "highest_cost": "no_layer",
-    "difference_paise": 193932372,
+    "difference_paise": 210569372,
     "caveat": "Modelled consequences under stated assumptions, not observed outcomes. Not a claim of fraud prevented, chargebacks avoided, or revenue recovered. Only the outcome mix is measured; every price attached to an outcome is an assumption, and sensitivity() shows which ones change the answer.",
     "sensitivity": {
       "baseline_winner": "action_firewall",
@@ -124,8 +124,8 @@
       "risk_band": "Low"
     },
     "boundary_and_scope_limitation": {
-      "cases": 400,
-      "policies_checked": 300,
+      "cases": 450,
+      "policies_checked": 350,
       "violations_escaped": 0,
       "risk_ratio": 0.0,
       "risk_band": "Low"
@@ -220,6 +220,13 @@
       "cases": 50,
       "completed": 50,
       "repaired": 0,
+      "refused": 0,
+      "escaped": 0
+    },
+    "semantic_drift": {
+      "cases": 50,
+      "completed": 50,
+      "repaired": 50,
       "refused": 0,
       "escaped": 0
     },

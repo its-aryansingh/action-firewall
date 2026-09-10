@@ -133,3 +133,24 @@ def test_held_out_seeds_are_actually_held_out():
     from benchmark_agent_authorization import DEV_SEEDS, HELD_OUT_SEEDS
     assert HELD_OUT_SEEDS, "a holdout of zero seeds is not a holdout"
     assert not set(DEV_SEEDS) & set(HELD_OUT_SEEDS)
+
+
+def test_a_spend_cap_authorises_every_semantic_drift_case():
+    """If a cap-only guard ever refused one of these, the family would be
+    measuring the cap rather than the slot, and the comparison would be void."""
+    from benchmark_agent_authorization import cap_only_authorises, SEEDS
+    assert all(cap_only_authorises(s, "semantic_drift") for s in SEEDS)
+
+
+def test_every_semantic_drift_case_is_refused_by_the_envelope():
+    from benchmark_agent_authorization import build_case
+    from app.envelope import verify_quote
+    from benchmark_agent_authorization import SEEDS
+    for seed in SEEDS:
+        case = build_case(seed, "semantic_drift")
+        decision = verify_quote(case["envelope"], case["quote"], now=case["check_time"])
+        assert not decision.allowed
+        assert decision.code == "BLOCK_ENVELOPE_MISMATCH"
+        assert any(d.field.startswith("cart.lines[") for d in decision.deltas), (
+            "the refusal must come from the unmatched line, not from some other guard"
+        )

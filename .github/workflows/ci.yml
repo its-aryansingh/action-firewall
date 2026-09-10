@@ -89,6 +89,11 @@ jobs:
           FAULT_INJECTION_ENABLED: "true"
         run: python scripts/publication_value.py
 
+      # Exits non-zero if any authorization module imports baseline LLM modules
+      # or inspects free-text product descriptions.
+      - name: "Mechanism isolation: zero LLM imports and zero description reads in authorization"
+        run: python -m pytest -q tests/test_mechanism_isolation.py
+
       # The deterministic evaluators. Every one of these exits non-zero on a
       # regression, so the offline demo cannot silently stop working between the
       # last time anyone ran it and the moment it is presented.

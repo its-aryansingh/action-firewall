@@ -100,6 +100,8 @@ DISCLOSURE: dict[str, tuple[str, str]] = {
         ENVELOPE, "slot quantity is per-customer"),
     "fulfillment_drift": (
         ENVELOPE, "fulfillment_profile_id is chosen by the customer, not published"),
+    "semantic_drift": (
+        ENVELOPE, "slots are per-customer and not the merchant's to publish"),
 
     "catalog_fact_tamper": (
         NEITHER, "forged line facts"),
