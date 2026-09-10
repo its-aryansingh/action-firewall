@@ -2,7 +2,32 @@
 
 **Razorpay AI Buildathon — Track 01: AI Growth & Agentic Commerce**
 
-**Documentation & Pitch:** [docs/pitch-deck.html](docs/pitch-deck.html) · **Runs locally in three commands** ([§7](#7-run-it-three-commands-from-clean-clone))
+> A store that can safely say yes to an AI buyer — and prove to someone who does not trust it that saying yes was correct.
+
+Documentation & Pitch: [docs/pitch-deck.html](docs/pitch-deck.html) · Runs locally in three commands ([§7](#7-run-it-three-commands-from-clean-clone))
+
+---
+
+### Four things here that are unusual
+
+**1 · A stranger can re-execute the authorisation decision.**
+Every attempt leaves an evidence pack containing everything the decision consumed — the approved rule, the words the customer was shown, the server-priced quote, the catalog facts, the stock reading. `scripts/verify_dispute_pack.py` re-runs the authorisation on those inputs and compares the answer to the recorded one, with **no database, no signing key and no network**. A merchant answering a chargeback can hand the file to the acquirer and be checked rather than believed. A layer that asks a language model at authorisation time cannot offer this: the samples that produced its decision no longer exist.
+
+**2 · The customer approves a rule, not a sentence.**
+Their shopping goal is compiled once into an explicit Purchase Envelope — slots, tags, merchant, ceiling, expiry — rendered back in plain English by a **pure function of that envelope**, and hashed before any authority exists. Because the sentence is derived from the rule, anyone can recompute the exact words that were displayed. Not *"we logged that they approved envelope env_9f3a"*, but the words themselves, derivable from the hash. After activation no model gets another say.
+
+**3 · The envelope tells you what it would let through, before you sign it.**
+"One item tagged `cheese`" reads as a formality. The readback shows it admits **3 items, ₹135–₹899, dearest Parmigiano Reggiano** — and that the ₹7,840 ceiling is not what is protecting you, because the dearest basket the rule permits is ₹527. Most "AI spending guardrails" *are* that ceiling; [§3.2](#32-policy-compliance-and-recovery-1100-cases) shows what one lets through.
+
+**4 · Every number below is printed by a script that fails the build when it stops being true.**
+And three times this repository published something wrong. Each correction is in the git history, and [§8](#8-three-times-this-repository-was-wrong) tells you what broke.
+
+| | |
+|---|---|
+| Authorization core | `backend/app/envelope.py`, `backend/app/store.py` |
+| Evidence | `backend/app/consent.py`, `backend/app/dispute.py` |
+| Verify it yourself | `backend/scripts/verify_dispute_pack.py` + [`docs/samples/dispute_pack.json`](docs/samples/dispute_pack.json) |
+| Benchmarks | `backend/scripts/` — all gated in [CI](.github/workflows/ci.yml) |
 
 ---
 
@@ -57,9 +82,9 @@ a quote whose hash was not recomputed is never authorised
 
 The first test in the file is `test_the_grammar_can_produce_authorised_orders`. Without it the other thirteen could all pass against a generator that only ever emits carts nothing would authorise — a property suite that proves nothing while looking rigorous.
 
-### 3.2 Policy compliance and recovery (1,050 cases)
+### 3.2 Policy compliance and recovery (1,100 cases)
 
-50 fixed seeds × 21 failure families, grouped under ST-WebAgentBench's six policy dimensions, with 15 seeds held out until the numbers were final.
+50 fixed seeds × 22 failure families, grouped under ST-WebAgentBench's six policy dimensions, with 15 seeds held out until the numbers were final.
 
 ```powershell
 python scripts/benchmark_agent_authorization.py --k 5
@@ -67,25 +92,25 @@ python scripts/benchmark_agent_authorization.py --k 5
 
 ```text
 Agent-authorization benchmark
-  corpus                      1050 cases (50 seeds x 21 families), k=5
-  composition                 250 legitimate / 800 constructed policy violations
-  Completion under Policy     53.1%   (share of ALL proposals ending in a clean completed order)
+  corpus                      1100 cases (50 seeds x 22 families), k=5
+  composition                 250 legitimate / 850 constructed policy violations
+  Completion under Policy     55.3%   (share of ALL proposals ending in a clean completed order)
     of legitimate proposals   100.0%
   replay identity (5x)      100.0%   (regression guard, not a reliability metric)
   violation escape rate       0.00%
   acceptance (compliant)      100.0%
-  repair rate (of refused)    38.5%
+  repair rate (of refused)    42.1%
   false-positive rate         0.00%
   false-positive cost         Rs 0.00
-  value recovered by repair   Rs 156,709.00
-  value that would have completed without the layer, in violation  Rs 748,774.72
-  cap-only guard would let through  640 of 800 violations (80.0%)
+  value recovered by repair   Rs 186,669.00
+  value that would have completed without the layer, in violation  Rs 821,184.72
+  cap-only guard would let through  690 of 850 violations (81.2%)
   held out (15 unseen seeds)   escape 0.00%, false-positive 0.00%
 
   modelled cost of each configuration (assumptions, not measurements):
-    no_layer             Rs    1,788,775
-    cap_only_guard       Rs    1,158,930
-    action_firewall      Rs     -150,549
+    no_layer             Rs    1,926,185
+    cap_only_guard       Rs    1,296,340
+    action_firewall      Rs     -179,509
     lowest cost: action_firewall  ·  ordering robust to every single-assumption sweep: True
 
   risk by policy dimension (bands are ours, not ST-WebAgentBench's):
@@ -99,7 +124,7 @@ Agent-authorization benchmark
   Synthetic, deterministic policy-compliance measurement of the merchant authorization layer. Constructed proposals, not sampled live agent behaviour. No claim of production conversion, settlement, or recovered revenue. Rupee figures are face value of synthetic carts.
 ```
 
-**The row that matters is the comparator.** A spend cap is what almost every "AI spending guardrail" in the wild actually is, and it lets 640 of these 800 violations through. Zero escapes is only interesting next to that 80%.
+**The row that matters is the comparator.** A spend cap is what almost every "AI spending guardrail" in the wild actually is, and it lets 690 of these 850 violations through. Zero escapes is only interesting next to that 81.2%.
 
 The 250 legitimate proposals include near-miss families — carts sitting exactly on a boundary — so that a layer which simply refuses everything scores badly rather than perfectly. It refuses none of them.
 
@@ -113,14 +138,14 @@ python scripts/ablation.py
 
 ```text
   ablation                            escaped     of     rate  note
-  full_layer                                0    800     0.0%  every rule active — the shipped configuration
-  no_ingredient_tag_rule                   50    800     6.2%  merchant sets no blocked_tags
-  no_category_rule                         50    800     6.2%  merchant sets no blocked_categories
-  no_spend_cap                             50    800     6.2%  cap raised beyond any cart in the corpus
-  no_expiry                                50    800     6.2%  envelope never expires
-  no_slot_requirements                    190    800    23.8%  slots accept almost anything
-  no_stock_check                          100    800    12.5%  every shelf refilled, so availability never binds
-  envelope_widened_and_rehashed           200    800    25.0%  ATTACK, not a setting: every rule removed and the digest recomputed
+  full_layer                                0    850     0.0%  every rule active — the shipped configuration
+  no_ingredient_tag_rule                   50    850     5.9%  merchant sets no blocked_tags
+  no_category_rule                         50    850     5.9%  merchant sets no blocked_categories
+  no_spend_cap                             50    850     5.9%  cap raised beyond any cart in the corpus
+  no_expiry                                50    850     5.9%  envelope never expires
+  no_slot_requirements                    240    850    28.2%  slots accept almost anything
+  no_stock_check                          100    850    11.8%  every shelf refilled, so availability never binds
+  envelope_widened_and_rehashed           200    850    23.5%  ATTACK, not a setting: every rule removed and the digest recomputed
 
   Every rule changed an outcome on at least one case: none is dead weight.
 ```
@@ -165,13 +190,13 @@ python scripts/publication_value.py
 ```text
   channel                 violations  hard refusals     value at stake
   acceptance_policy              400            292      Rs 420,505.00
-  purchase_envelope              300            150       Rs 89,880.00
+  purchase_envelope              350            150       Rs 89,880.00
   neither                        100             50       Rs 29,960.00
 ```
 
-Of 800 constructed violations, **400 (50%) would never have been proposed** by an agent that fetched the merchant acceptance policy ([§5](#5-what-an-agent-can-read-before-it-proposes)) first. Of the 492 refusals no repair could rescue, 292 were preventable that way — **₹4,20,505 of orders that died for want of a rule the store already knew and never said.**
+Of 850 constructed violations, **400 (47.1%) would never have been proposed** by an agent that fetched the merchant acceptance policy ([§5](#5-what-an-agent-can-read-before-it-proposes)) first. Of the 492 refusals no repair could rescue, 292 were preventable that way — **₹4,20,505 of orders that died for want of a rule the store already knew and never said.**
 
-A further 300 were preventable from the customer's own Purchase Envelope, which the agent already holds. Those are counted **separately and not claimed for the endpoint**, because slots and quantities are per-customer and not the merchant's to publish. The remaining 100 are forged prices and forged digests: publication prevents mistakes, not attacks, and the script says so in its own output.
+A further 350 were preventable from the customer's own Purchase Envelope, which the agent already holds. Those are counted **separately and not claimed for the endpoint**, because slots and quantities are per-customer and not the merchant's to publish. The remaining 100 are forged prices and forged digests: publication prevents mistakes, not attacks, and the script says so in its own output.
 
 ---
 
@@ -204,6 +229,48 @@ Two design decisions are worth stating plainly:
 - **It is generated, never hand-maintained.** The document is built from the same objects the verifier reads (`DEFAULT_CHANNEL_POLICY`, `DEFAULT_BLOCKED_TAGS`, `ACTION_REGISTRY`). A published policy that has drifted from enforcement is worse than none, because it invites an agent to rely on a promise the server will not keep. `tests/test_acceptance_policy.py` proves each published rule *behaviourally* — it builds a cart that violates the rule and asserts the verifier actually refuses — and one test fails if a rule is added to the verifier and never published.
 - **It is not served at `/.well-known/ucp`.** UCP's well-known path is a real convention with a real schema and a council behind it. Serving something else there would be a near-miss of a published standard rather than an implementation of one. This is our own document and it says so in its `schema` field.
 
+### Evidence endpoints
+
+Three artifacts, each answering a different question a dispute actually asks.
+
+```
+GET  /evidence/consent/{envelope_id}            # what the customer was shown
+GET  /evidence/dispute-pack/{attempt_id}        # everything one decision consumed  (merchant-admin only)
+POST /evidence/dispute-pack/verify              # check a pack        (unauthenticated)
+GET  /evidence/audit-chain/verify               # walk the audit hash chain (unauthenticated)
+```
+
+**The pack is merchant-only; the verifiers are public.** An integrity check nobody outside can run proves nothing, and a customer's basket and prices are not public. The two need opposite answers, and one implementation serves both the HTTP route and the CLI — two verifiers drift, and the drift gets found by whoever trusted the wrong one.
+
+```powershell
+python scripts/verify_dispute_pack.py docs/samples/dispute_pack.json
+```
+
+```text
+VALID — every claim in this pack re-derives.
+
+  Independently re-derived — no trust in the merchant required:
+    - the rule the customer approved, and the words they were shown
+    - the catalog facts the decision was taken against
+    - the quote, and that the authority is bound to it
+    - that the authority is bound to the approved rule and basket
+    - that the receipt describes this authority
+    - that the audit entries in this pack are linked
+    - THE DECISION ITSELF — re-running it on these inputs gives this outcome
+
+  Attested by the merchant, NOT proven:
+    - stock at decision time — nobody can prove what was on a shelf; the audit
+      chain fixes when the reading was recorded, not what it was
+    - the receipt HMAC — needs the merchant's signing key
+    - that a human read the sentence — unknowable from any artifact
+```
+
+Stock is the one input a third party cannot independently prove, so the obvious attack is to overstate it and claim the order should have gone through. It does not work: the decision is re-derived **from** the attested figure, so inflating it changes the re-derived outcome and the mismatch surfaces. `test_inflating_the_attested_stock_cannot_launder_a_refusal` is the assertion.
+
+**Refusals are evidenced too** — the case a merchant most needs and an authorisation ledger structurally never keeps, because nothing was authorised to leave a row.
+
+Walks the hash-linked audit entries from genesis and reports whether every entry's digest and predecessor pointer hold. It is unauthenticated so third parties can independently verify log integrity without holding application credentials. The honest limit: while interior edits, deletions, or reorderings break the chain and are locatable, truncating the tail leaves an internally consistent chain unless verified against an external `head_hash`.
+
 ---
 
 ## 6. What this is not (Honest Limits)
@@ -212,7 +279,7 @@ To preserve technical integrity, we state explicit boundaries:
 
 - **Not an NPCI, UPI, or Banking Mandate:** The Purchase Envelope is an application-level permission container enforcing merchant-side semantic bounds. It does not replace card network rules or UPI rails.
 - **Not a Private Vulcan Integration:** Vulcan is product context for intelligent routing and checkout optimization. This repository does not claim access to unreleased Vulcan APIs or internal Razorpay models.
-- **Synthetic Correctness Evidence:** The 1,050-case corpus (800 of them constructed violations) measures synthetic deterministic authorization correctness under adversarial inputs. It does not claim measured human conversion, merchant revenue lift, or production settlement rates. Rupee figures are the face value of synthetic carts.
+- **Synthetic Correctness Evidence:** The 1,100-case corpus (850 of them constructed violations) measures synthetic deterministic authorization correctness under adversarial inputs. It does not claim measured human conversion, merchant revenue lift, or production settlement rates. Rupee figures are the face value of synthetic carts.
 - **Not the First Deterministic Agentic-Commerce Benchmark:** AIP-Bench (arXiv:2607.21824) describes itself that way. The corpus here is a policy-compliance harness for this specific authorization layer, with a held-out seed split — not a general benchmark, and not a first.
 - **Risk Bands Are Ours:** The Low/Medium/High bands applied to the six ST-WebAgentBench policy dimensions are this project's thresholds. ST-WebAgentBench defines the dimensions; it does not define those bands.
 - **Cost Model Assumptions:** The economic model uses stated assumptions across merchant margins and dispute costs to demonstrate relative ordering robustness under parameter sweeps; it is not derived from audited financial books. Every assumption is a named constant in `app/cost_model.py` with its source.
@@ -257,6 +324,110 @@ deployed instance runs the real authorization engine against the **simulated**
 provider: no Razorpay key is baked into either image, `.dockerignore` keeps
 `.env` and `*.db` out of the build context, and `/health` reports the active
 provider so the claim is checkable from outside. See [DEPLOY.md](DEPLOY.md).
+
+---
+
+---
+
+## 8. Three times this repository was wrong
+
+Every claim above is produced by a script that fails the build when it stops
+being true. That machinery exists because three times this project published
+something that was not, and each time the fix was to make the number impossible
+to state without computing it. The corrections are in the git history; here is
+what actually broke.
+
+### 8.1 The 88% that was really 47%
+
+`acceptance_policy.py` claimed **88% of policy violations would never have been
+proposed** by an agent that fetched the merchant's published rules first. It was
+the best number in the project and it was wrong.
+
+The count had folded two different things together. Some violations break a rule
+the *merchant* publishes — a blocked category, an order ceiling. Others break a
+rule from the *customer's own Purchase Envelope* — a slot, a quantity. The second
+group is per-customer and is not the merchant's to publish, so no acceptance
+policy could ever have prevented them. Counting them made publication look
+almost twice as valuable as it is.
+
+The fix was not to edit the number. It was `scripts/publication_value.py`, which
+recomputes it from the corpus on every CI run, and which reports the two channels
+**separately** so they can never be added together again. The docstring names the
+original error rather than quietly deleting it. The honest figure is in
+[§3.5](#35-what-publishing-the-rules-is-worth), and it moves when the corpus
+grows — which is the point. A number you cannot restate without running something
+is a number that cannot rot.
+
+### 8.2 The dependency set that had never been installed
+
+The first deployment failed with `ResolutionImpossible`. The cause:
+
+```
+requirements.txt pins   pydantic==2.10.4
+mcp==1.27.0 requires    pydantic>=2.11.0,<3.0.0
+```
+
+Those two constraints have no solution. `pip` cannot install this project, and
+could not have at any point in its history.
+
+It survived because nobody had ever tried. The development machine already had a
+much newer stack — fastapi 0.141 against a pinned 0.115, pydantic 2.13 against a
+pinned 2.10, pinecone 10 against a pinned 5 — so every local run used packages
+the file did not describe. `hypothesis` was not listed at all, despite
+`tests/test_authorization_properties.py` importing it. **The first environment to
+read that file honestly was the deployment, and it refused.**
+
+The repair was not just correcting the pins. It was building a clean CPython
+3.11.15 virtualenv — the version `backend/Dockerfile` and CI both use, and which
+had therefore never actually run the suite, because the install step failed
+before pytest could start — installing from scratch, and running everything
+there. A lockfile nobody has ever restored from is a wish.
+
+### 8.3 The verifier that caught its own author
+
+`scripts/verify_dispute_pack.py` was written to catch a merchant doctoring
+evidence. Its first run, on a freshly generated and entirely honest pack, failed:
+
+```
+FAILED — this evidence pack does not hold up.
+  check     grant.envelope_hash
+  reason    the authority is bound to a different rule from the one the customer approved
+```
+
+The pack builder was rebuilding the consent record from `get_envelope(id)` —
+today's row. A consumed envelope carries a bumped version and a **new hash**, so
+the pack's own consent record and its own grant disagreed about which rule had
+been approved. Every pack ever produced would have failed the moment anyone
+checked it, and the failure would have looked exactly like fraud.
+
+The envelope as it stood at decision time is now stored in `decision_records` and
+used to build the pack. The bug lived for about ninety seconds, and only because
+the verifier was written to be adversarial toward the system that produces the
+thing it checks. A verifier that trusts its own pipeline is decoration.
+
+### 8.4 The one that did not ship
+
+Two writers appending to the audit chain read the same tail and both compute the
+same `prev_hash`. The result is a fork: two entries, same predecessor, both
+internally valid, and no way afterwards to say which is the real history. On a
+single-threaded demo it would never have appeared.
+
+`UNIQUE(seq)` turns that silent fork into a constraint violation the losing
+writer retries. `test_concurrent_writers_produce_one_chain_not_two` runs four
+threads appending ten events each and asserts exactly forty linked entries. The
+same reasoning is why authorisation and reservation are one `BEGIN IMMEDIATE`
+transaction — [§3.4](#34-concurrency-does-the-cap-hold-when-orders-collide)
+measures what happens without it: a ₹1,000 cap authorising ₹3,150 of orders, in
+**every** trial.
+
+### What the pattern is
+
+None of these were found by being careful. They were found by building things
+whose job is to disagree with the system that made them — a script that
+recomputes a claim, a clean environment that has never seen the developer's
+machine, a verifier written to assume the pack is a forgery. That is the same
+argument the product makes: **evidence you can re-run beats assertion you have to
+trust**, and it applies to the authors first.
 
 ---
 
