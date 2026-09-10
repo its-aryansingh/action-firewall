@@ -13,6 +13,7 @@ import {
   type RefundPolicy,
   type RefundEvaluateResponse,
   type RefundExecuteResponse,
+  type Health,
 } from "@/lib/api";
 import { Card, KpiCard, StatusChip, EvidenceBadge, EmptyState } from "@/components/ui";
 
@@ -24,13 +25,14 @@ const QUICK_GOALS = [
 ];
 
 export default function AIPlaygroundPage() {
+  const [health, setHealth] = useState<Health | null>(null);
   const [goal, setGoal] = useState("Pantry restock: Oat milk 1L, Penne 500g, Tomato passata");
   const [budgetRupees, setBudgetRupees] = useState("7840");
   const [buyerType, setBuyerType] = useState<"gemini" | "replay">("gemini");
-  const [scenario, setScenario] = useState<AutopilotScenario>("stock_loss");
+  const [scenario, setScenario] = useState<AutopilotScenario>("normal");
 
   // Workbench Mode: "single", "race", or "refund"
-  const [workbenchMode, setWorkbenchMode] = useState<"race" | "single" | "refund">("race");
+  const [workbenchMode, setWorkbenchMode] = useState<"race" | "single" | "refund">("single");
 
   // Slippage & Outbound Refund States
   const [slippageItems, setSlippageItems] = useState<SlippageItem[]>([]);
@@ -47,6 +49,18 @@ export default function AIPlaygroundPage() {
   const [refundExecResult, setRefundExecResult] = useState<RefundExecuteResponse | null>(null);
   const [refundBusy, setRefundBusy] = useState(false);
   const [refundNotice, setRefundNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.health().then((h) => {
+      setHealth(h);
+      if (h.payment_provider === "razorpay_rest") {
+        setWorkbenchMode("single");
+        setScenario("normal");
+      }
+    }).catch(() => {});
+  }, []);
+
+  const isLiveRazorpay = health?.payment_provider === "razorpay_rest";
 
   // Load slippage and policy when refund tab opens
   useEffect(() => {
@@ -443,7 +457,8 @@ export default function AIPlaygroundPage() {
             action={
               <button
                 onClick={runTwoLaneRace}
-                disabled={raceRunning}
+                disabled={raceRunning || isLiveRazorpay}
+                title={isLiveRazorpay ? "Drift race requires Simulated provider mode per Invariant 17" : undefined}
                 className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-primary-hover disabled:opacity-50 transition"
               >
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -453,6 +468,18 @@ export default function AIPlaygroundPage() {
               </button>
             }
           >
+            {isLiveRazorpay && (
+              <div className="mb-6 rounded-xl border border-warning/30 bg-warning/10 p-4 text-xs">
+                <div className="flex items-center gap-2 font-bold text-warning">
+                  <span>⚠️ Connected to Razorpay Test Mode ({health?.payment_provider})</span>
+                </div>
+                <p className="mt-1 text-muted leading-relaxed">
+                  Under Action Firewall <strong>Security Invariant 17</strong>, synthetic fault injection (catalog stock loss drift) is strictly blocked when connected to a live payment gateway.
+                  To run live checkouts with real Razorpay payment links, switch to the <strong>4-Stage Workbench</strong>.
+                  To demonstrate this side-by-side catalog drift race, set <code className="font-mono text-text bg-canvas px-1.5 py-0.5 rounded">PAYMENT_PROVIDER=simulated</code> in <code className="font-mono text-text bg-canvas px-1.5 py-0.5 rounded">backend/.env</code>.
+                </p>
+              </div>
+            )}
             {/* Goal Input Bar */}
             <div className="mb-6 rounded-xl border border-border bg-canvas/40 p-4">
               <label className="text-[11px] font-bold uppercase tracking-wider text-muted block mb-1">
@@ -653,46 +680,68 @@ export default function AIPlaygroundPage() {
                   {
                     id: "normal",
                     name: "Normal Checkout",
-                    desc: "Catalog verified; payment link issued immediately",
+                    desc: "Catalog verified; live Razorpay payment link issued immediately",
+                    liveReady: true,
                   },
                   {
                     id: "stock_loss",
                     name: "Stock Loss (In-Envelope Recovery)",
                     desc: "Penne is out of stock; automatically substitutes Spaghetti No.5 inside envelope",
+                    liveReady: false,
                   },
                   {
                     id: "merchant_drift",
                     name: "Merchant Drift (Adversarial Refusal)",
                     desc: "Agent attempts unapproved merchant drift; stopped before actuator with Policy Delta",
+                    liveReady: false,
                   },
                   {
                     id: "timeout_after_dispatch",
                     name: "Provider Timeout (Safety Holding)",
                     desc: "Provider call hangs; outcome held as UNKNOWN with zero blind retries",
+                    liveReady: false,
                   },
-                ].map((s) => (
-                  <label
-                    key={s.id}
-                    className={`flex items-start gap-3 p-3 rounded-xl border text-xs cursor-pointer transition ${
-                      scenario === s.id
-                        ? "border-primary bg-primary/[0.03] shadow-xs"
-                        : "border-border bg-canvas/40 hover:bg-canvas"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="scenario"
-                      value={s.id}
-                      checked={scenario === s.id}
-                      onChange={() => setScenario(s.id as AutopilotScenario)}
-                      className="mt-0.5 text-primary focus:ring-0"
-                    />
-                    <div>
-                      <div className="font-semibold text-text">{s.name}</div>
-                      <div className="text-[11px] text-muted mt-0.5 leading-snug">{s.desc}</div>
-                    </div>
-                  </label>
-                ))}
+                ].map((s) => {
+                  const disabled = isLiveRazorpay && !s.liveReady;
+                  return (
+                    <label
+                      key={s.id}
+                      className={`flex items-start gap-3 p-3 rounded-xl border text-xs transition ${
+                        disabled
+                          ? "opacity-50 cursor-not-allowed border-border bg-canvas/20"
+                          : scenario === s.id
+                          ? "border-primary bg-primary/[0.03] shadow-xs cursor-pointer"
+                          : "border-border bg-canvas/40 hover:bg-canvas cursor-pointer"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="scenario"
+                        value={s.id}
+                        disabled={disabled}
+                        checked={scenario === s.id}
+                        onChange={() => setScenario(s.id as AutopilotScenario)}
+                        className="mt-0.5 text-primary focus:ring-0"
+                      />
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-text">{s.name}</span>
+                          {s.liveReady && isLiveRazorpay && (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-success/10 text-success border border-success/30">
+                              Live Ready
+                            </span>
+                          )}
+                          {!s.liveReady && isLiveRazorpay && (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-muted/10 text-muted border border-border">
+                              Simulated Only (Inv. 17)
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-muted mt-0.5 leading-snug">{s.desc}</div>
+                      </div>
+                    </label>
+                  );
+                })}
               </div>
             </div>
 

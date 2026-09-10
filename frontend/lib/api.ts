@@ -229,7 +229,7 @@ export type Health = {
   ok: boolean;
   demo_mode: boolean;
   catalog_size: number;
-  payment_provider: "simulated" | "razorpay_mcp";
+  payment_provider: "simulated" | "razorpay_mcp" | "razorpay_rest" | string;
   catalog_retrieval_mode: "keyword" | "pinecone";
   envelope_drafting_mode: "deterministic" | "llm" | "replay";
   voice_ai_configured: boolean;

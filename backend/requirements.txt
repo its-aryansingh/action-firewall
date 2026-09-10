@@ -1,17 +1,37 @@
-fastapi==0.115.6
-uvicorn[standard]==0.34.0
-pydantic==2.10.4
-pydantic-settings==2.7.0
+# These are the versions the published test and benchmark numbers were produced
+# on. Pinned exactly, because a repository whose headline claim is reproducible
+# measurement cannot ship a dependency set that resolves differently on someone
+# else's machine.
+#
+# The previous file pinned pydantic==2.10.4 while mcp==1.27.0 requires
+# pydantic>=2.11.0, so it could never be installed from clean — pip exits with
+# ResolutionImpossible. It survived unnoticed because the development machine
+# already had a much newer stack (fastapi 0.141, pydantic 2.13, openai 3.8,
+# pinecone 10) and never reinstalled from this file. The first environment to
+# read it honestly was the deployment, which failed.
+#
+# Verified: resolves and installs on Linux / CPython 3.11.15 — the version
+# backend/Dockerfile and CI both use — and the full backend suite (415 tests)
+# passes there. That combination had never actually been exercised, because the
+# install step failed before pytest could run.
+
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+pydantic==2.13.4
+pydantic-settings==2.15.0
 python-dotenv==1.0.1
 httpx==0.28.1
-openai==1.59.6
-pinecone==5.4.2
-langfuse==2.57.0
+openai==3.8.0
+pinecone==10.0.0
+langfuse==2.60.10
 mcp==1.27.0
 razorpay==2.0.1
 google-genai==2.22.0
-pytest==8.3.4
+pytest==9.1.1
+
 # Property-based authorization tests (tests/test_authorization_properties.py).
 # These generate envelopes and carts from a grammar and assert invariants, so
 # the suite does not depend on labels this repository planted for itself.
+# Left as a floor rather than a pin: Hypothesis finds counterexamples, and
+# pinning it would freeze the search at one version's idea of what to try.
 hypothesis>=6.100
