@@ -28,7 +28,6 @@ from .replay_buyer import ReplayBuyer, ReplayBuyerPlan
 
 
 class GeminiDraftOutput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
     understood: bool
     reasoning: str
     proposed_skus: list[str]
@@ -124,19 +123,22 @@ class GeminiBuyer:
 
             # Attempt 1, with single retry on schema failure
             raw_output = None
-            for attempt in range(2):
+            models_to_try = ["gemini-3.8-flash", "gemini-3.6-flash"]
+            used_model = "gemini-3.8-flash"
+            for model_name in models_to_try:
                 try:
                     response = client.models.generate_content(
-                        model="gemini-3.8-flash",
+                        model=model_name,
                         contents=prompt,
                         config=cfg,
                     )
                     raw_text = response.text or "{}"
                     raw_output = GeminiDraftOutput.model_validate_json(raw_text)
+                    used_model = model_name
                     break
-                except Exception as parse_err:
-                    if attempt == 1:
-                        raise parse_err
+                except Exception as model_err:
+                    if model_name == models_to_try[-1]:
+                        raise model_err
 
             if not raw_output or not raw_output.understood:
                 elapsed = (time.perf_counter() - start_t) * 1000
@@ -147,7 +149,7 @@ class GeminiBuyer:
                     slots=[],
                     selected_skus=[],
                     reasoning=raw_output.reasoning if raw_output else "Model did not understand goal",
-                    mode="gemini-3.8-flash",
+                    mode=used_model,
                     latency_ms=round(elapsed, 2),
                     tool_calls=["discover_storefront", "search_catalog"],
                 )
@@ -168,7 +170,7 @@ class GeminiBuyer:
                 slots=slots,
                 selected_skus=sanitized_skus,
                 reasoning=raw_output.reasoning,
-                mode="gemini-3.8-flash",
+                mode=used_model,
                 latency_ms=round(elapsed, 2),
                 tool_calls=["discover_storefront", "search_catalog", "request_quote"],
             )
