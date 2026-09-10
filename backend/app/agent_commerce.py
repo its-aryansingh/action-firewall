@@ -10,6 +10,7 @@ import time
 import uuid
 from typing import Any
 from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi.responses import JSONResponse
 
 from . import autopilot, catalog, store
 from .authorization import canonical_json
@@ -38,6 +39,7 @@ from .buyer_models import (
     CommerceAttemptRequest,
     CommerceAttemptResponse,
     CommerceAttemptStage,
+    EnvelopeAmendRequest,
     IntentCreateRequest,
     IntentCreateResponse,
     MerchantCapabilities,
@@ -84,7 +86,7 @@ from .commerce_metrics import (
 )
 from .channel_policy import DEFAULT_CHANNEL_POLICY
 from .config import get_settings
-from .envelope import DEFAULT_BLOCKED_TAGS, compute_quote_hash, envelope_readback
+from .envelope import DEFAULT_BLOCKED_TAGS, compute_quote_hash, envelope_readback, validate_slots
 from .mcp_client import unwrap
 from .acceptance_policy import build_acceptance_policy
 from .merchant import CATALOG_REVISION, DEFAULT_MERCHANT_ID, DEFAULT_MERCHANT_NAME, get_merchant_capabilities
@@ -95,12 +97,18 @@ from .models import (
     Cart,
     CartLine,
     EnvelopeActivateRequest,
+    EnvelopeDecision,
     EnvelopeDraftRequest,
+    EnvelopeStatus,
     MerchantQuote,
+    PolicyDelta,
     PurchaseEnvelope,
 )
 from .rate_limit import enforce_rate_limit
 from .receipts import build_receipt
+
+_INTENT_ENVELOPE_MAP: dict[str, str] = {}
+
 
 router = APIRouter(tags=["agent-commerce"])
 
@@ -350,6 +358,7 @@ def create_intent(
         raise HTTPException(422, f"Intent could not be structured: {exc}") from exc
 
     intent_id = f"int_{uuid.uuid4().hex[:12]}"
+    _INTENT_ENVELOPE_MAP[intent_id] = draft.id
     settings = get_settings()
 
     resp = IntentCreateResponse(
@@ -382,12 +391,173 @@ def create_intent(
     return resp
 
 
+@router.post("/intents/{intent_id}/amend", response_model=IntentCreateResponse)
+@router.post("/envelopes/{intent_id}/amend", response_model=IntentCreateResponse)
+def amend_intent(
+    intent_id: str,
+    req: EnvelopeAmendRequest,
+    session_token: str | None = Header(None, alias="X-Shopper-Session"),
+    authorization: str | None = Header(None, alias="Authorization"),
+    x_buyer_agent_id: str | None = Header(None, alias="X-Buyer-Agent-Id"),
+) -> Any:
+    """Apply narrowing-only edits to a draft Purchase Envelope.
+
+    Widening authority is refused with HTTP 409 and Policy Deltas requiring fresh approval.
+    """
+    shopper_principal = verify_shopper_session(session_token)
+    try:
+        buyer_principal = verify_buyer_agent(authorization, x_buyer_agent_id)
+    except Exception:
+        buyer_principal = AgentPrincipal(
+            buyer_agent_id="shopper_ui",
+            merchant_id=DEFAULT_MERCHANT_ID,
+            authenticated=False,
+            key_hash=None,
+        )
+
+    # Resolve envelope from intent mapping or direct envelope id
+    env_id = _INTENT_ENVELOPE_MAP.get(intent_id, intent_id)
+    envelope = store.get_envelope(env_id)
+    if envelope is None and env_id != intent_id:
+        envelope = store.get_envelope(intent_id)
+    if envelope is None:
+        raise HTTPException(status_code=404, detail=f"Unknown intent or envelope: '{intent_id}'")
+
+    deltas: list[PolicyDelta] = []
+
+    # 1. Status must be draft
+    if envelope.status is not EnvelopeStatus.DRAFT:
+        deltas.append(
+            PolicyDelta(
+                field="status",
+                expected="draft",
+                actual=envelope.status.value,
+                recovery="fresh_approval",
+            )
+        )
+
+    # 2. Expected hash must match current hash
+    if req.expected_envelope_hash != envelope.envelope_hash:
+        deltas.append(
+            PolicyDelta(
+                field="envelope_hash",
+                expected=envelope.envelope_hash,
+                actual=req.expected_envelope_hash,
+                recovery="fresh_approval",
+            )
+        )
+
+    # 3. max_total_paise must narrow (<= current)
+    if req.max_total_paise is not None and req.max_total_paise > envelope.max_total_paise:
+        deltas.append(
+            PolicyDelta(
+                field="max_total_paise",
+                expected=f"<={envelope.max_total_paise}",
+                actual=str(req.max_total_paise),
+                recovery="fresh_approval",
+            )
+        )
+
+    # 4. expires_at must narrow (<= current)
+    if req.expires_at is not None and req.expires_at > envelope.expires_at:
+        deltas.append(
+            PolicyDelta(
+                field="expires_at",
+                expected=f"<={envelope.expires_at}",
+                actual=str(req.expires_at),
+                recovery="fresh_approval",
+            )
+        )
+
+    # 5. drop_slot_ids must be a subset of current slot ids, and at least one slot must remain
+    current_slot_ids = {s.id for s in envelope.slots}
+    invalid_drops = set(req.drop_slot_ids) - current_slot_ids
+    if invalid_drops:
+        deltas.append(
+            PolicyDelta(
+                field="drop_slot_ids",
+                expected="subset of current slot ids",
+                actual=str(sorted(invalid_drops)),
+                recovery="fresh_approval",
+            )
+        )
+    remaining_slots = [s for s in envelope.slots if s.id not in set(req.drop_slot_ids)]
+    if len(remaining_slots) < 1:
+        deltas.append(
+            PolicyDelta(
+                field="slots",
+                expected="at least one slot must remain",
+                actual="0 slots remaining",
+                recovery="fresh_approval",
+            )
+        )
+    elif validate_slots(remaining_slots) is None:
+        deltas.append(
+            PolicyDelta(
+                field="slots",
+                expected="valid slot configuration",
+                actual="invalid slot configuration",
+                recovery="fresh_approval",
+            )
+        )
+
+    if deltas:
+        decision = EnvelopeDecision(
+            allowed=False,
+            code="BLOCK_ENVELOPE_WIDENING_PROHIBITED",
+            envelope_id=envelope.id,
+            envelope_version=envelope.version,
+            quote_total_paise=0,
+            deltas=deltas,
+            human_message="Envelope amendment refused: amendments may only narrow authority, not widen it.",
+        )
+        return JSONResponse(status_code=409, content=decision.model_dump(mode="json"))
+
+    # All checks passed: apply edits
+    new_max = req.max_total_paise if req.max_total_paise is not None else envelope.max_total_paise
+    new_exp = req.expires_at if req.expires_at is not None else envelope.expires_at
+    new_tags = sorted(set(envelope.blocked_tags) | set(req.add_blocked_tags))
+    new_cats = sorted(set(envelope.blocked_categories) | set(req.add_blocked_categories))
+
+    amended = store.amend_envelope_draft(
+        envelope.id,
+        req.expected_envelope_hash,
+        max_total_paise=new_max,
+        expires_at=new_exp,
+        slots=remaining_slots,
+        blocked_tags=new_tags,
+        blocked_categories=new_cats,
+    )
+
+    settings = get_settings()
+    return IntentCreateResponse(
+        intent_id=intent_id,
+        agent_request_id=f"req_amend_{uuid.uuid4().hex[:8]}",
+        buyer_agent_id=buyer_principal.buyer_agent_id,
+        shopper_session_id=shopper_principal.shopper_session_id,
+        natural_language_intent=amended.goal,
+        normalized_intent={
+            "goal": amended.goal,
+            "budget_paise": amended.max_total_paise,
+            "merchant_id": amended.merchant_id,
+            "slots": [slot.label for slot in amended.slots],
+        },
+        missing_fields=[],
+        draft_envelope=amended,
+        readback=envelope_readback(amended),
+        evidence_mode=settings.envelope_drafting_mode,
+        message="Purchase Envelope successfully amended. Authority remains inactive until approved.",
+        provider_action_called=False,
+    )
+
+
 @router.post("/envelopes/{envelope_id}/activate", response_model=PurchaseEnvelope)
 def activate_envelope(
     envelope_id: str,
     body: EnvelopeActivateRequest,
     session_token: str | None = Header(None, alias="X-Shopper-Session"),
 ) -> PurchaseEnvelope:
+
     """Human-only activation binding the canonical envelope version and hash."""
     verify_shopper_session(session_token)
     try:
@@ -405,6 +575,7 @@ def get_approval(token: str) -> dict[str, Any]:
     if not token_data:
         raise HTTPException(404, "Unknown approval token")
     envelope = store.get_envelope(token_data["envelope_id"])
+    readback = envelope_readback(envelope).model_dump() if envelope else None
     return {
         "token": token,
         "envelope_id": token_data["envelope_id"],
@@ -414,6 +585,7 @@ def get_approval(token: str) -> dict[str, Any]:
         "expired": token_data["expires_at"] <= time.time(),
         "redeemed": token_data["redeemed_at"] is not None,
         "envelope": envelope,
+        "readback": readback,
     }
 
 

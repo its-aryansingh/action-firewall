@@ -162,3 +162,22 @@ def test_permissions_policy_summary_endpoint(client: TestClient):
     assert money_out["daily_cap_paise"] == 200000
     assert "fraud" in money_out["escalate_reasons"]
     assert money_out["action_name"] == "refund"
+
+
+def test_gateway_root_endpoint_html_and_json(client: TestClient):
+    # HTML request from a browser
+    resp_html = client.get("/", headers={"accept": "text/html"})
+    assert resp_html.status_code == 200
+    assert "Action Firewall" in resp_html.text
+    assert "Razorpay AI Buildathon" in resp_html.text
+    assert "/docs" in resp_html.text
+    assert "/health" in resp_html.text
+
+    # JSON request from an API caller
+    resp_json = client.get("/", headers={"accept": "application/json"})
+    assert resp_json.status_code == 200
+    data = resp_json.json()
+    assert data["status"] == "ok"
+    assert "Action Firewall" in data["service"]
+    assert data["endpoints"]["health"] == "/health"
+    assert data["endpoints"]["docs"] == "/docs"

@@ -5,6 +5,7 @@ import hmac
 import html
 import json
 import time
+from typing import Any
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
@@ -140,6 +141,98 @@ app.mount("/agent-commerce/mcp", _mcp_asgi)
 
 app.include_router(agent_commerce.router, prefix="/agent-commerce/v1")
 app.include_router(merchant.merchant_router)
+
+
+@app.get("/", response_class=Response)
+def root(request: Request) -> Response:
+    """Root landing for the Action Firewall gateway.
+
+    Provides an operational landing page for browsers with links to the
+    merchant operations frontend, interactive API docs, and agent manifests;
+    and JSON discovery for programmatic clients.
+    """
+    accept = request.headers.get("accept", "")
+    s = get_settings()
+    frontend_url = s.frontend_origin.rstrip("/") if s.frontend_origin else ""
+    is_live_frontend = bool(frontend_url and not any(h in frontend_url for h in ("localhost", "127.0.0.1")))
+
+    if "text/html" in accept:
+        frontend_button = (
+            f'<a href="{_html_escape(frontend_url)}" class="btn primary">Launch Merchant Operations Control Plane &rarr;</a>'
+            if is_live_frontend
+            else '<a href="/docs" class="btn primary">Open Interactive API Docs (/docs) &rarr;</a>'
+        )
+        frontend_note = (
+            f'<p class="note">Merchant Operations UI is running at <a href="{_html_escape(frontend_url)}" target="_blank" rel="noreferrer">{_html_escape(frontend_url)}</a>.</p>'
+            if is_live_frontend
+            else '<p class="note">To launch the full Merchant Operations UI, deploy the <code>frontend</code> service on Railway (see <code>DEPLOY.md</code>) or set <code>FRONTEND_ORIGIN</code>.</p>'
+        )
+
+        body = f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Action Firewall — Agent Commerce Gateway</title>
+<style>
+ body{{margin:0;background:#0A0F1D;color:#E1E7EC;font:15px/1.6 Inter,system-ui,-apple-system,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px}}
+ .card{{background:#111927;border:1px solid #1E293B;border-radius:20px;box-shadow:0 12px 32px rgba(0,0,0,.4);max-width:640px;width:100%;padding:32px}}
+ .badge{{display:inline-block;background:rgba(12,108,242,.12);color:#3B82F6;border:1px solid rgba(12,108,242,.3);border-radius:999px;padding:4px 12px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}}
+ h1{{font-size:26px;font-weight:800;margin:16px 0 6px;color:#F8FAFC;letter-spacing:-.4px}}
+ p.sub{{color:#94A3B8;font-size:14px;margin:0 0 24px}}
+ .grid{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:24px}}
+ .metric{{background:#1E293B;padding:14px 16px;border-radius:12px;border:1px solid #334155}}
+ .metric .k{{font-size:11px;text-transform:uppercase;color:#94A3B8;font-weight:600}}
+ .metric .v{{font-size:15px;font-weight:700;color:#F1F5F9;margin-top:2px;font-family:ui-monospace,monospace}}
+ .links{{display:flex;flex-direction:column;gap:8px;margin-top:16px}}
+ .btn{{display:block;text-align:center;padding:12px 18px;border-radius:10px;font-size:13px;font-weight:600;text-decoration:none;transition:all .15s ease}}
+ .btn.primary{{background:#0C6CF2;color:#fff}}
+ .btn.primary:hover{{background:#0A58C7}}
+ .btn.secondary{{background:#1E293B;color:#CBD5E1;border:1px solid #334155}}
+ .btn.secondary:hover{{background:#283548;color:#fff}}
+ .note{{margin-top:20px;padding-top:16px;border-top:1px solid #1E293B;color:#64748B;font-size:12px;line-height:1.5}}
+ .note code{{background:#1E293B;padding:2px 6px;border-radius:4px;color:#94A3B8;font-size:11px}}
+ .note a{{color:#3B82F6;text-decoration:none}}
+</style></head><body><div class="card">
+ <span class="badge">Razorpay AI Buildathon · Track 01</span>
+ <h1>Action Firewall</h1>
+ <p class="sub">Semantic permissions and deterministic authority engine for AI agents transacting on Razorpay.</p>
+ <div class="grid">
+  <div class="metric"><div class="k">Gateway Status</div><div class="v" style="color:#10B981">&#9679; Operational</div></div>
+  <div class="metric"><div class="k">Payment Provider</div><div class="v">{_html_escape(s.payment_provider.title())}</div></div>
+  <div class="metric"><div class="k">Catalog Size</div><div class="v">{len(catalog.load_catalog())} SKUs</div></div>
+  <div class="metric"><div class="k">Authority Model</div><div class="v">Purchase Envelope</div></div>
+ </div>
+ {frontend_button}
+ <div class="links">
+  <a href="/docs" class="btn secondary">Interactive OpenAPI Documentation (/docs)</a>
+  <a href="/health" class="btn secondary">Service Health Check (/health)</a>
+  <a href="/.well-known/agent-commerce.json" class="btn secondary">Agent Commerce Discovery Manifest (/.well-known/agent-commerce.json)</a>
+  <a href="/evidence/audit-chain/verify" class="btn secondary">Tamper-Evident Audit Chain Verifier (/evidence/audit-chain/verify)</a>
+ </div>
+ {frontend_note}
+</div></body></html>"""
+        return HTMLResponse(content=body)
+
+    return Response(
+        content=json.dumps({
+            "service": "Action Firewall — Agent Commerce Gateway",
+            "version": "3.1.0",
+            "status": "ok",
+            "track": "Track 01 — Agent Commerce",
+            "payment_provider": s.payment_provider,
+            "frontend_origin": s.frontend_origin,
+            "endpoints": {
+                "docs": "/docs",
+                "health": "/health",
+                "catalog": "/catalog",
+                "agent_manifest": "/.well-known/agent-commerce.json",
+                "ucp_manifest": "/.well-known/ucp",
+                "audit_chain": "/evidence/audit-chain/verify",
+                "acceptance_policy": "/agent-commerce/v1/acceptance-policy",
+                "mcp": "/agent-commerce/mcp",
+            },
+        }),
+        media_type="application/json",
+    )
 
 
 @app.get("/.well-known/agent-commerce.json")
