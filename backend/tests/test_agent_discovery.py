@@ -51,8 +51,13 @@ def test_public_agent_catalog_endpoint(client: TestClient):
     data = resp.json()
 
     assert data["merchant_id"] == "merchant_freshbasket"
-    assert data["total_products"] == 43
-    assert len(data["products"]) == 43
+    # Derived from the catalog rather than pinned to a literal. A hardcoded 43
+    # asserts only that nobody has edited data/catalog.json, which is not a
+    # property worth defending — and it fails for the wrong reason (a stale
+    # number) the moment the merchant adds a product.
+    expected = len(catalog.load_catalog())
+    assert data["total_products"] == expected
+    assert len(data["products"]) == expected
 
     for p in data["products"]:
         assert "sku" in p
@@ -75,10 +80,10 @@ def test_public_agent_catalog_jsonld_endpoint(client: TestClient):
 
     assert data["@context"] == "https://schema.org/"
     assert data["@type"] == "ItemList"
-    assert data["numberOfItems"] == 43
+    assert data["numberOfItems"] == len(catalog.load_catalog())
 
     items = data["itemListElement"]
-    assert len(items) == 43
+    assert len(items) == len(catalog.load_catalog())
 
     for item in items:
         assert item["@type"] == "Product"

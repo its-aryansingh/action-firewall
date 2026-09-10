@@ -36,6 +36,7 @@ DEFAULT_CHANNEL_POLICY = {
         "snacks",
         "household",
         "personal_care",
+        "meat",
     ],
     "blocked_categories": [
         "electronics",

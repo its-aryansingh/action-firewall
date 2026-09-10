@@ -640,5 +640,47 @@
     ],
     "description": "Corporate digital gift voucher matching pantry budget total exactly (restricted SKU).",
     "stock": 40
+  },
+  {
+    "sku": "SKU-MEA-001",
+    "name": "Chicken Curry Cut 1kg",
+    "category": "meat",
+    "price_paise": 24000,
+    "tags": [
+      "meat",
+      "chicken",
+      "nonveg"
+    ],
+    "description": "Fresh antibiotic-residue-free chicken, curry cut with bone.",
+    "in_stock": true,
+    "stock": 25
+  },
+  {
+    "sku": "SKU-MEA-002",
+    "name": "Mutton Curry Cut 500g",
+    "category": "meat",
+    "price_paise": 45000,
+    "tags": [
+      "meat",
+      "mutton",
+      "nonveg"
+    ],
+    "description": "Goat meat, curry cut, cleaned and portioned.",
+    "in_stock": true,
+    "stock": 12
+  },
+  {
+    "sku": "SKU-MEA-003",
+    "name": "Rohu Fish Curry Cut 500g",
+    "category": "meat",
+    "price_paise": 22000,
+    "tags": [
+      "meat",
+      "fish",
+      "nonveg"
+    ],
+    "description": "Freshwater rohu, scaled and cut for curry.",
+    "in_stock": true,
+    "stock": 18
   }
 ]

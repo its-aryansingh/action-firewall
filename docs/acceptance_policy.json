@@ -4,13 +4,14 @@
   "display_name": "FreshBasket for Business",
   "currency": "INR",
   "amounts_are_in": "integer paise",
-  "catalog_revision": "cat_71b438a130358058",
+  "catalog_revision": "cat_ecd9bb41fe831aab",
   "will_accept": {
     "categories": [
       "bakery",
       "beverages",
       "dairy",
       "household",
+      "meat",
       "pantry",
       "personal_care",
       "produce",
@@ -63,5 +64,5 @@
       "schema_hash": "a3d439bc9cd8a2345a007a12b71253dd6b3144b2c28edf8b9a7d946c12f419bb"
     }
   },
-  "policy_hash": "0abf994761914b3e62b266b142def6d731a8a73a3da1d02f2c44fa36861d8901"
+  "policy_hash": "c5f07bd45d8a643d20a23e71eda543ee786af7a3bab58111ec63aab28f9d188c"
 }

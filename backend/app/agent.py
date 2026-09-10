@@ -63,6 +63,14 @@ Reply with JSON only:
 Intent is advisory UI metadata only. Cross-sell at most one relevant item. If
 the shopper has not asked to add, remove, clear, assemble, or buy anything,
 return an empty cart_ops list.
+
+COVER EVERY ITEM THE SHOPPER NAMED. If they list three things, account for all
+three. Never drop one silently — that is the single worst failure on this
+surface, because the shopper sees a short cart and cannot tell whether the item
+was unavailable, mispriced, or simply forgotten. If RETRIEVED_CATALOG has
+nothing for one of their items, still say so in `reply`, by name: "we do not
+stock <item>". If it has several plausible options for one item, add the one
+you judge best and name the alternatives in `reply` so they can swap.
 """
 
 CHECKOUT_WORDS = (
@@ -197,6 +205,235 @@ def _mentioned_skus(message: str) -> list[str]:
         if product["sku"] not in hits:
             hits.append(product["sku"])
     return hits
+
+
+# ---------------------------------------------------------------------------
+# Request coverage
+# ---------------------------------------------------------------------------
+# `_mentioned_skus` above matches product NAMES only, and by strict substring.
+# That is why "egg,meat,nuts" resolved to nothing: the catalog row is named
+# "Free-Range Eggs (12)", and "eggs" is not a substring of "egg,meat,nuts".
+# "nuts" is a TAG on Roasted Almonds and never appears in its name, so no
+# name-based rule could ever find it either.
+#
+# The pass below runs after the name pass and only on tokens the name pass did
+# not already account for. It resolves a shopper's word through the merchant's
+# own two taxonomies — tags and category — under one rule: a tag identifies a
+# product only when it identifies EXACTLY one. That is the same uniqueness
+# guard the name pass uses, and it is what keeps a broad tag like `dinner`
+# (10 products) or `pasta` (7) from converting mere topical relevance into a
+# cart line. `category` is different in kind: it is the merchant's statement of
+# what a thing IS, so an explicit category word is treated as a real request and
+# resolved to one representative item, disclosed in the reply.
+
+_WORD = re.compile(r"[a-z]+")
+_LIST_SEPARATORS = re.compile(r",|;|\band\b|&|\+")
+# A word that suppresses coverage repair. If the shopper is subtracting, an
+# unmatched term is the thing they want GONE, and adding it would be the exact
+# opposite of what they asked for.
+_NEGATION_WORDS = (
+    "without", "remove", "drop", "except", "skip", "no ", "not ",
+    "instead", "swap", "replace", "delete", "take out",
+)
+
+
+def _singular(word: str) -> str:
+    """Fold a trailing plural s. Deliberately crude: it must never change a
+    3-letter word (`gas`, `oat`) and never guess at irregular plurals."""
+    return word[:-1] if len(word) > 3 and word.endswith("s") else word
+
+
+@lru_cache
+def _tag_index() -> dict[str, tuple[str, ...]]:
+    index: dict[str, list[str]] = {}
+    for product in catalog.load_catalog():
+        for tag in product.get("tags", []):
+            for word in _WORD.findall(tag.lower()):
+                if len(word) > 2:
+                    index.setdefault(_singular(word), []).append(product["sku"])
+    return {term: tuple(dict.fromkeys(skus)) for term, skus in index.items()}
+
+
+@lru_cache
+def _category_index() -> dict[str, tuple[str, ...]]:
+    index: dict[str, list[str]] = {}
+    for product in catalog.load_catalog():
+        for word in _WORD.findall(product["category"].lower()):
+            if len(word) > 2:
+                index.setdefault(_singular(word), []).append(product["sku"])
+    return {term: tuple(dict.fromkeys(skus)) for term, skus in index.items()}
+
+
+def _cheapest(skus: tuple[str, ...]) -> str:
+    """Representative pick for a category word. Lowest price, then SKU, so the
+    same word always resolves to the same product on every machine and run."""
+    by = catalog.by_sku()
+    return sorted(skus, key=lambda sku: (by[sku]["price_paise"], sku))[0]
+
+
+@lru_cache
+def _tag_categories() -> dict[str, tuple[str, ...]]:
+    """For each tag term, the distinct categories it spans."""
+    spans: dict[str, set[str]] = {}
+    for product in catalog.load_catalog():
+        for tag in product.get("tags", []):
+            for word in _WORD.findall(tag.lower()):
+                if len(word) > 2:
+                    spans.setdefault(_singular(word), set()).add(product["category"])
+    return {term: tuple(sorted(cats)) for term, cats in spans.items()}
+
+
+@lru_cache
+def _name_index() -> dict[str, tuple[str, ...]]:
+    index: dict[str, list[str]] = {}
+    for product in catalog.load_catalog():
+        for word in set(_WORD.findall(product["name"].lower())):
+            if len(word) > 2:
+                index.setdefault(_singular(word), []).append(product["sku"])
+    return {term: tuple(skus) for term, skus in index.items()}
+
+
+def _cheapest(skus: tuple[str, ...]) -> str:
+    """Representative pick for a term that names a kind rather than a product.
+    Lowest price, then SKU, so the same word resolves to the same item on every
+    machine and every run — a demo that picks differently twice is not a demo."""
+    by = catalog.by_sku()
+    return sorted(skus, key=lambda sku: (by[sku]["price_paise"], sku))[0]
+
+
+def _resolve_term(term: str) -> tuple[str | None, tuple[str, ...]]:
+    """Resolve one shopper term to (sku, alternatives).
+
+    A term resolves when the merchant's own data says what it is:
+
+    1. a word in exactly one product NAME, or a tag on exactly one product —
+       unambiguous, take it;
+    2. a tag on several products that all sit in ONE category — the tag names a
+       kind of thing (`milk`, `bread`, `cheese`, `meat`), so pick a
+       representative and offer the rest;
+    3. a category word — the merchant's own statement of what a thing is.
+
+    Rule 2 is what keeps `dinner` (10 products across dairy, pantry, produce),
+    `pasta` (7, three categories), `premium`, `staple` and `italian` from ever
+    becoming a cart line. Those tags describe an occasion or a quality, not a
+    product kind, and the giveaway is that they span categories. That
+    distinction is read out of the catalog rather than hand-listed, so it stays
+    true when the merchant edits their own tags.
+
+    Returns (None, ()) when the merchant stocks nothing for the term.
+    """
+    names, tags, spans = _name_index(), _tag_index(), _category_index()
+    tag_spans = _tag_categories()
+    for word in (_singular(w) for w in _WORD.findall(term.lower()) if len(w) > 2):
+        for exact in (names.get(word, ()), tags.get(word, ())):
+            if len(exact) == 1:
+                return exact[0], ()
+        candidates: tuple[str, ...] = ()
+        if len(tag_spans.get(word, ())) == 1:
+            candidates = tags.get(word, ())
+        elif spans.get(word):
+            candidates = spans[word]
+        if candidates:
+            pick = _cheapest(candidates)
+            return pick, tuple(sku for sku in candidates if sku != pick)
+    return None, ()
+
+
+def _cart_covers(term: str, cart: Cart) -> bool:
+    """True when something already in the cart answers this term, whichever
+    planner put it there. Without this the coverage pass reports 'we do not
+    stock bread' in the same breath as the planner adding Multigrain Bread."""
+    by = catalog.by_sku()
+    words = {_singular(w) for w in _WORD.findall(term.lower()) if len(w) > 2}
+    if not words:
+        return True
+    for line in cart.lines:
+        product = by.get(line.sku, {})
+        haystack = {
+            _singular(w)
+            for source in (line.name, product.get("category", ""), *product.get("tags", []))
+            for w in _WORD.findall(source.lower())
+            if len(w) > 2
+        }
+        if words & haystack:
+            return True
+    return False
+
+
+def _requested_terms(message: str) -> list[str]:
+    """Split an itemised request into the items the shopper actually listed.
+
+    Only a DELIMITED list qualifies — "egg,meat,nuts", "milk and bread". Prose
+    is left alone on purpose: splitting "tell me something about dinner" into
+    words would let the coverage pass report `tell` and `something` as things
+    the shop does not stock, which is noise dressed up as helpfulness.
+    """
+    if not _LIST_SEPARATORS.search(message):
+        return []
+    terms = []
+    for segment in _LIST_SEPARATORS.split(message):
+        words = [w for w in _WORD.findall(segment.lower()) if len(w) > 2]
+        if words and len(words) <= 4:
+            terms.append(segment.strip())
+    return terms if len(terms) >= 2 else []
+
+
+def _cover_request(message: str, cart: Cart) -> tuple[list[dict], list[str], list[str], list[str]]:
+    """Add anything the planner dropped, and report what the shop cannot serve.
+
+    Runs after BOTH planners, deterministic and model-driven, because the
+    failure it repairs was a model failure: asked for "egg,meat,nuts" the model
+    proposed eggs, dropped the other two, and said nothing about either.
+
+    Returns (ops, added_names, swap_notes, unstocked_terms).
+    """
+    low = message.lower()
+    if any(word in low for word in _NEGATION_WORDS):
+        return [], [], [], []
+    terms = _requested_terms(message)
+    if not terms:
+        return [], [], [], []
+
+    in_cart = {line.sku for line in cart.lines}
+    by = catalog.by_sku()
+    ops: list[dict] = []
+    added: list[str] = []
+    swaps: list[str] = []
+    unstocked: list[str] = []
+
+    for term in terms:
+        if _cart_covers(term, cart):
+            continue
+        sku, alternatives = _resolve_term(term)
+        if sku is None:
+            unstocked.append(term)
+            continue
+        if sku in in_cart:
+            continue
+        ops.append({"op": "add", "sku": sku, "qty": 1})
+        in_cart.add(sku)
+        added.append(f"{by[sku]['name']} ({rupees(by[sku]['price_paise'])})")
+        if alternatives:
+            names = ", ".join(
+                f"{by[alt]['name']} {rupees(by[alt]['price_paise'])}"
+                for alt in sorted(alternatives, key=lambda s: by[s]["price_paise"])
+            )
+            swaps.append(f"for '{term}' I picked {by[sku]['name']} — I also stock {names}")
+    return ops, added, swaps, unstocked
+
+
+_CROSS_SELL = re.compile(r" People usually add (?P<name>.+?) \(₹[^)]*\) with this — want it\?")
+
+
+def _drop_stale_cross_sell(reply: str, cart: Cart) -> str:
+    """Remove the cross-sell offer once the coverage pass has already added the
+    very item being offered. "People usually add Toned Milk — want it? Also
+    added Toned Milk" reads as a bug to anyone watching, and on a demo screen
+    that is indistinguishable from being one."""
+    match = _CROSS_SELL.search(reply)
+    if match and any(line.name == match.group("name") for line in cart.lines):
+        return reply[: match.start()] + reply[match.end() :]
+    return reply
 
 
 def _checkout_language(message: str) -> bool:
@@ -361,6 +598,26 @@ def handle_turn(req: ChatRequest) -> ChatResponse:
             cart_ops=[],
             intent="discover",
         )
+    planner_proposed = bool(proposed.lines)
+    coverage_ops, coverage_added, coverage_swaps, coverage_unstocked = _cover_request(
+        req.message, proposed
+    )
+    if coverage_ops:
+        try:
+            proposed = _apply_ops(
+                proposed, [CartOperation.model_validate(op) for op in coverage_ops]
+            )
+        except ValidationError:
+            coverage_added, coverage_swaps = [], []
+    coverage_note = ""
+    if coverage_added:
+        lead = "Also added" if planner_proposed else "Added"
+        coverage_note += f" {lead} {', '.join(coverage_added)}."
+    if coverage_swaps:
+        coverage_note += f" ({'; '.join(coverage_swaps)}.)"
+    if coverage_unstocked:
+        coverage_note += f" We do not stock {', '.join(coverage_unstocked)}."
+
     session.cart = proposed
     proposed_hash = compute_cart_hash(proposed)
 
@@ -380,7 +637,11 @@ def handle_turn(req: ChatRequest) -> ChatResponse:
 
     confirmation_requested = _checkout_language(req.message) or plan.intent == "checkout"
     confirmation_required = bool(proposed.lines and confirmation_requested)
-    reply = plan.reply
+    # When the planner proposed nothing, its reply is a "tell me what you want"
+    # fallback. Appending "Also added ..." to that produces a sentence that
+    # contradicts itself, so the coverage pass speaks alone.
+    base_reply = _drop_stale_cross_sell(plan.reply, proposed)
+    reply = (base_reply + coverage_note) if planner_proposed else (coverage_note.strip() or base_reply)
     if not decision.allowed:
         reply = decision.human_message
         if decision.code in (

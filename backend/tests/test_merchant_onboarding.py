@@ -165,7 +165,13 @@ def test_get_catalog_categories(client: TestClient):
 
 def test_update_channel_policy(client: TestClient):
     """Assert channel policy parameters can be updated."""
+    # Snapshot what is actually there. The previous version restored a
+    # hardcoded list instead, so once this test had run, every later test in
+    # the session saw a stale policy — and any category added to the real
+    # policy silently vanished mid-suite. Restoring a literal is not restoring.
     orig_max = DEFAULT_CHANNEL_POLICY["max_order_paise"]
+    orig_categories = list(DEFAULT_CHANNEL_POLICY["allowed_categories"])
+    orig_substitutions = DEFAULT_CHANNEL_POLICY.get("substitutions_allowed", True)
     try:
         resp = client.post(
             "/merchant/channel-policy",
@@ -183,7 +189,5 @@ def test_update_channel_policy(client: TestClient):
     finally:
         # Restore
         DEFAULT_CHANNEL_POLICY["max_order_paise"] = orig_max
-        DEFAULT_CHANNEL_POLICY["allowed_categories"] = [
-            "pantry", "dairy", "produce", "bakery", "beverages", "snacks", "household", "personal_care"
-        ]
-        DEFAULT_CHANNEL_POLICY["substitutions_allowed"] = True
+        DEFAULT_CHANNEL_POLICY["allowed_categories"] = orig_categories
+        DEFAULT_CHANNEL_POLICY["substitutions_allowed"] = orig_substitutions
