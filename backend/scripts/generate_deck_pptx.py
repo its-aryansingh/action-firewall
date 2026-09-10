@@ -328,16 +328,16 @@ def build_deck():
                "Synthetic authorization-correctness evidence, not inflated conversion claims.")
 
     add_card(s8, Inches(0.8), Inches(2.4), Inches(2.7), Inches(2.6),
-             "147", "Backend tests passing\n\nExact suite: policy limits, envelopes, receipts, voice boundaries, HTTP contracts, and concurrency.",
+             TEST_COUNT, "Backend tests passing\n\nExact suite: policy limits, envelopes, receipts, voice boundaries, HTTP contracts, and concurrency.",
              title_color=C_GREEN, border_color=C_GREEN)
     add_card(s8, Inches(3.8), Inches(2.4), Inches(2.7), Inches(2.6),
              "650", "Generated boundary cases\n\n10 goal families, 104 distinct carts across 13 adversarial drift families (100% pass).",
              title_color=C_BLUE, border_color=C_BLUE)
     add_card(s8, Inches(6.8), Inches(2.4), Inches(2.7), Inches(2.6),
-             "550 / 550", "Violations blocked\n\nPrice, merchant, category, destination, and tampering breaches fail closed.",
+             "800 / 800", "Violations blocked\n\nAcross 21 failure families. A spend-cap-only guard — what most \"AI guardrails\" are — lets 640 of the same 800 through.",
              title_color=C_RED, border_color=C_RED)
     add_card(s8, Inches(9.8), Inches(2.4), Inches(2.7), Inches(2.6),
-             "8 → 1", "Concurrent claims to calls\n\nEight parallel attempts under one envelope; exactly one issued action.",
+             "20/20 → 0/20", "Cap breaches under contention\n\n16 threads, one Rs 1,000 cap. Read-compare-write breaches every trial; authorize-and-reserve never does.",
              title_color=C_GREEN, border_color=C_GREEN)
 
     add_card(s8, Inches(0.8), Inches(5.3), Inches(11.7), Inches(1.1),

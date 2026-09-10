@@ -14,16 +14,24 @@ none of them standardises what a merchant will refuse. A store that publishes it
 acceptance rules is one an agent can transact with on the FIRST attempt, which is
 what "sellable to AI buyers" actually requires.
 
-Replayed against this repository's own violation corpus: of 800 constructed
-violations, 700 (88%) would never have been proposed by an agent that read this
-document first. Of the 492 that ended in a refusal with no repair available, 442
-(90%) were preventable — Rs 5,10,385 of orders that died for want of a rule the
-store already knew and never said.
+Replayed against this repository's own violation corpus by
+`scripts/publication_value.py` — rerun it rather than trusting this paragraph.
+Of 800 constructed violations, 400 (50%) would never have been proposed by an
+agent that fetched THIS document first. Of the 492 that ended in a refusal no
+repair could rescue, 292 (59%) were preventable that way: Rs 4,20,505 of the
+Rs 5,40,345 that died for want of a rule the store already knew and never said.
+
+A further 300 violations (37.5%) were preventable from the customer's own
+Purchase Envelope, which the agent already holds. That is a real number but it is
+NOT credit this endpoint earns, because slots, quantities and the fulfilment
+profile are per-customer and not the merchant's to publish. The two are reported
+separately for that reason; an earlier draft of this file added them together and
+claimed 88%, which overstated what publication does by nearly a factor of two.
 
 WHAT PUBLICATION CANNOT DO
 --------------------------
-It prevents mistakes. It does not stop attacks. The remaining 12% of that corpus
-is `catalog_fact_tamper` and `quote_hash_tamper` — an agent that forges a price
+It prevents mistakes. It does not stop attacks. The remaining 100 cases (12.5%)
+are `catalog_fact_tamper` and `quote_hash_tamper` — an agent that forges a price
 or a digest already knows the rules and is choosing to break them. Publication is
 a courtesy to honest agents; the firewall is what handles the rest. Both numbers
 belong in any claim made about this file.

@@ -5,12 +5,13 @@ name: verify
 # A benchmark that lives only in a script is a number somebody once ran. The
 # strongest packaging in this buildathon's field (souvikDevloper/closepilot)
 # gates its evaluation in CI, so its headline number cannot rot. This does the
-# same: both benchmarks exit non-zero on failure, so a regression in the
+# same: every benchmark below exits non-zero on failure, so a regression in the
 # authorization path fails the build rather than quietly changing a README.
 #
 # The benchmarks are NOT allowed to be advisory here. If the policy benchmark
-# ever authorises a violation, or the concurrency benchmark's reservation arm
-# ever breaches its cap, that is a broken build.
+# ever authorises a violation, if the concurrency benchmark's reservation arm
+# ever breaches its cap, or if the ablation finds a rule that never changes an
+# outcome, that is a broken build.
 
 on:
   push:
@@ -65,6 +66,28 @@ jobs:
           PAYMENT_PROVIDER: simulated
           FAULT_INJECTION_ENABLED: "true"
         run: python scripts/benchmark_concurrency.py --threads 16 --trials 20
+
+      # A rule that never changes an outcome is not a safety control, it is a
+      # comment with a runtime cost. The ablation removes one rule at a time and
+      # exits non-zero if any of them turns out to be dead weight — so this step
+      # fails when the layer grows a rule the corpus never exercises, which is
+      # exactly when a reviewer would otherwise stop believing the zero.
+      - name: "Ablation: every rule must change at least one outcome"
+        env:
+          DEMO_MODE: "true"
+          PAYMENT_PROVIDER: simulated
+          FAULT_INJECTION_ENABLED: "true"
+        run: python scripts/ablation.py
+
+      # Exits non-zero if a violating family is added to the corpus without
+      # saying which document would have prevented it. Without that, the
+      # publication-value percentage rises for free every time the corpus grows.
+      - name: "Publication value: every violating family must be labelled"
+        env:
+          DEMO_MODE: "true"
+          PAYMENT_PROVIDER: simulated
+          FAULT_INJECTION_ENABLED: "true"
+        run: python scripts/publication_value.py
 
       - name: Deterministic authorization evaluation
         env:

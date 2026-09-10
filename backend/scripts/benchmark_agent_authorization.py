@@ -123,7 +123,7 @@ HELD_OUT_SEEDS = [s for s in SEEDS if s >= 35]
 # ---------------------------------------------------------------------------
 # Policy families
 # ---------------------------------------------------------------------------
-# Grouped by ST-WebAgentBench's four policy dimensions so the taxonomy is one a
+# Grouped by ST-WebAgentBench's six policy dimensions so the taxonomy is one a
 # reviewer already knows. "compliant" marks families whose proposal SHOULD be
 # authorised — without them the benchmark could score 100% by refusing everything.
 
@@ -184,8 +184,12 @@ def _rehash_quote(quote: MerchantQuote, **updates) -> MerchantQuote:
 def build_case(seed: int, family: str) -> dict:
     """Construct one (envelope, proposed quote, ground truth) triple.
 
-    Deterministic: same seed and family always give the same triple, which is
-    what makes pass^k meaningful rather than a re-roll of the dice.
+    Deterministic: same seed and family always give the same triple. That makes
+    the k-repetition arm a REPLAY IDENTITY check — the same input must produce
+    the same decision every time — and not a reliability estimate. tau-bench's
+    pass^k measures something else (the chance a stochastic agent succeeds k
+    times running); on a deterministic path it is 1 for every k and would be a
+    number dressed up as evidence.
     """
     catalog.reset_stock()
     envelope = active_envelope(seed, family)

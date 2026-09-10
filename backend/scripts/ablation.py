@@ -8,7 +8,7 @@ it cannot distinguish a rule that is load-bearing from one that has never once
 changed an outcome. A rule that never changes an outcome is not a safety control,
 it is a comment with a runtime cost.
 
-So this removes one rule at a time from the same 900-case corpus and reports what
+So this removes one rule at a time from the same 1,050-case corpus and reports what
 escapes. The number that matters per row is `violations_authorised`: how many
 constructed policy violations the layer would wave through with that single rule
 switched off.
