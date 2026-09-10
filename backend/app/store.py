@@ -742,6 +742,92 @@ def get_envelope(envelope_id: str) -> PurchaseEnvelope | None:
     return _row_to_envelope(row) if row else None
 
 
+def amend_envelope_draft(
+    envelope_id: str,
+    expected_hash: str,
+    *,
+    max_total_paise: int | None = None,
+    expires_at: float | None = None,
+    slots: list[EnvelopeSlot] | None = None,
+    blocked_tags: list[str] | None = None,
+    blocked_categories: list[str] | None = None,
+) -> PurchaseEnvelope:
+    """Atomically apply narrowing edits to a draft envelope, bumping version and re-hashing."""
+    now = time.time()
+    with _conn() as cx:
+        cx.execute("BEGIN IMMEDIATE")
+        row = cx.execute(
+            "SELECT * FROM purchase_envelopes WHERE id=?", (envelope_id,)
+        ).fetchone()
+        if not row:
+            raise LookupError("UNKNOWN_ENVELOPE")
+        current = _row_to_envelope(row)
+        if current.status is not EnvelopeStatus.DRAFT:
+            raise ValueError("ENVELOPE_NOT_DRAFT")
+        if current.envelope_hash != expected_hash:
+            raise ValueError("ENVELOPE_HASH_CHANGED")
+        if current.envelope_hash != compute_envelope_hash(current):
+            raise ValueError("ENVELOPE_STORAGE_INTEGRITY_FAILURE")
+
+        updated_slots = slots if slots is not None else current.slots
+        updated_max_total_paise = max_total_paise if max_total_paise is not None else current.max_total_paise
+        updated_expires_at = expires_at if expires_at is not None else current.expires_at
+        updated_blocked_tags = blocked_tags if blocked_tags is not None else current.blocked_tags
+        updated_blocked_categories = blocked_categories if blocked_categories is not None else current.blocked_categories
+
+        amended = current.model_copy(
+            update={
+                "max_total_paise": updated_max_total_paise,
+                "expires_at": updated_expires_at,
+                "slots": updated_slots,
+                "blocked_tags": updated_blocked_tags,
+                "blocked_categories": updated_blocked_categories,
+                "version": current.version + 1,
+                "updated_at": now,
+                "envelope_hash": "",
+            }
+        )
+        amended = amended.model_copy(
+            update={"envelope_hash": compute_envelope_hash(amended)}
+        )
+
+        cx.execute(
+            """UPDATE purchase_envelopes
+               SET max_total_paise=?, expires_at=?, slots_json=?, blocked_categories=?, blocked_tags=?,
+                   version=?, envelope_hash=?, updated_at=?
+               WHERE id=? AND version=? AND status='draft' AND envelope_hash=?""",
+            (
+                amended.max_total_paise,
+                amended.expires_at,
+                canonical_json([slot.model_dump(mode="json") for slot in amended.slots]),
+                canonical_json(amended.blocked_categories),
+                canonical_json(amended.blocked_tags),
+                amended.version,
+                amended.envelope_hash,
+                now,
+                envelope_id,
+                current.version,
+                expected_hash,
+            ),
+        )
+        _insert_audit_row(
+            cx,
+            event="ENVELOPE_AMENDED",
+            session_id=None,
+            code="AMEND",
+            cart_total_paise=0,
+            cap_paise=amended.max_total_paise,
+            payload={
+                "envelope_id": amended.id,
+                "previous_hash": expected_hash,
+                "envelope_hash": amended.envelope_hash,
+                "envelope_version": amended.version,
+            },
+        )
+        return amended
+
+
+
 def list_envelopes(user_id: str = "user_demo") -> list[PurchaseEnvelope]:
     with _conn() as cx:
         rows = cx.execute(

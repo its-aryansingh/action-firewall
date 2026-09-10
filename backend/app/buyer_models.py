@@ -284,3 +284,12 @@ class SlippageSetStockRequest(BaseModel):
     units: int
 
 
+class EnvelopeAmendRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_envelope_hash: str
+    max_total_paise: int | None = Field(default=None, gt=0)
+    expires_at: float | None = None
+    drop_slot_ids: list[str] = Field(default_factory=list)
+    add_blocked_tags: list[str] = Field(default_factory=list)
+    add_blocked_categories: list[str] = Field(default_factory=list)

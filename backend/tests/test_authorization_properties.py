@@ -357,3 +357,104 @@ def test_a_decision_never_reports_a_total_it_did_not_compute(pair):
     assert d.quote_total_paise == quote.cart.total_paise
     assert d.envelope_id == envelope.id
     assert d.envelope_version == envelope.version
+
+
+@st.composite
+def envelope_and_satisfying_quote_with_semantic_drift(draw):
+    """An active envelope, a quote satisfying every slot, and one extra line
+    whose tags satisfy no slot."""
+    by_sku = catalog.by_sku()
+    chosen_skus = draw(st.lists(
+        st.sampled_from([s for s in SKUS if by_sku[s].get("tags")]),
+        min_size=1, max_size=3, unique=True,
+    ))
+    slots = []
+    lines = []
+    for i, sku in enumerate(chosen_skus):
+        p = by_sku[sku]
+        qty = draw(st.integers(min_value=1, max_value=2))
+        slots.append(EnvelopeSlot(
+            id=f"slot_{i}",
+            label=f"Slot {i}",
+            required_tags=list(p["tags"]),
+            quantity=qty,
+        ))
+        lines.append(CartLine(
+            sku=sku,
+            name=p["name"],
+            category=p["category"],
+            unit_price_paise=p["price_paise"],
+            qty=qty,
+        ))
+
+    candidates = [
+        p for p in CATALOG
+        if p["sku"] not in chosen_skus
+        and not any(set(s.required_tags).issubset(set(p.get("tags", []))) for s in slots)
+        and catalog.available_stock(p["sku"]) >= 1
+    ]
+    assume(candidates)
+    extra = draw(st.sampled_from(candidates))
+    extra_line = CartLine(
+        sku=extra["sku"],
+        name=extra["name"],
+        category=extra["category"],
+        unit_price_paise=extra["price_paise"],
+        qty=1,
+    )
+
+    now = NOW + 100
+    expiry_offset = draw(st.integers(min_value=60, max_value=7200))
+    expires_at = now + expiry_offset
+    delivery_deadline = expires_at + 3600
+
+    base_total = sum(l.unit_price_paise * l.qty for l in lines) + extra_line.unit_price_paise
+    cap = draw(st.integers(min_value=base_total, max_value=base_total + 10_000_000))
+
+    env = PurchaseEnvelope(
+        id=f"env_{draw(st.integers(1, 100000))}",
+        user_id="u",
+        agent_id="a",
+        label="semantic drift property",
+        goal="semantic drift property",
+        merchant_id=draw(st.sampled_from(["merchant_freshbasket", "merchant_other", "m_123"])),
+        max_total_paise=cap,
+        fulfillment_profile_id="dest_demo",
+        delivery_deadline=delivery_deadline,
+        expires_at=expires_at,
+        slots=slots,
+        blocked_categories=[],
+        blocked_tags=[],
+        status=EnvelopeStatus.ACTIVE,
+        version=1,
+        envelope_hash="",
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    env = env.model_copy(update={"envelope_hash": compute_envelope_hash(env)})
+
+    quote = MerchantQuote(
+        merchant_id=env.merchant_id,
+        currency="INR",
+        fulfillment_profile_id=env.fulfillment_profile_id,
+        delivery_eta=delivery_deadline - 60,
+        cart=Cart(lines=[*lines, extra_line]),
+        substitutions=[],
+        quote_hash="",
+    )
+    quote = quote.model_copy(update={"quote_hash": compute_quote_hash(quote)})
+    return env, quote, now
+
+
+@SETTINGS
+@given(bundle=envelope_and_satisfying_quote_with_semantic_drift())
+def test_semantic_drift_extra_line_is_never_authorised(bundle):
+    """For any envelope and any quote that satisfies every slot, appending one
+    extra line whose tags satisfy no slot always yields allowed=False with a
+    cart.lines[...] delta — for every cap, every merchant, every clock value
+    inside the expiry."""
+    envelope, quote, check_time = bundle
+    decision = verify_quote(envelope, quote, now=check_time)
+    assert not decision.allowed
+    assert decision.code == "BLOCK_ENVELOPE_MISMATCH"
+    assert any(d.field.startswith("cart.lines[") for d in decision.deltas)
