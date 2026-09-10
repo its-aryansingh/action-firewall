@@ -33,6 +33,12 @@ ENV DB_PATH=/tmp/action_firewall.db
 # keeps a local `docker run` usable against a local frontend.
 ENV FRONTEND_ORIGIN=http://localhost:3000
 
+# Where this backend is reachable. The simulated provider builds its payment
+# links from it, so on a deployment this MUST be the service's own public
+# domain — otherwise every issued link points at localhost and a viewer clicking
+# one gets nothing. On Railway: PUBLIC_BASE_URL=https://${{RAILWAY_PUBLIC_DOMAIN}}
+ENV PUBLIC_BASE_URL=http://localhost:8000
+
 WORKDIR /srv/backend
 EXPOSE 8000
 

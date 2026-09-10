@@ -150,7 +150,7 @@ def test_valid_quote_issues_one_action_consumes_envelope_and_signs_receipt():
 
     assert first.envelope_decision.allowed
     assert first.action_status is ActionState.ACTION_ISSUED
-    assert first.payment_link and first.payment_link.startswith("https://rzp.io/")
+    assert first.payment_link and "/simulated/payment-link/" in first.payment_link
     assert first.receipt and first.grant_id
     assert verify_receipt(first.receipt, store.get_action_grant(first.grant_id))
     assert store.get_envelope(envelope.id).status is EnvelopeStatus.CONSUMED

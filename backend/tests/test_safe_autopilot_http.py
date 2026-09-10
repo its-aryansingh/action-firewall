@@ -117,7 +117,7 @@ def test_http_draft_activate_execute_and_verify_receipt(client: TestClient):
     execution = execution_response.json()
     assert execution["recovery_applied"] is True
     assert execution["action_status"] == "action_issued"
-    assert execution["payment_link"].startswith("https://rzp.io/")
+    assert "/simulated/payment-link/" in execution["payment_link"]
 
     receipt_response = client.get(f"/receipts/{execution['grant_id']}")
     assert receipt_response.status_code == 200

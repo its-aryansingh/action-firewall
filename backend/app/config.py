@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     # App
     db_path: str = DEFAULT_DB_PATH
     frontend_origin: str = "http://localhost:3000"
+    #: Where THIS backend is reachable. The simulated provider builds its payment
+    #: links from it, so they resolve to a page this deployment actually serves
+    #: instead of pointing at a domain it does not own.
+    public_base_url: str = "http://localhost:8000"
     demo_mode: bool = True
     action_receipt_secret: str = ""
     payment_provider: Literal["simulated", "razorpay_mcp", "razorpay_rest"] = "simulated"

@@ -161,7 +161,7 @@ def test_mcp_full_checkout_lifecycle():
     )
     assert res["allowed"] is True
     assert res["outcome"] == "ACTION_ISSUED"
-    assert res["payment_link"] and res["payment_link"].startswith("https://rzp.io/")
+    assert res["payment_link"] and "/simulated/payment-link/" in res["payment_link"]
     assert res["grant_id"] is not None
     assert res["razorpay_action_called"] is True
 

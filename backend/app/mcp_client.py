@@ -183,8 +183,37 @@ def simulate_provider_payment(payment_link_id: str, amount_paise: int) -> None:
     }
 
 
+#: What each simulated link would have been, so the page this deployment serves
+#: for it can show the real figures instead of a placeholder.
+_SIMULATED_LINKS: dict[str, dict] = {}
+
+
+def simulated_link_record(payment_link_id: str) -> dict | None:
+    return _SIMULATED_LINKS.get(payment_link_id)
+
+
+def simulated_payment_link_url(payment_link_id: str) -> str:
+    """A link for the simulated provider that this deployment actually serves.
+
+    This used to return `https://rzp.io/i/<8 random hex>`. That is Razorpay's
+    real short-link domain, and eight hex characters is a small enough space
+    that a fabricated path can collide with a genuine, live payment link
+    belonging to someone else — so clicking a "simulated" link could land a
+    viewer on a stranger's real payment page and invite them to pay it.
+
+    A simulated provider must never mint URLs on a domain it does not own. This
+    one points at this backend, which serves a page saying exactly what would
+    have been created and that no provider was called.
+    """
+    from .config import get_settings
+
+    base = get_settings().public_base_url.rstrip("/")
+    return f"{base}/simulated/payment-link/{payment_link_id}"
+
+
 def reset_simulated_provider() -> None:
     _SIMULATED_PROVIDER.clear()
+    _SIMULATED_LINKS.clear()
 
 
 class SimulatedMCPClient:
@@ -229,6 +258,16 @@ class SimulatedMCPClient:
             )
         if name == "create_payment_link":
             payment_link_id = f"plink_{uuid.uuid4().hex[:14]}"
+            _SIMULATED_LINKS[payment_link_id] = {
+                "id": payment_link_id,
+                "amount": canonical.args["amount"],
+                "currency": "INR",
+                "description": canonical.args["description"],
+                "reference_id": canonical.args.get("reference_id"),
+                "notes": canonical.args.get("notes", {}),
+                "grant_id": grant.id,
+                "created_at": time.time(),
+            }
             result = {
                 "content": [
                     {
@@ -239,7 +278,7 @@ class SimulatedMCPClient:
                                 "amount": canonical.args["amount"],
                                 "currency": "INR",
                                 "status": "created",
-                                "short_url": f"https://rzp.io/i/{uuid.uuid4().hex[:8]}",
+                                "short_url": simulated_payment_link_url(payment_link_id),
                                 "description": canonical.args["description"],
                             }
                         ),

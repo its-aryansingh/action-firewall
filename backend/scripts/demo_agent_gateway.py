@@ -146,7 +146,7 @@ def main() -> None:
     assert res["allowed"] is True
     assert res["outcome"] == "ACTION_ISSUED"
     assert res["razorpay_action_called"] is True
-    assert res["payment_link"].startswith("https://rzp.io/")
+    assert "/simulated/payment-link/" in res["payment_link"]
     print(f"Execution Outcome: {res['outcome']}")
     print(f"Payment Link Issued: {res['payment_link']}")
     print(f"Action Grant ID: {res['grant_id']}")

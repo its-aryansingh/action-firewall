@@ -551,12 +551,15 @@ export const api = {
       buyer_agent_id?: string;
       shopper_session_id?: string;
       merchant_id?: string;
-    }) =>
-      fetch(`${API}/agent-commerce/v1/intents`, {
+    }) => {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (req.buyer_agent_id) headers["X-Buyer-Agent-Id"] = req.buyer_agent_id;
+      return fetch(`${API}/agent-commerce/v1/intents`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(req),
-      }).then(j<IntentCreateResponse>),
+      }).then(j<IntentCreateResponse>);
+    },
 
     activateEnvelope: (envelopeId: string, expected_envelope_hash: string) =>
       fetch(`${API}/agent-commerce/v1/envelopes/${envelopeId}/activate`, {
@@ -571,12 +574,15 @@ export const api = {
       scenario?: AutopilotScenario;
       buyer_agent_id?: string;
       shopper_session_id?: string;
-    }) =>
-      fetch(`${API}/agent-commerce/v1/attempts`, {
+    }) => {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (req.buyer_agent_id) headers["X-Buyer-Agent-Id"] = req.buyer_agent_id;
+      return fetch(`${API}/agent-commerce/v1/attempts`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(req),
-      }).then(j<CommerceAttemptResponse>),
+      }).then(j<CommerceAttemptResponse>);
+    },
 
     planBuyer: (req: {
       goal: string;

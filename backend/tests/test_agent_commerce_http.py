@@ -163,7 +163,7 @@ def test_full_replay_buyer_loop_issues_payment_link():
     assert res["allowed"] is True
     assert res["outcome"] == "ACTION_ISSUED"
     assert res["razorpay_action_called"] is True
-    assert res["payment_link"] and res["payment_link"].startswith("https://rzp.io/")
+    assert res["payment_link"] and "/simulated/payment-link/" in res["payment_link"]
     assert res["grant_id"] is not None
     assert res["receipt"] is not None
     assert len(res["stages"]) == 4
@@ -211,7 +211,7 @@ def test_stock_loss_recovery_inside_envelope():
     assert attempt["outcome"] == "RECOVERED_INSIDE_ENVELOPE"
     assert attempt["recovery_applied"] is True
     assert attempt["razorpay_action_called"] is True
-    assert attempt["payment_link"].startswith("https://rzp.io/")
+    assert "/simulated/payment-link/" in attempt["payment_link"]
 
 
 def test_merchant_drift_refused_with_policy_delta():

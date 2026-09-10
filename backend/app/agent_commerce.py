@@ -24,6 +24,7 @@ from .approval_tokens import (
 )
 from .commerce_service import CheckoutPrincipals, execute_checkout
 from .buyer_auth import (
+    AgentPrincipal,
     check_replay_or_mutation,
     mint_shopper_session,
     record_successful_request,

@@ -36,6 +36,32 @@ function purchaseAttemptId(): string {
   return "att_" + globalThis.crypto.randomUUID().replace(/-/g, "");
 }
 
+/** Renders a chat line, turning any URL in it into a real link.
+ *  The backend embeds the issued payment link inside the reply sentence, so
+ *  without this the one actionable thing on the page is unclickable text. */
+function Linkified({ text }: { text: string }) {
+  const parts = text.split(/(https?:\/\/[^\s]+)/g);
+  return (
+    <>
+      {parts.map((part, i) =>
+        /^https?:\/\//.test(part) ? (
+          <a
+            key={i}
+            href={part}
+            target="_blank"
+            rel="noreferrer"
+            className="font-medium text-primary underline underline-offset-2 hover:text-primary-hover break-all"
+          >
+            {part}
+          </a>
+        ) : (
+          <span key={i}>{part}</span>
+        ),
+      )}
+    </>
+  );
+}
+
 export default function BaselineChatPage() {
   const [sessionId] = useState(
     () => "sess_" + Math.random().toString(36).slice(2, 10),
@@ -193,7 +219,7 @@ export default function BaselineChatPage() {
                     : "border border-border bg-canvas text-text")
                 }
               >
-                {message.text}
+                <Linkified text={message.text} />
               </div>
 
               {message.decision && (

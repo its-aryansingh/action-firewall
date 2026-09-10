@@ -2,12 +2,14 @@
 from __future__ import annotations
 import hashlib
 import hmac
+import html
 import json
 import time
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from starlette.concurrency import run_in_threadpool
 from mcp.server.streamable_http_manager import TransportSecuritySettings
 
@@ -15,6 +17,7 @@ from . import agent, agent_commerce, autopilot, catalog, commerce_mcp, demo_scen
 from .buyer_auth import MERCHANT_ADMIN_KEY, verify_merchant_admin
 from .config import get_settings
 from .merchant import DEFAULT_MERCHANT_ID, DEFAULT_MERCHANT_NAME
+from . import mcp_client
 from .mcp_client import get_client
 from .models import (
     ChatRequest,
@@ -177,6 +180,68 @@ def get_ucp_manifest() -> dict[str, Any]:
     }
     return manifest
 
+
+
+def _html_escape(value: str) -> str:
+    """Every field on the simulated link page comes from caller-supplied data."""
+    return html.escape(str(value), quote=True)
+
+
+@app.get("/simulated/payment-link/{payment_link_id}", response_class=HTMLResponse)
+def simulated_payment_link(payment_link_id: str) -> HTMLResponse:
+    """The page a simulated payment link resolves to.
+
+    The simulated provider used to hand back `https://rzp.io/i/<random>` — a URL
+    on Razorpay's real short-link domain that this project does not own and
+    cannot control. Serving the link ourselves means it resolves to something
+    true: the exact arguments that were authorised, and a plain statement that
+    no provider was called and nothing is payable.
+    """
+    record = mcp_client.simulated_link_record(payment_link_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Unknown simulated payment link")
+
+    rupees = f"{record['amount'] / 100:,.2f}"
+    attempt = str(record.get("notes", {}).get("purchase_attempt_id", "—"))
+    body = f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Simulated payment link · Action Firewall</title>
+<style>
+ body{{margin:0;background:#F7F8FC;color:#192233;
+  font:15px/1.55 Inter,system-ui,-apple-system,"Segoe UI",sans-serif;
+  display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px}}
+ .card{{background:#fff;border:1px solid #E5E9F0;border-radius:18px;
+  box-shadow:0 1px 2px rgba(25,34,51,.06);max-width:560px;width:100%;padding:28px}}
+ .tag{{display:inline-block;background:#FFF6E5;color:#B7791F;border:1px solid #F0DDB5;
+  border-radius:999px;padding:4px 11px;font-size:11px;font-weight:700;
+  letter-spacing:.09em;text-transform:uppercase}}
+ h1{{font-size:26px;margin:14px 0 6px;letter-spacing:-.4px}}
+ .amt{{font-size:34px;font-weight:700;margin:14px 0 2px}}
+ .muted{{color:#657084;font-size:13px}}
+ dl{{display:grid;grid-template-columns:auto 1fr;gap:7px 18px;margin:20px 0 0;
+  padding-top:18px;border-top:1px solid #E5E9F0;font-size:12.5px}}
+ dt{{color:#657084}} dd{{margin:0;font-family:ui-monospace,"DejaVu Sans Mono",monospace;
+  word-break:break-all}}
+ .note{{margin-top:20px;padding-top:16px;border-top:1px solid #E5E9F0;
+  color:#657084;font-size:12.5px}}
+</style></head><body><div class="card">
+ <span class="tag">Simulated · not payable</span>
+ <h1>{_html_escape(record['description'])}</h1>
+ <div class="amt">₹{rupees}</div>
+ <div class="muted">This is what would have been created at Razorpay.
+  No provider was called, no money can move, and this page is served by the
+  same deployment that authorised the action.</div>
+ <dl>
+  <dt>Payment link</dt><dd>{_html_escape(record['id'])}</dd>
+  <dt>Reference</dt><dd>{_html_escape(str(record.get('reference_id') or '—'))}</dd>
+  <dt>Attempt</dt><dd>{_html_escape(attempt)}</dd>
+  <dt>Grant</dt><dd>{_html_escape(str(record.get('grant_id') or '—'))}</dd>
+ </dl>
+ <div class="note">Creating a payment link is not a settlement. In this
+  deployment the provider is simulated, which <code>/health</code> reports.</div>
+</div></body></html>"""
+    return HTMLResponse(content=body)
 
 
 @app.get("/health")

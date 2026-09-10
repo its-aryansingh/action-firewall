@@ -262,7 +262,7 @@ export default function AIPlaygroundPage() {
         stage: "Payment Link Issued",
         status: "issued",
         message: "✔ Order recovered within approved bounds. One-time payment link issued.",
-        link: attemptRes.payment_link || "https://rzp.io/i/plink_demo_race",
+        link: attemptRes.payment_link ?? null,
         saved_amount: "₹7,840 SAVED",
       });
 
@@ -279,7 +279,7 @@ export default function AIPlaygroundPage() {
         stage: "Payment Link Issued",
         status: "issued",
         message: "✔ Oat milk → Soy milk (+₹12). Issued under pre-approved customer envelope.",
-        link: "https://rzp.io/i/plink_demo_race",
+        link: null,
         saved_amount: "₹7,840 SAVED",
       });
       setRaceCompleted(true);

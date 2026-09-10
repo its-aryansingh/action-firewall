@@ -837,7 +837,14 @@ export default function FrontDoorPage() {
                 <div className="text-xs font-semibold text-success">
                   Payment link issued
                 </div>
-                <Mono>{attempt.payment_link}</Mono>
+                <a
+                  href={attempt.payment_link}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-mono text-[11px] text-primary underline underline-offset-2 hover:text-primary-hover break-all"
+                >
+                  {attempt.payment_link}
+                </a>
                 <p className="mt-2 text-[11px] leading-relaxed text-success">
                   Issued against the simulated provider in this deployment. Creating
                   a link is not a settlement, and this page does not claim one.

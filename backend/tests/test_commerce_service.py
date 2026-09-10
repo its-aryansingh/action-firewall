@@ -183,7 +183,7 @@ def test_full_successful_checkout_and_replay():
     )
     assert res1.allowed is True
     assert res1.outcome == "ACTION_ISSUED"
-    assert res1.payment_link and res1.payment_link.startswith("https://rzp.io/")
+    assert res1.payment_link and "/simulated/payment-link/" in res1.payment_link
     assert res1.razorpay_action_called is True
 
     # Exact replay with identical body_data returns cached result

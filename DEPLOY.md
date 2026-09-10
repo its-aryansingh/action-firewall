@@ -63,7 +63,13 @@ On **backend** → Variables:
 
 ```
 FRONTEND_ORIGIN = https://${{frontend.RAILWAY_PUBLIC_DOMAIN}}
+PUBLIC_BASE_URL = https://${{RAILWAY_PUBLIC_DOMAIN}}
 ```
+
+`PUBLIC_BASE_URL` is the backend's own domain, and it is not optional. The
+simulated provider builds its payment links from it; leave it at the default and
+every issued link points at `localhost:8000`, so a judge who clicks one gets
+nothing. It must never be set to a domain this deployment does not serve.
 
 On **frontend** → Variables:
 
