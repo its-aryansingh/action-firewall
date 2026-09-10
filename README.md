@@ -31,6 +31,20 @@ And three times this repository published something wrong. Each correction is in
 
 ---
 
+### What has become stronger recently
+
+These are implemented, inspectable changes in the current build—not future-roadmap claims. They make the boundary easier for a shopper to understand and harder for a system to misrepresent.
+
+**1. The approval screen now exposes the authority hidden inside natural language.** Before activation, [`envelope_readback()`](backend/app/envelope.py) enumerates the *current* catalog items each slot admits, names the dearest eligible item, calculates the maximum permitted basket, flags an unsatisfiable slot, and states whether the spend cap actually binds. The readable policy text is still a pure function of the signed Envelope; the changing catalog evidence is stamped with its catalog revision. A shopper can therefore see that “one cheese item” currently includes Parmigiano Reggiano at ₹899 and narrow the rule *before* approving it.
+
+**2. “Same merchant, same total” no longer passes as a safe purchase.** The semantic-drift case adds a line item that can be in stock, under the cap, and from the correct merchant/category—but satisfies no approved slot. The property test requires that attempt to be denied, while the benchmark invariant demonstrates why a spend-cap-only guard would approve it. This is the distinction the product is built around: a budget limits amount; an Envelope limits meaning. See [`test_authorization_properties.py`](backend/tests/test_authorization_properties.py) and [`test_benchmark_invariants.py`](backend/tests/test_benchmark_invariants.py).
+
+**3. Payment-rail status is tied to the adapter actually in use.** The payment client records the active provider path and a fallback reason when Remote MCP is unavailable or rate-limited; the product surface reads that reported state instead of relying on a generic “simulated” label. That keeps the demo honest about whether it created an Action Grant, dispatched to a live adapter, or only exercised the local simulation. See [`mcp_client.py`](backend/app/mcp_client.py) and [`page.tsx`](frontend/app/page.tsx).
+
+**4. The customer gets both the rule and proof of its effect.** The home flow now presents the compiled rule alongside the live admission readback—allowed items, price range, worst-case basket, and cap status—rather than asking a shopper to trust a policy phrase or a model explanation. Scope is inspectable before consent, not reconstructed after an unwanted attempt.
+
+---
+
 ## 1. What this is
 
 AI buyers are beginning to place real orders at merchant storefronts, but stores today face a binary choice: refuse agent traffic and lose the volume, or accept it and carry liability for mistaken or drifted purchases that no payment network covers. Action Firewall is the merchant-side layer that makes a store safely transactable by AI buyers: customers approve their purchase boundaries once, the store repairs minor stock and price variations automatically inside those boundaries, and any unapproved drift is stopped before a payment rail is called. For example, at reference merchant **FreshBasket for Business**, an agent executing a ₹7,840 pantry replenishment order within an ₹8,000 ceiling can repair out-of-stock items in-envelope while blocking unapproved cross-merchant or high-drift attempts.
