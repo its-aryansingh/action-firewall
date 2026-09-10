@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   api,
@@ -9,6 +9,10 @@ import {
   type CommerceAttemptResponse,
   type IntentCreateResponse,
   type PurchaseEnvelope,
+  type SlippageItem,
+  type RefundPolicy,
+  type RefundEvaluateResponse,
+  type RefundExecuteResponse,
 } from "@/lib/api";
 import { Card, KpiCard, StatusChip, EvidenceBadge, EmptyState } from "@/components/ui";
 
@@ -25,8 +29,120 @@ export default function AIPlaygroundPage() {
   const [buyerType, setBuyerType] = useState<"gemini" | "replay">("gemini");
   const [scenario, setScenario] = useState<AutopilotScenario>("stock_loss");
 
-  // Workbench Mode: "single" or "race"
-  const [workbenchMode, setWorkbenchMode] = useState<"race" | "single">("race");
+  // Workbench Mode: "single", "race", or "refund"
+  const [workbenchMode, setWorkbenchMode] = useState<"race" | "single" | "refund">("race");
+
+  // Slippage & Outbound Refund States
+  const [slippageItems, setSlippageItems] = useState<SlippageItem[]>([]);
+  const [slippageBusy, setSlippageBusy] = useState(false);
+  const [refundPolicy, setRefundPolicy] = useState<RefundPolicy | null>(null);
+  const [refundPaymentId, setRefundPaymentId] = useState("pay_test_01");
+  const [refundAmountRupees, setRefundAmountRupees] = useState("300");
+  const [refundReason, setRefundReason] = useState("Damaged item during transit");
+  const [refundOriginalAmountRupees, setRefundOriginalAmountRupees] = useState("2000");
+  const [refundAlreadyRefundedRupees, setRefundAlreadyRefundedRupees] = useState("0");
+  const [refundOrderAgeDays, setRefundOrderAgeDays] = useState(5);
+  const [refundAutoRepair, setRefundAutoRepair] = useState(true);
+  const [refundEvalResult, setRefundEvalResult] = useState<RefundEvaluateResponse | null>(null);
+  const [refundExecResult, setRefundExecResult] = useState<RefundExecuteResponse | null>(null);
+  const [refundBusy, setRefundBusy] = useState(false);
+  const [refundNotice, setRefundNotice] = useState<string | null>(null);
+
+  // Load slippage and policy when refund tab opens
+  useEffect(() => {
+    if (workbenchMode === "refund") {
+      loadSlippageAndPolicy();
+    }
+  }, [workbenchMode]);
+
+  async function loadSlippageAndPolicy() {
+    try {
+      const [slip, pol] = await Promise.all([
+        api.agentCommerce.getSlippageState(),
+        api.agentCommerce.getRefundPolicy(),
+      ]);
+      setSlippageItems(slip);
+      setRefundPolicy(pol);
+    } catch (err) {
+      console.warn("Could not load slippage/policy data", err);
+    }
+  }
+
+  async function handleDepleteStock(sku: string) {
+    setSlippageBusy(true);
+    try {
+      await api.agentCommerce.depleteStock(sku);
+      const slip = await api.agentCommerce.getSlippageState();
+      setSlippageItems(slip);
+      setRefundNotice(`Stock depleted for SKU: ${sku}. Mid-demo inventory drift simulated.`);
+    } catch (err: any) {
+      setRefundNotice(`Deplete stock failed: ${err.message || String(err)}`);
+    } finally {
+      setSlippageBusy(false);
+    }
+  }
+
+  async function handleResetStock() {
+    setSlippageBusy(true);
+    try {
+      await api.agentCommerce.resetStock();
+      const slip = await api.agentCommerce.getSlippageState();
+      setSlippageItems(slip);
+      setRefundNotice("Catalog stock reset to baseline quantities across all items.");
+    } catch (err: any) {
+      setRefundNotice(`Reset stock failed: ${err.message || String(err)}`);
+    } finally {
+      setSlippageBusy(false);
+    }
+  }
+
+  async function handleEvaluateRefund() {
+    setRefundBusy(true);
+    setRefundNotice(null);
+    try {
+      const amountPaise = (Number.parseFloat(refundAmountRupees) || 0) * 100;
+      const origPaise = (Number.parseFloat(refundOriginalAmountRupees) || 0) * 100;
+      const alreadyPaise = (Number.parseFloat(refundAlreadyRefundedRupees) || 0) * 100;
+      const res = await api.agentCommerce.evaluateRefund({
+        payment_id: refundPaymentId,
+        amount_paise: amountPaise,
+        reason: refundReason,
+        original_amount_paise: origPaise,
+        already_refunded_paise: alreadyPaise,
+        order_age_days: refundOrderAgeDays,
+      });
+      setRefundEvalResult(res);
+      setRefundExecResult(null);
+    } catch (err: any) {
+      setRefundNotice(`Refund evaluation failed: ${err.message || String(err)}`);
+    } finally {
+      setRefundBusy(false);
+    }
+  }
+
+  async function handleExecuteRefund() {
+    setRefundBusy(true);
+    setRefundNotice(null);
+    try {
+      const amountPaise = (Number.parseFloat(refundAmountRupees) || 0) * 100;
+      const origPaise = (Number.parseFloat(refundOriginalAmountRupees) || 0) * 100;
+      const alreadyPaise = (Number.parseFloat(refundAlreadyRefundedRupees) || 0) * 100;
+      const res = await api.agentCommerce.executeRefund({
+        payment_id: refundPaymentId,
+        amount_paise: amountPaise,
+        reason: refundReason,
+        attempt_id: `ref_att_${Date.now()}`,
+        auto_repair: refundAutoRepair,
+        original_amount_paise: origPaise,
+        already_refunded_paise: alreadyPaise,
+      });
+      setRefundExecResult(res);
+    } catch (err: any) {
+      setRefundNotice(`Refund execution failed: ${err.message || String(err)}`);
+    } finally {
+      setRefundBusy(false);
+    }
+  }
 
   // Race States
   const [raceRunning, setRaceRunning] = useState(false);
@@ -62,6 +178,9 @@ export default function AIPlaygroundPage() {
     setRaceCompleted(false);
     setBaselineResult(null);
     setFirewallResult(null);
+    setRefundEvalResult(null);
+    setRefundExecResult(null);
+    setRefundNotice(null);
   }
 
   // --- TWO-LANE RACE EXECUTION (Gate B5) ---
@@ -275,6 +394,16 @@ export default function AIPlaygroundPage() {
               }`}
             >
               4-Stage Workbench
+            </button>
+            <button
+              onClick={() => setWorkbenchMode("refund")}
+              className={`rounded-lg px-3 py-1.5 font-semibold transition ${
+                workbenchMode === "refund"
+                  ? "bg-primary text-white shadow-xs"
+                  : "text-muted hover:text-text"
+              }`}
+            >
+              Refund &amp; Slippage
             </button>
           </div>
 
@@ -730,6 +859,363 @@ export default function AIPlaygroundPage() {
               ) : (
                 <p className="text-xs text-muted mt-1">Single-owner compare-and-set dispatch. Issues payment link after headroom check.</p>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODE 3: REFUND & SLIPPAGE SIMULATOR                      */}
+      {/* ========================================================= */}
+      {workbenchMode === "refund" && (
+        <div className="space-y-6">
+          {/* Notification banner */}
+          {refundNotice && (
+            <div className="p-3.5 rounded-xl bg-primary/[0.06] border border-primary/20 text-xs text-primary flex items-center justify-between">
+              <span>{refundNotice}</span>
+              <button onClick={() => setRefundNotice(null)} className="text-xs font-bold hover:underline">Dismiss</button>
+            </div>
+          )}
+
+          {/* Section 1: Live Stock Slippage Controls */}
+          <Card
+            title="Catalog Stock & Mid-Demo Slippage Controls"
+            subtitle="Simulate live stock movements to test how Action Firewall transparently triggers in-envelope repairs instead of crashing"
+            action={
+              <button
+                onClick={handleResetStock}
+                disabled={slippageBusy}
+                className="rounded-xl border border-border bg-surface px-4 py-2 text-xs font-semibold text-text hover:bg-canvas disabled:opacity-50 transition"
+              >
+                Reset All Inventory
+              </button>
+            }
+          >
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {(slippageItems.length > 0 ? slippageItems : [
+                { sku: "SKU-DAI-001", name: "Oat Milk 1L", committed_stock: 12, live_stock: 12 },
+                { sku: "SKU-PAS-001", name: "Durum Wheat Penne 500g", committed_stock: 24, live_stock: 24 },
+                { sku: "SKU-SAU-001", name: "Tomato Passata 700g", committed_stock: 18, live_stock: 18 },
+                { sku: "SKU-DAI-002", name: "Soy Milk 1L (Substitute)", committed_stock: 30, live_stock: 30 },
+              ]).map((item) => (
+                <div key={item.sku} className="rounded-xl border border-border bg-surface p-3.5 space-y-2">
+                  <div className="flex items-start justify-between gap-1">
+                    <div>
+                      <div className="font-semibold text-xs text-text truncate max-w-[140px]">{item.name}</div>
+                      <div className="font-mono text-[10px] text-muted">{item.sku}</div>
+                    </div>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                      item.live_stock > 0 ? "bg-success/10 text-success" : "bg-danger/10 text-danger"
+                    }`}>
+                      {item.live_stock > 0 ? `${item.live_stock} in stock` : "Out of stock"}
+                    </span>
+                  </div>
+                  <div className="pt-1">
+                    <button
+                      onClick={() => handleDepleteStock(item.sku)}
+                      disabled={slippageBusy || item.live_stock === 0}
+                      className="w-full py-1.5 px-2 rounded-lg bg-canvas hover:bg-border/60 text-text text-[11px] font-semibold border border-border disabled:opacity-40 transition"
+                    >
+                      {item.live_stock === 0 ? "Exhausted" : "Deplete Stock"}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="mt-3 text-[11px] text-muted italic">
+              *Depleting Oat Milk or Penne triggers deterministic in-envelope substitution during agent checkout.
+            </p>
+          </Card>
+
+          {/* Section 2: Outbound Refund Evaluator & Repair Ladder */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* Refund Inputs */}
+            <div className="lg:col-span-6 rounded-2xl border border-border bg-surface p-6 shadow-sm space-y-4">
+              <div>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-bold text-text uppercase tracking-wider">
+                    Outbound Refund Authorization
+                  </h3>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-primary/10 text-primary font-bold">
+                    4-Way Repair Ladder
+                  </span>
+                </div>
+                <p className="text-xs text-muted mt-1">
+                  Enforces merchant outbound limits: caps, 30-day window, ratio limits, and automatic step-down repair.
+                </p>
+              </div>
+
+              {/* Policy Header */}
+              <div className="rounded-xl border border-border bg-canvas/40 p-3 text-xs space-y-1 font-mono">
+                <div className="flex justify-between">
+                  <span className="text-muted">Per-Refund Max Cap:</span>
+                  <span className="text-text font-bold">{refundPolicy ? inr(refundPolicy.max_refund_paise) : "₹500.00"}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted">Max Refund Ratio:</span>
+                  <span className="text-text font-bold">{refundPolicy ? `${(refundPolicy.max_refund_ratio * 100).toFixed(0)}%` : "50%"}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted">Eligible Window:</span>
+                  <span className="text-text font-bold">{refundPolicy?.window_days ?? 30} days</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted">Escalation Reasons:</span>
+                  <span className="text-warning font-bold">fraud, chargebacks</span>
+                </div>
+              </div>
+
+              {/* Presets */}
+              <div>
+                <label className="text-[11px] font-bold text-muted uppercase tracking-wider block mb-1.5">
+                  Quick Presets
+                </label>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRefundAmountRupees("300");
+                      setRefundOriginalAmountRupees("2000");
+                      setRefundOrderAgeDays(5);
+                      setRefundReason("Damaged item during delivery");
+                      setRefundAlreadyRefundedRupees("0");
+                    }}
+                    className="p-2 rounded-lg bg-canvas border border-border text-left hover:bg-border/40 transition"
+                  >
+                    <div className="font-semibold text-text">1. Compliant (₹300)</div>
+                    <div className="text-[10px] text-success">ALLOW_REFUND</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRefundAmountRupees("1500");
+                      setRefundOriginalAmountRupees("2000");
+                      setRefundOrderAgeDays(5);
+                      setRefundReason("Customer requested return");
+                      setRefundAlreadyRefundedRupees("0");
+                    }}
+                    className="p-2 rounded-lg bg-canvas border border-border text-left hover:bg-border/40 transition"
+                  >
+                    <div className="font-semibold text-text">2. Over-Limit (₹1,500)</div>
+                    <div className="text-[10px] text-warning">REPAIR_REFUND (Auto-cap)</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRefundAmountRupees("400");
+                      setRefundOriginalAmountRupees("2000");
+                      setRefundOrderAgeDays(5);
+                      setRefundReason("Suspected fraud / unauthorized use");
+                      setRefundAlreadyRefundedRupees("0");
+                    }}
+                    className="p-2 rounded-lg bg-canvas border border-border text-left hover:bg-border/40 transition"
+                  >
+                    <div className="font-semibold text-text">3. Fraud Reason</div>
+                    <div className="text-[10px] text-warning">ESCALATE_REFUND</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRefundAmountRupees("300");
+                      setRefundOriginalAmountRupees("2000");
+                      setRefundOrderAgeDays(45);
+                      setRefundReason("Customer return");
+                      setRefundAlreadyRefundedRupees("0");
+                    }}
+                    className="p-2 rounded-lg bg-canvas border border-border text-left hover:bg-border/40 transition"
+                  >
+                    <div className="font-semibold text-text">4. Expired (45 Days)</div>
+                    <div className="text-[10px] text-danger">BLOCK_REFUND</div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Form Fields */}
+              <div className="space-y-3 pt-1">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-bold text-muted uppercase block">Refund Amount (₹)</label>
+                    <input
+                      type="number"
+                      value={refundAmountRupees}
+                      onChange={(e) => setRefundAmountRupees(e.target.value)}
+                      className="mt-1 w-full text-xs p-2.5 bg-canvas border border-border rounded-lg font-mono text-text outline-none focus:border-primary"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-muted uppercase block">Original Order (₹)</label>
+                    <input
+                      type="number"
+                      value={refundOriginalAmountRupees}
+                      onChange={(e) => setRefundOriginalAmountRupees(e.target.value)}
+                      className="mt-1 w-full text-xs p-2.5 bg-canvas border border-border rounded-lg font-mono text-text outline-none focus:border-primary"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-bold text-muted uppercase block">Order Age (Days)</label>
+                    <input
+                      type="number"
+                      value={refundOrderAgeDays}
+                      onChange={(e) => setRefundOrderAgeDays(Number.parseInt(e.target.value, 10) || 0)}
+                      className="mt-1 w-full text-xs p-2.5 bg-canvas border border-border rounded-lg font-mono text-text outline-none focus:border-primary"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-muted uppercase block">Already Refunded (₹)</label>
+                    <input
+                      type="number"
+                      value={refundAlreadyRefundedRupees}
+                      onChange={(e) => setRefundAlreadyRefundedRupees(e.target.value)}
+                      className="mt-1 w-full text-xs p-2.5 bg-canvas border border-border rounded-lg font-mono text-text outline-none focus:border-primary"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-bold text-muted uppercase block">Reason</label>
+                  <input
+                    type="text"
+                    value={refundReason}
+                    onChange={(e) => setRefundReason(e.target.value)}
+                    className="mt-1 w-full text-xs p-2.5 bg-canvas border border-border rounded-lg text-text outline-none focus:border-primary"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <input
+                    type="checkbox"
+                    id="autoRepairToggle"
+                    checked={refundAutoRepair}
+                    onChange={(e) => setRefundAutoRepair(e.target.checked)}
+                    className="rounded text-primary focus:ring-0"
+                  />
+                  <label htmlFor="autoRepairToggle" className="text-xs text-text cursor-pointer select-none">
+                    Auto-repair down to max allowable policy cap if proposal exceeds limits
+                  </label>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <button
+                  onClick={handleEvaluateRefund}
+                  disabled={refundBusy}
+                  className="py-2.5 px-4 rounded-xl border border-primary bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold transition disabled:opacity-50"
+                >
+                  {refundBusy ? "Evaluating..." : "Evaluate Policy"}
+                </button>
+                <button
+                  onClick={handleExecuteRefund}
+                  disabled={refundBusy}
+                  className="py-2.5 px-4 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold transition shadow-sm disabled:opacity-50"
+                >
+                  {refundBusy ? "Executing..." : "Execute Refund"}
+                </button>
+              </div>
+            </div>
+
+            {/* Refund Results Column */}
+            <div className="lg:col-span-6 space-y-4">
+              <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm space-y-4">
+                <h3 className="text-xs font-bold text-text uppercase tracking-wider">
+                  Firewall Evaluation Decision
+                </h3>
+
+                {refundEvalResult ? (
+                  <div className="space-y-4 text-xs">
+                    <div className={`p-4 rounded-xl border ${
+                      refundEvalResult.decision?.decision === "ALLOW_REFUND"
+                        ? "bg-success/10 border-success/30 text-success"
+                        : refundEvalResult.decision?.decision === "REPAIR_REFUND"
+                        ? "bg-warning/10 border-warning/30 text-warning"
+                        : refundEvalResult.decision?.decision === "ESCALATE_REFUND"
+                        ? "bg-warning/10 border-warning/30 text-warning"
+                        : "bg-danger/10 border-danger/30 text-danger"
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-sm uppercase">
+                          {refundEvalResult.decision?.decision || "ALLOW_REFUND"}
+                        </span>
+                        <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-surface/80 border border-current font-bold">
+                          {refundEvalResult.code}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-xs leading-relaxed">
+                        {refundEvalResult.human_message}
+                      </p>
+                    </div>
+
+                    {/* Repaired proposal details if present */}
+                    {refundEvalResult.repaired_proposal && (
+                      <div className="p-3.5 rounded-xl border border-border bg-canvas/40 space-y-2">
+                        <div className="font-semibold text-text text-[11px] uppercase tracking-wide">
+                          Repaired Proposal Step-Down
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 font-mono text-xs">
+                          <div>
+                            <span className="text-muted block text-[10px]">Requested:</span>
+                            <span className="text-danger line-through font-bold">
+                              {inr(refundEvalResult.proposal.amount_paise)}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-muted block text-[10px]">Repaired Cap:</span>
+                            <span className="text-success font-bold">
+                              {inr(refundEvalResult.repaired_proposal.amount_paise)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="space-y-2 font-mono text-[11px] bg-canvas p-3 rounded-xl border border-border">
+                      <div className="flex justify-between">
+                        <span className="text-muted">Target Payment:</span>
+                        <span className="text-text">{refundEvalResult.proposal.payment_id}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted">Policy Hash:</span>
+                        <span className="text-text truncate max-w-[180px]">{refundEvalResult.policy_hash}</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <EmptyState
+                    title="No refund evaluated yet"
+                    description="Select a preset or enter values on the left and click 'Evaluate Policy'."
+                  />
+                )}
+
+                {/* Execution Result */}
+                {refundExecResult && (
+                  <div className="mt-4 pt-4 border-t border-border space-y-3">
+                    <h4 className="text-xs font-bold text-text uppercase tracking-wider">
+                      Provider Actuator Result
+                    </h4>
+                    <div className={`p-4 rounded-xl border ${
+                      refundExecResult.allowed ? "bg-success/10 border-success/30" : "bg-danger/10 border-danger/30"
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <span className={`font-bold text-xs uppercase ${refundExecResult.allowed ? "text-success" : "text-danger"}`}>
+                          {refundExecResult.outcome}
+                        </span>
+                        <span className="font-mono text-xs font-bold text-text">
+                          {inr(refundExecResult.amount_paise)}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-text">{refundExecResult.human_message}</p>
+                      {refundExecResult.refund_id && (
+                        <div className="mt-2 text-[11px] font-mono text-muted">
+                          Refund ID: <span className="text-primary font-semibold">{refundExecResult.refund_id}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
