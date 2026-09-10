@@ -1,12 +1,41 @@
 """Closed action registry for the Razorpay actuator boundary."""
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, ValidationError, model_validator
 
 from .authorization import action_args_hash, digest
+
+#: Razorpay caps a Payment Link's `reference_id` at 40 characters. That is the
+#: provider's constraint, not ours, so the schema below enforces it rather than
+#: widening to whatever we happen to generate.
+PROVIDER_REFERENCE_MAX_LEN = 40
+
+
+def provider_reference_id(purchase_attempt_id: str) -> str:
+    """A provider-safe `reference_id` for an attempt id of any length.
+
+    Purchase attempt ids are chosen by the CALLER — a buyer agent may send any
+    string it likes, and our own UI once sent `attempt_` + a UUID, which is 44
+    characters. Passing that straight through meant the provider boundary
+    rejected the action with a validation error that named a Pydantic rule, so
+    an operator saw a 409 about string length instead of anything about their
+    order.
+
+    An over-long id is therefore mapped, not refused: the digest is
+    DETERMINISTIC, so retrying the same attempt produces the same reference and
+    the provider's own idempotency still holds. Nothing is lost either — every
+    caller of this passes the full attempt id in `notes.purchase_attempt_id`,
+    where the limit is 256 characters, so the untruncated value stays on the
+    payment link for reconciliation.
+    """
+    if len(purchase_attempt_id) <= PROVIDER_REFERENCE_MAX_LEN:
+        return purchase_attempt_id
+    digest_hex = hashlib.sha256(purchase_attempt_id.encode("utf-8")).hexdigest()
+    return f"att_{digest_hex[:32]}"  # 36 characters
 
 
 class ActionNotRegistered(ValueError):

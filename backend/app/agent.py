@@ -15,7 +15,7 @@ from functools import lru_cache
 from pydantic import ValidationError
 
 from . import catalog, store
-from .actions import canonicalize_action
+from .actions import canonicalize_action, provider_reference_id
 from .authorization import cart_hash as compute_cart_hash
 from .config import get_settings
 from .mandate import rupees, suggest_downgrade, verify_for_agent
@@ -519,7 +519,7 @@ def confirm_checkout(req: CheckoutConfirmRequest) -> ChatResponse:
         "currency": "INR",
         "description": f"Agentic cart ({len(cart.lines)} items) under policy {mandate.id}",
         "accept_partial": False,
-        "reference_id": attempt_id,
+        "reference_id": provider_reference_id(attempt_id),
         "notes": {
             "policy_id": mandate.id,
             "agent_id": session.agent_id,

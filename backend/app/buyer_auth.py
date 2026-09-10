@@ -102,6 +102,7 @@ class MerchantPrincipal:
 # Generated dynamically at startup or loaded from environment — never a hard-coded 'live' literal in source
 DEMO_BUYER_KEY = os.getenv("DEMO_BUYER_KEY") or f"af_test_buyer_demo_{uuid.uuid4().hex[:16]}"
 MERCHANT_ADMIN_KEY = os.getenv("MERCHANT_ADMIN_KEY") or f"af_merchant_admin_{uuid.uuid4().hex[:16]}"
+DEMO_GEMINI_KEY = os.getenv("DEMO_GEMINI_KEY") or f"af_test_buyer_gemini_{uuid.uuid4().hex[:16]}"
 
 
 def _hash_key(key: str) -> str:
@@ -109,12 +110,19 @@ def _hash_key(key: str) -> str:
 
 
 _demo_hash = _hash_key(DEMO_BUYER_KEY)
+_gemini_hash = _hash_key(DEMO_GEMINI_KEY)
 _KNOWN_BUYER_KEYS: dict[str, AgentPrincipal] = {
     _demo_hash: AgentPrincipal(
         buyer_agent_id="buyer_replay",
         merchant_id=DEFAULT_MERCHANT_ID,
         authenticated=True,
         key_hash=_demo_hash,
+    ),
+    _gemini_hash: AgentPrincipal(
+        buyer_agent_id="buyer_gemini",
+        merchant_id=DEFAULT_MERCHANT_ID,
+        authenticated=True,
+        key_hash=_gemini_hash,
     ),
 }
 _REVOKED_KEY_HASHES: set[str] = set()
@@ -196,6 +204,7 @@ def reset_buyer_keys() -> None:
 
 def verify_buyer_agent(
     authorization: str | None = Header(None, alias="Authorization"),
+    x_buyer_agent_id: str | None = Header(None, alias="X-Buyer-Agent-Id"),
 ) -> AgentPrincipal:
     """Verify Bearer buyer agent key.
 
@@ -206,6 +215,14 @@ def verify_buyer_agent(
 
     if not authorization:
         if settings.demo_mode:
+            agent_id = x_buyer_agent_id or "buyer_replay"
+            if agent_id in {"buyer_replay", "buyer_gemini", "buyer_gemini_flash"}:
+                return AgentPrincipal(
+                    buyer_agent_id=agent_id,
+                    merchant_id=DEFAULT_MERCHANT_ID,
+                    authenticated=False,
+                    key_hash=None,
+                )
             return AgentPrincipal(
                 buyer_agent_id="buyer_replay",
                 merchant_id=DEFAULT_MERCHANT_ID,

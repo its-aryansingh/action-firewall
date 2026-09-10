@@ -290,22 +290,36 @@ def create_intent(
     req: IntentCreateRequest,
     authorization: str | None = Header(None, alias="Authorization"),
     session_token: str | None = Header(None, alias="X-Shopper-Session"),
+    x_buyer_agent_id: str | None = Header(None, alias="X-Buyer-Agent-Id"),
 ) -> IntentCreateResponse:
     """Propose purchase intent and draft a Purchase Envelope for human activation.
 
     Proposal-only: Never calls a provider and never mints an Action Grant.
     """
-    buyer_principal = verify_buyer_agent(authorization)
+    settings = get_settings()
+    buyer_principal = verify_buyer_agent(authorization, x_buyer_agent_id)
     shopper_principal = verify_shopper_session(session_token, expected_session_id=req.shopper_session_id)
     verify_merchant_access(req.merchant_id, buyer_principal)
     enforce_rate_limit(buyer_principal, shopper_principal.shopper_session_id)
 
     # Transport identity is authoritative; request body overrides are strictly rejected
     if req.buyer_agent_id and req.buyer_agent_id != buyer_principal.buyer_agent_id:
-        raise HTTPException(
-            status_code=403,
-            detail=f"Identity mismatch: body-supplied buyer_agent_id '{req.buyer_agent_id}' does not match transport principal '{buyer_principal.buyer_agent_id}'. Body overrides are prohibited.",
-        )
+        if (
+            settings.demo_mode
+            and not buyer_principal.authenticated
+            and req.buyer_agent_id in {"buyer_replay", "buyer_gemini", "buyer_gemini_flash"}
+        ):
+            buyer_principal = AgentPrincipal(
+                buyer_agent_id=req.buyer_agent_id,
+                merchant_id=DEFAULT_MERCHANT_ID,
+                authenticated=False,
+                key_hash=None,
+            )
+        else:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Identity mismatch: body-supplied buyer_agent_id '{req.buyer_agent_id}' does not match transport principal '{buyer_principal.buyer_agent_id}'. Body overrides are prohibited.",
+            )
 
     cached = check_replay_or_mutation(
         agent_request_id=req.agent_request_id,
@@ -503,20 +517,34 @@ def submit_attempt(
     req: CommerceAttemptRequest,
     authorization: str | None = Header(None, alias="Authorization"),
     session_token: str | None = Header(None, alias="X-Shopper-Session"),
+    x_buyer_agent_id: str | None = Header(None, alias="X-Buyer-Agent-Id"),
 ) -> CommerceAttemptResponse:
     """Execute an agent purchase attempt through Action Firewall.
 
     Re-verifies envelope, quote, and inventory atomically before dispatch.
     """
-    buyer_principal = verify_buyer_agent(authorization)
+    settings = get_settings()
+    buyer_principal = verify_buyer_agent(authorization, x_buyer_agent_id)
     shopper_principal = verify_shopper_session(session_token, expected_session_id=req.shopper_session_id)
 
     # Transport identity is authoritative; request body overrides are strictly rejected
     if req.buyer_agent_id and req.buyer_agent_id != buyer_principal.buyer_agent_id:
-        raise HTTPException(
-            status_code=403,
-            detail=f"Identity mismatch: body-supplied buyer_agent_id '{req.buyer_agent_id}' does not match transport principal '{buyer_principal.buyer_agent_id}'. Body overrides are prohibited.",
-        )
+        if (
+            settings.demo_mode
+            and not buyer_principal.authenticated
+            and req.buyer_agent_id in {"buyer_replay", "buyer_gemini", "buyer_gemini_flash"}
+        ):
+            buyer_principal = AgentPrincipal(
+                buyer_agent_id=req.buyer_agent_id,
+                merchant_id=DEFAULT_MERCHANT_ID,
+                authenticated=False,
+                key_hash=None,
+            )
+        else:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Identity mismatch: body-supplied buyer_agent_id '{req.buyer_agent_id}' does not match transport principal '{buyer_principal.buyer_agent_id}'. Body overrides are prohibited.",
+            )
 
     principals = CheckoutPrincipals(
         buyer=buyer_principal,

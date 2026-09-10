@@ -29,7 +29,11 @@ const PROMPTS = [
 ];
 
 function purchaseAttemptId(): string {
-  return "attempt_" + globalThis.crypto.randomUUID();
+  // "attempt_" + a hyphenated UUID is 44 characters, and Razorpay caps a
+  // Payment Link's reference_id at 40 — so every checkout from this page died
+  // at the provider boundary with a validation error about string length.
+  // Stripping the hyphens and shortening the prefix gives 36.
+  return "att_" + globalThis.crypto.randomUUID().replace(/-/g, "");
 }
 
 export default function BaselineChatPage() {

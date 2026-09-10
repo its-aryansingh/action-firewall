@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from . import store
-from .actions import canonicalize_action
+from .actions import canonicalize_action, provider_reference_id
 from .authorization import cart_hash
 from .config import get_settings
 from .envelope import build_quote, draft_envelope, verify_quote
@@ -241,7 +241,7 @@ def execute(req: AutopilotExecuteRequest) -> AutopilotExecuteResponse:
             "currency": envelope.currency,
             "description": f"Safe Autopilot purchase under envelope {envelope.id}",
             "accept_partial": False,
-            "reference_id": attempt_id,
+            "reference_id": provider_reference_id(attempt_id),
             "notes": {
                 "policy_id": mandate.id,
                 "envelope_id": envelope.id,
