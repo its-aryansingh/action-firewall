@@ -147,6 +147,23 @@ function outcomeTone(outcome: string) {
   return "red";
 }
 
+/**
+ * The failure, shown where the click was. The page-level banner stays — it is
+ * the right place for "could not reach the backend" — but a failure that
+ * belongs to one control has to be legible from that control, or the control
+ * just looks broken.
+ */
+function StepError({ message }: { message: string }) {
+  return (
+    <p
+      role="alert"
+      className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-[11px] leading-relaxed text-danger ring-1 ring-inset ring-danger/30"
+    >
+      {message}
+    </p>
+  );
+}
+
 export default function FrontDoorPage() {
   // Step 0 — what the store says about itself, all fetched.
   const [health, setHealth] = useState<Health | null>(null);
@@ -175,6 +192,11 @@ export default function FrontDoorPage() {
 
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Which step the failure belongs to. A single banner at the top of the page
+  // is invisible to anyone standing at step 3 — the page is ~700px taller than
+  // the viewport there — so a failed activation looked exactly like a dead
+  // button. The error has to appear where the click happened.
+  const [errorStep, setErrorStep] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -209,6 +231,7 @@ export default function FrontDoorPage() {
   async function draftEnvelope() {
     setBusy("draft");
     setError(null);
+    setErrorStep(null);
     setAttempt(null);
     setActiveEnvelope(null);
     try {
@@ -222,6 +245,7 @@ export default function FrontDoorPage() {
       setIntent(res);
     } catch (err) {
       setError(`Drafting failed: ${err instanceof Error ? err.message : String(err)}`);
+      setErrorStep(1);
     } finally {
       setBusy(null);
     }
@@ -231,6 +255,7 @@ export default function FrontDoorPage() {
     if (!intent) return;
     setBusy("activate");
     setError(null);
+    setErrorStep(null);
     try {
       const env = await api.agentCommerce.activateEnvelope(
         intent.draft_envelope.id,
@@ -239,6 +264,7 @@ export default function FrontDoorPage() {
       setActiveEnvelope(env);
     } catch (err) {
       setError(`Activation failed: ${err instanceof Error ? err.message : String(err)}`);
+      setErrorStep(2);
     } finally {
       setBusy(null);
     }
@@ -254,6 +280,7 @@ export default function FrontDoorPage() {
   async function freshEnvelope() {
     setBusy("fresh");
     setError(null);
+    setErrorStep(null);
     setAttempt(null);
     setActiveEnvelope(null);
     try {
@@ -276,6 +303,7 @@ export default function FrontDoorPage() {
           err instanceof Error ? err.message : String(err)
         }`
       );
+      setErrorStep(3);
     } finally {
       setBusy(null);
     }
@@ -286,6 +314,7 @@ export default function FrontDoorPage() {
     if (!env) return;
     setBusy("attempt");
     setError(null);
+    setErrorStep(null);
     try {
       const res = await api.agentCommerce.submitAttempt({
         envelope_id: env.id,
@@ -296,6 +325,7 @@ export default function FrontDoorPage() {
       setAttempt(res);
     } catch (err) {
       setError(`Attempt failed: ${err instanceof Error ? err.message : String(err)}`);
+      setErrorStep(3);
     } finally {
       setBusy(null);
     }
@@ -304,6 +334,7 @@ export default function FrontDoorPage() {
   async function evaluateRefund() {
     setBusy("refund");
     setError(null);
+    setErrorStep(null);
     try {
       const res = await api.agentCommerce.evaluateRefund({
         payment_id: rid("pay"),
@@ -316,6 +347,7 @@ export default function FrontDoorPage() {
       setRefundResult(res);
     } catch (err) {
       setError(`Refund evaluation failed: ${err instanceof Error ? err.message : String(err)}`);
+      setErrorStep(5);
     } finally {
       setBusy(null);
     }
@@ -369,7 +401,10 @@ export default function FrontDoorPage() {
         />
       )}
 
-      {error && (
+      {/* Only unattributed failures surface here now. Anything that belongs to a
+          step is shown at that step instead, so the message and the control it
+          concerns are on screen together rather than a scroll apart. */}
+      {error && errorStep === null && (
         <div className="rounded-xl border border-danger/30 bg-danger/10 p-4 text-xs text-danger">
           {error}
         </div>
@@ -483,6 +518,8 @@ export default function FrontDoorPage() {
           </button>
         </div>
 
+        {error && errorStep === 1 && <StepError message={error} />}
+
         {!draft && !loading && (
           <div className="mt-4">
             <Empty>
@@ -558,6 +595,11 @@ export default function FrontDoorPage() {
                   ? "Now, and only now, may an agent propose against it."
                   : "Until a human presses this, nothing can be authorised against this envelope. There is no API call that performs this activation."}
               </p>
+              {error && errorStep === 2 && (
+                <div className="w-full">
+                  <StepError message={error} />
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -614,10 +656,16 @@ export default function FrontDoorPage() {
 
           {!isActive && !attempt && (
             <span className="text-[11px] text-muted">
-              Activate the envelope in step 2 first — that is the point.
+              {errorStep === 2
+                ? "Step 2's activation did not go through — see the message there. This button stays disabled until it does."
+                : intent
+                ? "Disabled until you press \u201cActivate as the customer\u201d in step 2 \u2014 that is the point: no API call can activate an envelope."
+                : "Draft an envelope in step 1 first, then activate it in step 2."}
             </span>
           )}
         </div>
+
+        {error && errorStep === 3 && <StepError message={error} />}
 
         {attempt && (
           <p className="mt-3 rounded-lg bg-warning/10 px-3 py-2 text-[11px] leading-relaxed text-warning ring-1 ring-inset ring-warning/30">
