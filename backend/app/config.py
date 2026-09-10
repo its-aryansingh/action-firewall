@@ -69,6 +69,26 @@ class Settings(BaseSettings):
         return str(p)
 
     @model_validator(mode="after")
+    def derive_public_base_url_on_railway(self) -> "Settings":
+        """Fall back to the platform's own domain when nobody set one.
+
+        The container image ships `PUBLIC_BASE_URL=http://localhost:8000`, which is
+        right for a laptop and wrong for every deployment. Left unset on Railway,
+        the simulated provider hands out payment links pointing at localhost:8000 —
+        they render fine in the response and 404 in the customer's browser, which
+        is the worst kind of broken because nothing errors.
+
+        Only fires when the value is still the local default, so an explicit
+        PUBLIC_BASE_URL always wins.
+        """
+        import os
+
+        domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "").strip()
+        if domain and self.public_base_url == "http://localhost:8000":
+            object.__setattr__(self, "public_base_url", f"https://{domain}")
+        return self
+
+    @model_validator(mode="after")
     def validate_fault_injection_safety(self) -> "Settings":
         if self.fault_injection_enabled and (self.payment_provider != "simulated" or not self.demo_mode):
             raise ValueError(

@@ -106,3 +106,34 @@ def test_lifespan_refuses_boot_on_invariant_17_violation(monkeypatch: pytest.Mon
     with pytest.raises((RuntimeError, ValidationError, ValueError)):
         with TestClient(app):
             pass
+
+
+def test_public_base_url_falls_back_to_the_railway_domain(monkeypatch):
+    """The image ships PUBLIC_BASE_URL=http://localhost:8000, which is right on a
+    laptop and wrong on every deployment. Unset on Railway, the simulated provider
+    would hand out payment links pointing at localhost — they render fine in the
+    response and 404 in the customer's browser, which is the worst kind of broken
+    because nothing errors."""
+    from app.config import Settings
+
+    monkeypatch.setenv("RAILWAY_PUBLIC_DOMAIN", "my-app-production.up.railway.app")
+    monkeypatch.delenv("PUBLIC_BASE_URL", raising=False)
+    assert Settings().public_base_url == "https://my-app-production.up.railway.app"
+
+
+def test_an_explicit_public_base_url_beats_the_railway_domain(monkeypatch):
+    """A deployment behind a custom domain or a proxy must not be overridden by
+    the platform's internal hostname."""
+    from app.config import Settings
+
+    monkeypatch.setenv("RAILWAY_PUBLIC_DOMAIN", "my-app-production.up.railway.app")
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://pay.freshbasket.example")
+    assert Settings().public_base_url == "https://pay.freshbasket.example"
+
+
+def test_no_railway_domain_leaves_the_local_default_alone(monkeypatch):
+    from app.config import Settings
+
+    monkeypatch.delenv("RAILWAY_PUBLIC_DOMAIN", raising=False)
+    monkeypatch.delenv("PUBLIC_BASE_URL", raising=False)
+    assert Settings().public_base_url == "http://localhost:8000"
