@@ -487,10 +487,23 @@ class RazorpayRESTClient:
                 resp.raise_for_status()
                 data = resp.json()
         except httpx.HTTPStatusError as exc:
-            if exc.response.status_code in (400, 401, 403, 422):
+            if exc.response.status_code in (400, 401, 403, 422, 429):
+                settings = get_settings()
+                if exc.response.status_code == 429 and settings.demo_mode:
+                    trigger_provider_fallback(
+                        "Razorpay Test Mode 30-link quota exceeded; falling back to simulated provider",
+                        target="simulated",
+                    )
+                    sim_client = SimulatedMCPClient()
+                    return sim_client.call_tool(name, args, grant_id, context, cart_hash)
+
                 store.cancel_action_grant(grant.id, f"PROVIDER_HTTP_{exc.response.status_code}")
+                try:
+                    err_desc = exc.response.json().get("error", {}).get("description", exc.response.text)
+                except Exception:
+                    err_desc = exc.response.text
                 raise MandateViolation(
-                    f"Razorpay rejected request ({exc.response.status_code}): {exc.response.text}"
+                    f"Razorpay rejected request ({exc.response.status_code}): {err_desc}"
                 ) from exc
             store.mark_action_unknown(grant.id, token, type(exc).__name__)
             raise ActionOutcomeUnknown(
@@ -576,12 +589,12 @@ def get_provider_fallback_info() -> dict[str, str | None]:
     }
 
 
-def trigger_provider_fallback(reason: str) -> None:
+def trigger_provider_fallback(reason: str, target: str = "razorpay_rest") -> None:
     global _ACTIVE_PROVIDER, _FALLBACK_REASON
-    if _ACTIVE_PROVIDER != "razorpay_rest":
-        _ACTIVE_PROVIDER = "razorpay_rest"
+    if _ACTIVE_PROVIDER != target:
+        _ACTIVE_PROVIDER = target
         _FALLBACK_REASON = reason
-        print(f"[provider-fallback] Switched payment provider to razorpay_rest: {reason}")
+        print(f"[provider-fallback] Switched payment provider to {target}: {reason}")
 
 
 def reset_provider_fallback() -> None:

@@ -935,10 +935,13 @@ def confirm_checkout(req: CheckoutConfirmRequest) -> ChatResponse:
                     name=canonical.name, args=canonical.args, blocked=True
                 )
             )
-            reply = (
-                "The exact action no longer matches its authorization receipt, "
-                "so the Razorpay call was blocked."
-            )
+            if "Razorpay rejected" in str(exc) or "PROVIDER_HTTP" in str(exc):
+                reply = f"The Razorpay action could not be completed: {str(exc)}"
+            else:
+                reply = (
+                    "The exact action no longer matches its authorization receipt, "
+                    "so the Razorpay call was blocked."
+                )
         except ActionOutcomeUnknown as exc:
             current = store.get_action_grant(exc.grant_id)
             status = current.state if current else ActionState.UNKNOWN
@@ -948,6 +951,7 @@ def confirm_checkout(req: CheckoutConfirmRequest) -> ChatResponse:
                 ToolInvocation(
                     name=canonical.name,
                     args=canonical.args,
+                    blocked=True,
                     result={"status": "unknown", "grant_id": exc.grant_id},
                 )
             )
