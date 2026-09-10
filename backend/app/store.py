@@ -696,6 +696,27 @@ def list_envelopes(user_id: str = "user_demo") -> list[PurchaseEnvelope]:
     return [_row_to_envelope(row) for row in rows]
 
 
+def _consent_evidence(activated: PurchaseEnvelope) -> dict[str, str]:
+    """What the customer was looking at when they approved.
+
+    Rendered from the ACTIVATED envelope, not the draft: the draft's sentence
+    describes a rule that no longer exists once activation re-hashes it.
+
+    There are two activation paths — the direct one and approval-token
+    redemption — and both call this. Recording consent on only one would mean
+    the evidence a dispute gets depends on which button the customer happened to
+    press, which is worse than not recording it at all, because the gap is
+    invisible until someone needs it.
+    """
+    from .envelope import render_envelope_english
+
+    text = render_envelope_english(activated)
+    return {
+        "displayed_text": text,
+        "displayed_text_hash": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+    }
+
+
 def activate_envelope(envelope_id: str, expected_hash: str) -> PurchaseEnvelope:
     """Atomically activate the envelope and its underlying spend policy."""
     now = time.time()
@@ -782,6 +803,7 @@ def activate_envelope(envelope_id: str, expected_hash: str) -> PurchaseEnvelope:
                 "envelope_id": activated.id,
                 "envelope_version": activated.version,
                 "envelope_hash": activated.envelope_hash,
+                **_consent_evidence(activated),
             },
         )
         return activated
@@ -3160,6 +3182,7 @@ def redeem_approval_token_and_activate(
                 "envelope_hash": activated.envelope_hash,
                 "public_approval_id": token.get("public_approval_id"),
                 "token_id": token.get("id"),
+                **_consent_evidence(activated),
             },
         )
         return activated

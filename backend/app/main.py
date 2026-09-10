@@ -36,6 +36,7 @@ from .models import (
     PurchaseEnvelope,
     VoiceTranscription,
 )
+from .consent import build_consent_record
 from .receipts import build_receipt, verify_receipt
 
 @asynccontextmanager
@@ -476,6 +477,28 @@ def mandate_usage(mandate_id: str) -> dict:
 @app.get("/audit")
 def audit(session_id: str | None = None, limit: int = 100) -> list[dict]:
     return store.audit_trail(session_id, limit)
+
+
+@app.get("/evidence/consent/{envelope_id}")
+def consent_record(envelope_id: str) -> dict:
+    """What the customer was shown when they approved this envelope.
+
+    Unauthenticated, like the chain verifier and for the same reason: consent
+    evidence only the merchant can produce is not evidence. The record carries
+    the rule, the sentence rendered from it, and the hashes binding the two, so
+    a third party re-derives every claim from the published source alone — no
+    database, no signing key, no network.
+    """
+    envelope = store.get_envelope(envelope_id)
+    if envelope is None:
+        raise HTTPException(status_code=404, detail="UNKNOWN_ENVELOPE")
+    activated_at = None
+    for event in store.audit_trail(limit=1000):
+        payload = event.get("payload") or {}
+        if event["event"] == "ENVELOPE_ACTIVATED" and payload.get("envelope_id") == envelope_id:
+            activated_at = event["created_at"]
+            break
+    return build_consent_record(envelope, activated_at=activated_at)
 
 
 @app.get("/evidence/audit-chain/verify")
