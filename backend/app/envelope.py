@@ -31,6 +31,8 @@ from .models import (
     PurchaseEnvelope,
     QuoteSubstitution,
     UNBOUND_FULFILLMENT_PROFILE_ID,
+    EnvelopeReadback,
+    SlotAdmission,
 )
 
 ENVELOPE_AGENT_ID = "agent_safe_autopilot"
@@ -265,6 +267,140 @@ def draft_envelope(req: EnvelopeDraftRequest, now: float | None = None) -> Purch
         updated_at=created,
     )
     return draft.model_copy(update={"envelope_hash": compute_envelope_hash(draft)})
+
+
+# ---------------------------------------------------------------------------
+# Readback — making the compiled rule legible before it is activated
+# ---------------------------------------------------------------------------
+# The competing design for this problem asks a model, at purchase time, whether
+# an item is "a reasonable instance" of a sentence the shopper wrote. That puts
+# an LLM on the authorisation path, makes the decision unrepeatable, and feeds it
+# text a merchant controls.
+#
+# The alternative implemented here: compile the sentence into an explicit rule
+# ONCE, show the human what that rule admits — including the most expensive
+# basket it would let through — and let them tighten it before activating. After
+# activation nothing needs to judge intent, because the intent is already written
+# down as something a deterministic checker can evaluate.
+#
+# `render_envelope_english` is a pure function of the envelope. `envelope_readback`
+# is not: it reads live stock and prices, so it is a snapshot. Keeping the two
+# apart matters — the sentence the human approves must not silently change
+# because a shelf was restocked.
+
+_MONTHS = ("January", "February", "March", "April", "May", "June", "July",
+           "August", "September", "October", "November", "December")
+
+
+def _rupees(paise: int) -> str:
+    """Indian digit grouping. 784000 -> 'Rs 7,840'."""
+    whole, frac = divmod(int(paise), 100)
+    digits = str(whole)
+    if len(digits) > 3:
+        head, tail = digits[:-3], digits[-3:]
+        parts = []
+        while len(head) > 2:
+            parts.insert(0, head[-2:])
+            head = head[:-2]
+        if head:
+            parts.insert(0, head)
+        digits = ",".join(parts + [tail])
+    return f"Rs {digits}" if frac == 0 else f"Rs {digits}.{frac:02d}"
+
+
+def _when(epoch: float) -> str:
+    stamp = time.localtime(epoch)
+    return f"{stamp.tm_hour:02d}:{stamp.tm_min:02d} on {stamp.tm_mday} {_MONTHS[stamp.tm_mon - 1]}"
+
+
+def render_envelope_english(envelope: PurchaseEnvelope) -> str:
+    """Plain English for exactly what will be enforced. Pure, total, no model.
+
+    Deliberately not model-generated. A sentence written by an LLM could
+    describe a rule the engine does not implement, and the human would then be
+    approving the sentence rather than the rule — which is the failure this
+    surface exists to prevent.
+    """
+    parts = [
+        f"Spend up to {_rupees(envelope.max_total_paise)} at {envelope.merchant_id}, "
+        f"in one purchase, before {_when(envelope.expires_at)}."
+    ]
+
+    slot_phrases = []
+    for slot in envelope.slots:
+        tags = " + ".join(slot.required_tags)
+        count = "one item" if slot.quantity == 1 else f"{slot.quantity} items"
+        slot_phrases.append(f"{count} tagged {tags}")
+    parts.append("The basket must contain exactly: " + "; ".join(slot_phrases) + ".")
+
+    # This sentence IS the semantic-drift defence, so it is stated rather than
+    # implied. An unmatched line is refused by verify_quote; the shopper should
+    # know that before activating, not discover it at dispatch.
+    parts.append("Nothing else may be added.")
+
+    if envelope.blocked_categories:
+        parts.append(
+            "Items in " + ", ".join(sorted(envelope.blocked_categories)) + " are refused."
+        )
+    if envelope.blocked_tags:
+        parts.append(
+            "Anything tagged " + ", ".join(sorted(envelope.blocked_tags)) + " is refused."
+        )
+    return " ".join(parts)
+
+
+def slot_admission(envelope: PurchaseEnvelope, slot: EnvelopeSlot) -> SlotAdmission:
+    """Summarise every catalog item this slot would currently accept."""
+    items = _eligible_products(
+        slot, set(envelope.blocked_categories), set(envelope.blocked_tags)
+    )
+    if not items:
+        return SlotAdmission(
+            slot_id=slot.id,
+            label=slot.label,
+            required_tags=list(slot.required_tags),
+            quantity=slot.quantity,
+            admissible_count=0,
+        )
+    # _eligible_products returns price-ascending, tie-broken by SKU.
+    cheapest, dearest = items[0], items[-1]
+    return SlotAdmission(
+        slot_id=slot.id,
+        label=slot.label,
+        required_tags=list(slot.required_tags),
+        quantity=slot.quantity,
+        admissible_count=len(items),
+        cheapest_paise=cheapest["price_paise"] * slot.quantity,
+        dearest_paise=dearest["price_paise"] * slot.quantity,
+        dearest_sku=dearest["sku"],
+        dearest_name=dearest["name"],
+    )
+
+
+def envelope_readback(envelope: PurchaseEnvelope) -> EnvelopeReadback:
+    """The compiled rule plus the worst basket it currently admits.
+
+    The worst case is the number that changes a shopper's mind. "One item tagged
+    cheese" reads as a formality until it is shown to admit Parmigiano Reggiano
+    at Rs 899 — and that is precisely the purchase a competing design would send
+    to a language model to adjudicate after the fact. Here it is visible, in
+    rupees, before anything is authorised, and the shopper can strike the slot or
+    lower the cap in response.
+    """
+    from .merchant import CATALOG_REVISION
+
+    admissions = [slot_admission(envelope, slot) for slot in envelope.slots]
+    worst_case = sum(a.dearest_paise or 0 for a in admissions)
+    return EnvelopeReadback(
+        english=render_envelope_english(envelope),
+        slots=admissions,
+        worst_case_total_paise=worst_case,
+        max_total_paise=envelope.max_total_paise,
+        # Strictly greater: a worst case equal to the cap is still inside it.
+        cap_binds=worst_case > envelope.max_total_paise,
+        unsatisfiable_slot_ids=[a.slot_id for a in admissions if a.admissible_count == 0],
+        catalog_revision=CATALOG_REVISION,
+    )
 
 
 def _eligible_products(

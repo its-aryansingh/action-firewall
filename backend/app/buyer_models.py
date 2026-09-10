@@ -13,6 +13,7 @@ from .models import (
     PolicyDelta,
     PurchaseEnvelope,
     QuoteSubstitution,
+    EnvelopeReadback,
 )
 
 
@@ -76,6 +77,11 @@ class IntentCreateResponse(BaseModel):
     normalized_intent: dict[str, Any]
     missing_fields: list[str] = Field(default_factory=list)
     draft_envelope: PurchaseEnvelope | None = None
+    #: The compiled rule in the form a human can judge: plain English, plus the
+    #: dearest basket the rule currently admits. Returned with the draft rather
+    #: than behind a second call, because a rule the shopper has to go and ask
+    #: about is a rule most shoppers will activate without reading.
+    readback: EnvelopeReadback | None = None
     evidence_mode: str
     message: str
     provider_action_called: bool = False

@@ -84,7 +84,7 @@ from .commerce_metrics import (
 )
 from .channel_policy import DEFAULT_CHANNEL_POLICY
 from .config import get_settings
-from .envelope import DEFAULT_BLOCKED_TAGS, compute_quote_hash
+from .envelope import DEFAULT_BLOCKED_TAGS, compute_quote_hash, envelope_readback
 from .mcp_client import unwrap
 from .acceptance_policy import build_acceptance_policy
 from .merchant import CATALOG_REVISION, DEFAULT_MERCHANT_ID, DEFAULT_MERCHANT_NAME, get_merchant_capabilities
@@ -366,6 +366,7 @@ def create_intent(
         },
         missing_fields=[],
         draft_envelope=draft,
+        readback=envelope_readback(draft) if draft else None,
         evidence_mode=settings.envelope_drafting_mode,
         message="Draft Purchase Envelope prepared for shopper review. No payment authority active.",
         provider_action_called=False,

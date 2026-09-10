@@ -594,3 +594,59 @@ class AuthorityView(BaseModel):
     remaining_headroom_rupees: float
     active_envelopes_count: int
 
+
+
+# ---------------------------------------------------------------------------
+# Envelope readback — what the human is actually approving
+# ---------------------------------------------------------------------------
+# A shopper who approves a sentence and receives a rule they never read has not
+# approved the rule. That is the gap this exists to close, and it is the whole
+# argument against re-interpreting intent with a model at purchase time: if the
+# rule is legible BEFORE activation, nothing needs to judge intent afterwards.
+
+
+class SlotAdmission(BaseModel):
+    """Every catalog item one slot would currently accept, summarised.
+
+    `dearest_*` is the important field. A slot reading "one item tagged cheese"
+    looks harmless until you are shown that it admits Parmigiano Reggiano at
+    Rs 899. Surfacing the worst case at approval time is a stronger answer than
+    asking a model, at purchase time, whether Rs 899 of cheese felt reasonable.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    slot_id: str
+    label: str
+    required_tags: list[str]
+    quantity: int
+    admissible_count: int
+    cheapest_paise: int | None = None
+    dearest_paise: int | None = None
+    dearest_sku: str | None = None
+    dearest_name: str | None = None
+
+
+class EnvelopeReadback(BaseModel):
+    """The compiled rule, in the two forms a human needs to judge it."""
+    model_config = ConfigDict(extra="forbid")
+
+    #: Deterministic plain-English rendering. A pure function of the envelope —
+    #: no catalog, no model. If an LLM wrote this the human could be approving a
+    #: description of a rule the engine does not implement.
+    english: str
+    slots: list[SlotAdmission] = Field(default_factory=list)
+    #: Dearest basket this rule currently admits: the sum of each slot's dearest
+    #: admissible item at its required quantity.
+    worst_case_total_paise: int
+    max_total_paise: int
+    #: False means the cap is doing no work — the rule itself is what bounds the
+    #: spend. Worth saying out loud, because a shopper who believes a cap is
+    #: protecting them has misread which control is load-bearing.
+    cap_binds: bool
+    #: Slots nothing in the catalog can satisfy right now. An envelope carrying
+    #: one can never be fulfilled, and the shopper should learn that before
+    #: activating rather than at dispatch.
+    unsatisfiable_slot_ids: list[str] = Field(default_factory=list)
+    #: Stock moves, so this is a snapshot rather than a promise. `english` is
+    #: not: it depends on the envelope alone.
+    catalog_revision: str
