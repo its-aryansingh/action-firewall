@@ -28,3 +28,7 @@ out/
 *.tsbuildinfo
 data/evidence/
 backend/data/
+
+# Server logs. Running uvicorn with output redirected leaves these next to the
+# app; they are useful locally and meaningless in the history.
+*.log
