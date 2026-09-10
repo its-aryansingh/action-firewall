@@ -378,8 +378,14 @@ export type PolicySummary = {
 };
 
 async function j<T>(r: Response): Promise<T> {
-  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
-  return r.json() as Promise<T>;
+  const text = await r.text();
+  if (!r.ok) throw new Error(`${r.status} ${text}`);
+  if (!text || !text.trim()) return {} as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(`Invalid JSON response from ${r.url}: ${text.slice(0, 100)}`);
+  }
 }
 
 export const api = {
