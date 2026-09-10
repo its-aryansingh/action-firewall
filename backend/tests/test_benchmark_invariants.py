@@ -102,7 +102,7 @@ def test_every_family_is_classified_into_one_policy_dimension():
 
 
 def test_exhausted_substitution_refuses_rather_than_inventing_a_candidate(rows):
-    """CLAUDE.md invariant 13: no eligible candidate means Policy Delta or abort."""
+    """Project invariant 13: no eligible candidate means Policy Delta or abort."""
     exhausted = [r for r in rows if r["family"] == "substitution_exhausted"]
     assert exhausted
     assert all(r["outcome"] == "REFUSED" for r in exhausted), (

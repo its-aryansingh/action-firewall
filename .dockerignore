@@ -4,8 +4,7 @@
 # The first block is not an optimisation. A Docker build context is uploaded
 # whole, and anything in it can be COPYd into a layer that ships. Keeping .env
 # and *.db out of the context means a credential cannot reach a deployed image
-# even by mistake — which is the same promise CLAUDE.md makes about the repo and
-# ci.yml enforces about the tree.
+# even by mistake — the same promise ci.yml enforces about the tree.
 .env
 .env.*
 *.db
@@ -41,10 +40,7 @@ node_modules
 **/node_modules
 
 # Local planning and working notes: large, private, and irrelevant to a running
-# container. The repo's .gitignore already keeps most of these untracked.
+# container, and untracked anyway. Excluded so they never enter a build context.
 *.md
 !README.md
 docs
-claude
-.claude
-Claude outputs

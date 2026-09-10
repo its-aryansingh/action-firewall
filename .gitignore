@@ -25,40 +25,6 @@ out/
 .DS_Store
 .pytest_cache/
 
-# Working material for entering the buildathon - notes about the competition,
-# not documentation of the product. Kept on disk, out of the repository.
-docs/SUBMISSION_PACK.md
-docs/COMPETITIVE_BRIEF.md
-docs/PRE_SUBMISSION_AUDIT.md
-docs/research-history/
-docs/SUBMISSION_STRATEGY.md
-docs/BUILD_PLAN.md
-docs/PRODUCT_REIDEATION_2026-09-05.md
-docs/research/
-IMPLEMENTATION_PLAN.md
-GEMINI.md
 *.tsbuildinfo
-IMPLEMENTATION_PLAN_V2.md
-GEMINI_V2.md
-COMPETITIVE_POSITION.md
-PRODUCT_UX_AND_RAZORPAY_FIT.md
-COMPETITOR_TEARDOWN.md
-PRODUCT_DESIGN.md
-PRODUCT_UPGRADE.md
-PRODUCT_DEFINITION.md
-PRODUCT_FINAL.md
-GEMINI_PROMPTS.md
-CODE_REVIEW_*.md
-COHERENCE_PLAN.md
-Claude outputs/
-WINNING_MOVE.md
-INDIA_POSITION.md
-COMPETITOR_STEALS.md
-FIELD_TEARDOWN.md
-FINAL_UPGRADE.md
-GEMINI_WORK_PLAN.md
-REIDEATION.md
-FINAL_VIDEO_SCRIPT.md
-VIDEO_STORY_SCRIPT.md
 data/evidence/
 backend/data/

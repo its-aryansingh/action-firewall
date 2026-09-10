@@ -12,7 +12,7 @@
  *
  * That is the one thing this project cannot do. Its entire claim is that a
  * merchant can prove what it refused and why; a dashboard that invents its own
- * history disproves that claim more effectively than any competitor could.
+ * history disproves that claim more effectively than any critic could.
  *
  * So every number, row, hash and decision below comes from a live call to the
  * backend. Where there is no data yet, the screen says so and tells you which

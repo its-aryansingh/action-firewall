@@ -199,7 +199,7 @@ export default function EvidencePage() {
         </div>
       </Card>
 
-      {/* Cost Model & Concurrency Comparison (§Viveka & Apex Steals) */}
+      {/* Cost model and concurrency comparison */}
       <Card
         title="Decision-Theoretic Cost Model & Concurrency Protection"
         subtitle="Rupee-priced outcomes over 900 agent proposals and 16-thread race conditions"

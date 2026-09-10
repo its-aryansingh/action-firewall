@@ -2,10 +2,10 @@ name: verify
 
 # Why this exists in this shape.
 #
-# A benchmark that lives only in a script is a number somebody once ran. The
-# strongest packaging in this buildathon's field (souvikDevloper/closepilot)
-# gates its evaluation in CI, so its headline number cannot rot. This does the
-# same: every benchmark below exits non-zero on failure, so a regression in the
+# A benchmark that lives only in a script is a number somebody once ran, and a
+# README figure with no gate behind it rots the moment the code moves. So every
+# claim this submission rests on is re-proved on every push: every benchmark
+# below exits non-zero on failure, and a regression in the
 # authorization path fails the build rather than quietly changing a README.
 #
 # The benchmarks are NOT allowed to be advisory here. If the policy benchmark
@@ -89,12 +89,21 @@ jobs:
           FAULT_INJECTION_ENABLED: "true"
         run: python scripts/publication_value.py
 
-      - name: Deterministic authorization evaluation
+      # The deterministic evaluators. Every one of these exits non-zero on a
+      # regression, so the offline demo cannot silently stop working between the
+      # last time anyone ran it and the moment it is presented.
+      - name: Deterministic evaluations and the offline demo rehearsal
         env:
           DEMO_MODE: "true"
           PAYMENT_PROVIDER: simulated
           FAULT_INJECTION_ENABLED: "true"
-        run: python scripts/evaluate_autopilot.py
+          ENVELOPE_DRAFTING_MODE: replay
+          CATALOG_RETRIEVAL_MODE: keyword
+        run: |
+          python scripts/evaluate_autopilot.py
+          python scripts/evaluate_workflows.py
+          python scripts/evaluate_drafting.py --mode replay
+          python scripts/demo_autopilot.py
 
       # Fails if any real key, secret or database file was ever committed.
       - name: No secrets in the tree

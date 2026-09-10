@@ -4,10 +4,9 @@ WHY
 ---
 A recovery story only lands if the audience watches something actually go wrong.
 Describing a substitution is a claim; depleting a shelf on stage and watching the
-order repair itself is evidence. This is borrowed openly from a competing entry
-(`Subhra-Nandi/apex-commerce`, `backend/app/recovery/slippage.py`), which is the
-best single idea in that repository: it mutates reality mid-demo so the safety
-layer has something real to recover from.
+order repair itself is evidence. So this exists to mutate reality mid-demo and
+give the authorization layer something real to recover from, rather than a
+scripted animation of a recovery that never happened.
 
 WHAT IT MAY AND MAY NOT DO
 --------------------------

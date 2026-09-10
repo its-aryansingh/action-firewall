@@ -7,13 +7,12 @@ money, because its output is orders that did NOT go wrong. This turns the
 benchmark's counts into a rupee comparison between three ways a merchant could
 run their store, so the case can be made in the units a merchant thinks in.
 
-The approach is borrowed openly from a competing entry (`TarunMhanta30/viveka`,
-`eval/cost_model.py`), which prices false negatives and false positives and then
-reports total cost per configuration. It is a good idea and it deserves to be
-copied rather than reinvented. What is different here: their layer scores risk
-and hands the decision on, so their false positive is a step-up. This one
-authorises or refuses, and it has a third outcome — repair — which is the only
-one that puts money back.
+The shape is the standard one for this kind of argument: price a false negative,
+price a false positive, and report total cost per configuration so the reader can
+compare like with like. What this adds is a third outcome. A layer that only
+scores risk and hands the decision on has two ways to be wrong; this one
+authorises, refuses, or REPAIRS — and repair is the only outcome that puts money
+back rather than merely avoiding a loss.
 
 WHAT THIS IS NOT
 ----------------

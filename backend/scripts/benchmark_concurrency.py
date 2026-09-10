@@ -40,7 +40,7 @@ This is a local SQLite process, not a distributed system, and it measures a
 specific race (check-then-act on a shared budget). It does not measure network
 partitions, provider-side duplicates, or clock skew. The read-compare-write arm
 is a faithful reproduction of the common pattern, written here rather than
-copied from anyone's repository.
+lifted from a real codebase, so it can be read alongside the arm it loses to.
 
 Usage:  python scripts/benchmark_concurrency.py [--threads 16] [--trials 20] [--json]
 """
@@ -207,7 +207,7 @@ def main() -> None:
             "specific race: check-then-act on a shared budget. Does not measure "
             "network partitions, provider duplicates, or clock skew. The "
             "read-compare-write arm is a faithful reproduction of the common "
-            "pattern, written here, not copied from anyone's repository."
+            "pattern, reproduced here so it can be read alongside the arm it loses to."
         ),
         "setup": {
             "cap_rupees": CAP_RUPEES,

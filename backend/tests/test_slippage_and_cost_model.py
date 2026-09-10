@@ -1,8 +1,11 @@
-"""Demo controls and the cost model — the two ideas taken from rival repos.
+"""Demo controls and the cost model — the two pieces that could most easily lie.
 
-Both are borrowed deliberately: slippage from apex-commerce, the cost model from
-viveka. These tests cover the parts that make them safe to borrow, which is not
-the same as the parts that make them useful.
+A demo control that can mutate the world is one keystroke away from being a back
+door, and a cost model is one unlabelled assumption away from being a revenue
+claim. So these tests cover the parts that make each one SAFE, which is not the
+same as the parts that make it useful: that slippage moves stock and nothing
+else, that it fails closed outside demo mode, and that every rupee figure the
+model emits is traceable to a named assumption.
 """
 from __future__ import annotations
 

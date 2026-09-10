@@ -10,9 +10,10 @@ authentication that had never happened, and every guard downstream trusted it.
 The HTTP twin had verify_buyer_agent, a rate limit and replay protection; the
 advertised surface had none of them.
 
-Identity asserted rather than verified is the weakest pattern in this
-buildathon's field — one rival ships `allow_origins=["*"]` with an agent id read
-straight from the request body. These tests exist so this repository cannot drift
+Identity asserted rather than verified is the easiest mistake to make when a
+surface is added late: a wide-open CORS policy plus an agent id read straight
+from the request body will pass every test you think to write, because the caller
+is always who it says it is. These tests exist so this repository cannot drift
 back into it.
 """
 from __future__ import annotations
