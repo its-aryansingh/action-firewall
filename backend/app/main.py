@@ -478,6 +478,18 @@ def audit(session_id: str | None = None, limit: int = 100) -> list[dict]:
     return store.audit_trail(session_id, limit)
 
 
+@app.get("/evidence/audit-chain/verify")
+def verify_audit_chain() -> dict:
+    """Walk the audit hash chain and report where, if anywhere, it stops holding.
+
+    Unauthenticated on purpose. An audit trail whose integrity check is only
+    visible to the party keeping the trail is not evidence, it is an assertion;
+    anyone who was told head_hash can come back later and check it themselves.
+    The entries are not exposed here — only whether they still hang together.
+    """
+    return store.verify_audit_chain()
+
+
 @app.get("/metrics")
 def metrics(user_id: str = "user_demo") -> dict:
     m = store.metrics(user_id)

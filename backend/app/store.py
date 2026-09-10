@@ -1,5 +1,6 @@
 """SQLite persistence for policies, exact action grants, and event evidence."""
 from __future__ import annotations
+import hashlib
 import hmac
 import json, sqlite3, time, uuid
 from contextlib import contextmanager
@@ -176,8 +177,20 @@ CREATE TABLE IF NOT EXISTS audit_log (
     cart_total_paise INTEGER,
     cap_paise INTEGER,
     payload TEXT,
-    created_at REAL NOT NULL
+    created_at REAL NOT NULL,
+    -- Hash chain. The append-only triggers below stop the DATABASE being edited
+    -- through this connection; they do nothing about someone with the file. Each
+    -- entry commits to the one before it, so removing, reordering or editing any
+    -- row breaks every link after it and the break is locatable.
+    seq INTEGER,
+    prev_hash TEXT,
+    entry_hash TEXT
 );
+-- A concurrent writer that read the same tail would fork the chain: two rows,
+-- same prev_hash, both plausible. UNIQUE(seq) turns that silent fork into a
+-- constraint failure the writer retries, which is the only reason the chain can
+-- be trusted under the concurrency this system is built for.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_seq ON audit_log(seq) WHERE seq IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_log(session_id, created_at);
 CREATE TRIGGER IF NOT EXISTS audit_log_no_update
 BEFORE UPDATE ON audit_log
@@ -396,6 +409,8 @@ def _migrate(cx: sqlite3.Connection) -> None:
         cx.execute(
             "ALTER TABLE purchase_envelopes ADD COLUMN blocked_tags TEXT NOT NULL DEFAULT '[]'"
         )
+
+    _migrate_audit_chain(cx)
 
     cx.execute("UPDATE spend_ledger SET updated_at=created_at WHERE updated_at IS NULL")
     cx.execute("DROP INDEX IF EXISTS idx_ledger_idem")
@@ -2327,6 +2342,149 @@ def record_spend(mandate_id: str, amount_paise: int, razorpay_ref: str | None = 
         )
 
 
+# ---------------------------------------------------------------------------
+# Audit hash chain
+# ---------------------------------------------------------------------------
+# The append-only triggers on audit_log defend the table against this
+# application's own connections. They are worth having and they are not a
+# tamper-evidence story: anyone holding the .db file can drop a trigger, edit a
+# row and put it back, and nothing in the table would disagree with them.
+#
+# Chaining each entry to its predecessor changes what an edit costs. To alter
+# one row silently you must recompute every entry after it, and the head hash is
+# the single value that has to be published for that to be impossible. What this
+# does NOT give you is proof about entries written before the chain existed —
+# see AUDIT_CHAIN_GENESIS and retroactively_linked below, which say so out loud
+# rather than letting a green tick imply more than it earned.
+
+AUDIT_CHAIN_SCHEMA = "action-firewall/audit-chain@1"
+
+# A fixed opening link, so entry 1 commits to something rather than to nothing
+# and a chain of length 1 is still checkable.
+AUDIT_CHAIN_GENESIS = hashlib.sha256(
+    b"action-firewall/audit-chain@1/genesis"
+).hexdigest()
+
+# How many times a writer re-reads the tail after losing a race for the same
+# seq. Each retry costs one SELECT; forks are rare and bounded, so a small
+# number that gives up loudly beats an unbounded loop that hides contention.
+_AUDIT_CHAIN_MAX_RETRIES = 8
+
+
+def _audit_entry_hash(
+    *,
+    seq: int,
+    prev_hash: str,
+    row_id: str,
+    session_id: str | None,
+    mandate_id: str | None,
+    mandate_version: int | None,
+    event: str,
+    code: str | None,
+    cart_total_paise: int | None,
+    cap_paise: int | None,
+    payload_json: str,
+    created_at: float,
+) -> str:
+    """Digest of one entry AND its predecessor.
+
+    Every stored column is covered. A field left out of this payload is a field
+    an editor may change for free, which is the usual way a hash chain ends up
+    proving less than its presence suggests.
+    """
+    return hashlib.sha256(
+        canonical_json(
+            {
+                "schema": AUDIT_CHAIN_SCHEMA,
+                "seq": seq,
+                "prev_hash": prev_hash,
+                "id": row_id,
+                "session_id": session_id,
+                "mandate_id": mandate_id,
+                "mandate_version": mandate_version,
+                "event": event,
+                "code": code,
+                "cart_total_paise": cart_total_paise,
+                "cap_paise": cap_paise,
+                "payload": payload_json,
+                "created_at": created_at,
+            }
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _audit_chain_tail(cx: sqlite3.Connection) -> tuple[int, str]:
+    row = cx.execute(
+        "SELECT seq, entry_hash FROM audit_log WHERE seq IS NOT NULL "
+        "ORDER BY seq DESC LIMIT 1"
+    ).fetchone()
+    if row is None:
+        return 0, AUDIT_CHAIN_GENESIS
+    return int(row["seq"]), str(row["entry_hash"])
+
+
+def _migrate_audit_chain(cx: sqlite3.Connection) -> None:
+    """Add the chain columns, then link whatever is already there.
+
+    Linking existing rows retroactively does NOT prove they were untouched
+    before today — the hashes are computed from the rows as they stand now. It
+    makes the chain complete from here on, and `verify_audit_chain` reports the
+    retroactively linked count so nobody reads the tick as more than it is.
+    """
+    cols = {r["name"] for r in cx.execute("PRAGMA table_info(audit_log)")}
+    for col, ddl in (
+        ("seq", "ALTER TABLE audit_log ADD COLUMN seq INTEGER"),
+        ("prev_hash", "ALTER TABLE audit_log ADD COLUMN prev_hash TEXT"),
+        ("entry_hash", "ALTER TABLE audit_log ADD COLUMN entry_hash TEXT"),
+    ):
+        if col not in cols:
+            cx.execute(ddl)
+    cx.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_seq "
+        "ON audit_log(seq) WHERE seq IS NOT NULL"
+    )
+
+    unlinked = cx.execute(
+        "SELECT * FROM audit_log WHERE seq IS NULL ORDER BY created_at ASC, id ASC"
+    ).fetchall()
+    if not unlinked:
+        return
+    seq, prev = _audit_chain_tail(cx)
+    for row in unlinked:
+        seq += 1
+        entry_hash = _audit_entry_hash(
+            seq=seq,
+            prev_hash=prev,
+            row_id=row["id"],
+            session_id=row["session_id"],
+            mandate_id=row["mandate_id"],
+            mandate_version=row["mandate_version"],
+            event=row["event"],
+            code=row["code"],
+            cart_total_paise=row["cart_total_paise"],
+            cap_paise=row["cap_paise"],
+            payload_json=row["payload"] or "{}",
+            created_at=row["created_at"],
+        )
+        # The append-only UPDATE trigger has to be stood down for exactly this
+        # backfill and put back immediately. It is dropped and recreated inside
+        # the caller's transaction, so a failure anywhere in between rolls the
+        # whole thing back with the guard intact.
+        cx.execute("DROP TRIGGER IF EXISTS audit_log_no_update")
+        try:
+            cx.execute(
+                "UPDATE audit_log SET seq=?, prev_hash=?, entry_hash=? WHERE id=?",
+                (seq, prev, entry_hash, row["id"]),
+            )
+        finally:
+            cx.execute(
+                "CREATE TRIGGER IF NOT EXISTS audit_log_no_update "
+                "BEFORE UPDATE ON audit_log BEGIN "
+                "SELECT RAISE(ABORT, 'audit_log is append-only'); END"
+            )
+        prev = entry_hash
+
+
 def _insert_audit_row(
     cx: sqlite3.Connection,
     *,
@@ -2339,22 +2497,152 @@ def _insert_audit_row(
     cap_paise: int | None = None,
     payload: dict | None = None,
 ) -> None:
-    cx.execute(
-        """INSERT INTO audit_log (id,session_id,mandate_id,mandate_version,event,code,
-           cart_total_paise,cap_paise,payload,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)""",
-        (
-            f"aud_{uuid.uuid4().hex[:12]}",
-            session_id,
-            mandate_id,
-            mandate_version,
-            event,
-            code,
-            cart_total_paise,
-            cap_paise,
-            json.dumps(payload or {}),
-            time.time(),
-        ),
+    row_id = f"aud_{uuid.uuid4().hex[:12]}"
+    payload_json = json.dumps(payload or {})
+    created_at = time.time()
+
+    # Read the tail and append under UNIQUE(seq). A constraint violation aborts
+    # the STATEMENT, not the surrounding transaction, so a writer that lost the
+    # race re-reads the tail and appends after the winner instead of beside it.
+    last_error: Exception | None = None
+    for _ in range(_AUDIT_CHAIN_MAX_RETRIES):
+        seq, prev = _audit_chain_tail(cx)
+        seq += 1
+        entry_hash = _audit_entry_hash(
+            seq=seq,
+            prev_hash=prev,
+            row_id=row_id,
+            session_id=session_id,
+            mandate_id=mandate_id,
+            mandate_version=mandate_version,
+            event=event,
+            code=code,
+            cart_total_paise=cart_total_paise,
+            cap_paise=cap_paise,
+            payload_json=payload_json,
+            created_at=created_at,
+        )
+        try:
+            cx.execute(
+                """INSERT INTO audit_log (id,session_id,mandate_id,mandate_version,event,code,
+                   cart_total_paise,cap_paise,payload,created_at,seq,prev_hash,entry_hash)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    row_id,
+                    session_id,
+                    mandate_id,
+                    mandate_version,
+                    event,
+                    code,
+                    cart_total_paise,
+                    cap_paise,
+                    payload_json,
+                    created_at,
+                    seq,
+                    prev,
+                    entry_hash,
+                ),
+            )
+            return
+        except sqlite3.IntegrityError as exc:
+            last_error = exc
+            continue
+    raise RuntimeError(
+        "Could not append to the audit chain after "
+        f"{_AUDIT_CHAIN_MAX_RETRIES} attempts: {last_error}"
     )
+
+
+def verify_audit_chain(limit: int | None = None) -> dict:
+    """Walk the chain and report the FIRST place it stops holding.
+
+    "valid: false" on its own is not useful to anyone trying to fix or explain
+    it, so the answer names the sequence number, the entry id and what
+    specifically failed there.
+    """
+    with _conn() as cx:
+        rows = cx.execute(
+            "SELECT * FROM audit_log WHERE seq IS NOT NULL ORDER BY seq ASC"
+        ).fetchall()
+        unchained = int(
+            cx.execute(
+                "SELECT COUNT(*) c FROM audit_log WHERE seq IS NULL"
+            ).fetchone()["c"]
+        )
+
+    prev = AUDIT_CHAIN_GENESIS
+    expected_seq = 0
+    head = AUDIT_CHAIN_GENESIS
+    for row in rows:
+        expected_seq += 1
+        if int(row["seq"]) != expected_seq:
+            return _chain_broken(
+                rows, row, expected_seq, unchained,
+                f"sequence jumps from {expected_seq - 1} to {row['seq']}: an entry is missing",
+            )
+        if row["prev_hash"] != prev:
+            return _chain_broken(
+                rows, row, expected_seq, unchained,
+                "this entry does not point at the previous one: the chain was cut or reordered",
+            )
+        recomputed = _audit_entry_hash(
+            seq=int(row["seq"]),
+            prev_hash=str(row["prev_hash"]),
+            row_id=row["id"],
+            session_id=row["session_id"],
+            mandate_id=row["mandate_id"],
+            mandate_version=row["mandate_version"],
+            event=row["event"],
+            code=row["code"],
+            cart_total_paise=row["cart_total_paise"],
+            cap_paise=row["cap_paise"],
+            payload_json=row["payload"] or "{}",
+            created_at=row["created_at"],
+        )
+        if recomputed != row["entry_hash"]:
+            return _chain_broken(
+                rows, row, expected_seq, unchained,
+                "the stored digest does not match the entry's own contents: this row was edited",
+            )
+        prev = str(row["entry_hash"])
+        head = prev
+
+    return {
+        "schema": AUDIT_CHAIN_SCHEMA,
+        "valid": True,
+        "entries": len(rows),
+        "genesis": AUDIT_CHAIN_GENESIS,
+        "head_hash": head,
+        "first_broken_seq": None,
+        "broken_entry_id": None,
+        "reason": None,
+        "unchained_legacy_entries": unchained,
+        "caveat": (
+            "Entries written before this database gained the chain were linked "
+            "retroactively at migration, from the rows as they then stood. The "
+            "chain proves nothing about edits made before that moment; it makes "
+            "every edit after it detectable. Publishing head_hash is what turns "
+            "detectable into provable."
+        ),
+    }
+
+
+def _chain_broken(rows, row, seq: int, unchained: int, reason: str) -> dict:
+    return {
+        "schema": AUDIT_CHAIN_SCHEMA,
+        "valid": False,
+        "entries": len(rows),
+        "genesis": AUDIT_CHAIN_GENESIS,
+        "head_hash": None,
+        "first_broken_seq": seq,
+        "broken_entry_id": row["id"],
+        "reason": reason,
+        "unchained_legacy_entries": unchained,
+        "caveat": (
+            "Everything at and after this sequence number is unverifiable. "
+            "Entries before it still verify."
+        ),
+    }
 
 
 def log_event(event: str, session_id: str | None = None, mandate_id: str | None = None,
