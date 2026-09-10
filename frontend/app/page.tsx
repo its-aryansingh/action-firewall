@@ -26,14 +26,17 @@ import {
   api,
   inr,
   type CommerceAttemptResponse,
+  type EnvelopeReadback,
   type Health,
   type IntentCreateResponse,
   type PolicySummary,
   type PurchaseEnvelope,
   type RefundEvaluateResponse,
   type RefundPolicy,
+  type SlotAdmission,
   type AutopilotScenario,
 } from "@/lib/api";
+
 
 // The scenarios a presenter actually needs on camera, in the order the story
 // wants them: one that succeeds, one that repairs itself, one that must refuse.
@@ -179,6 +182,9 @@ export default function FrontDoorPage() {
   const [budgetRupees, setBudgetRupees] = useState("8000");
   const [intent, setIntent] = useState<IntentCreateResponse | null>(null);
   const [activeEnvelope, setActiveEnvelope] = useState<PurchaseEnvelope | null>(null);
+  const [previousReadback, setPreviousReadback] = useState<EnvelopeReadback | null>(null);
+  const [editCapRupees, setEditCapRupees] = useState<string>("");
+  const [capEditError, setCapEditError] = useState<string | null>(null);
 
   // Step 3 — the attempt
   const [scenario, setScenario] = useState<AutopilotScenario>("stock_loss");
@@ -234,6 +240,10 @@ export default function FrontDoorPage() {
     setErrorStep(null);
     setAttempt(null);
     setActiveEnvelope(null);
+    setCapEditError(null);
+    if (intent?.readback) {
+      setPreviousReadback(intent.readback);
+    }
     try {
       const res = await api.agentCommerce.createIntent({
         agent_request_id: rid("req"),
@@ -243,9 +253,57 @@ export default function FrontDoorPage() {
         shopper_session_id: rid("sess"),
       });
       setIntent(res);
+      setEditCapRupees(String(Math.floor(res.draft_envelope.max_total_paise / 100)));
     } catch (err) {
       setError(`Drafting failed: ${err instanceof Error ? err.message : String(err)}`);
       setErrorStep(1);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function dropSlot(slotId: string) {
+    const env = intent?.draft_envelope;
+    if (!env || activeEnvelope?.status === "active") return;
+    setBusy(`drop_${slotId}`);
+    setError(null);
+    setErrorStep(null);
+    setCapEditError(null);
+    try {
+      const res = await api.agentCommerce.amendEnvelope(env.id, {
+        expected_envelope_hash: env.envelope_hash,
+        drop_slot_ids: [slotId],
+      });
+      setIntent(res);
+      setEditCapRupees(String(Math.floor(res.draft_envelope.max_total_paise / 100)));
+    } catch (err: any) {
+      setError(`Slot removal failed: ${err.message || String(err)}`);
+      setErrorStep(2);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function updateCap() {
+    const env = intent?.draft_envelope;
+    if (!env || activeEnvelope?.status === "active") return;
+    const newRupees = Number.parseInt(editCapRupees, 10);
+    if (Number.isNaN(newRupees) || newRupees <= 0) return;
+    setBusy("update_cap");
+    setCapEditError(null);
+    try {
+      const res = await api.agentCommerce.amendEnvelope(env.id, {
+        expected_envelope_hash: env.envelope_hash,
+        max_total_paise: newRupees * 100,
+      });
+      setIntent(res);
+      setEditCapRupees(String(Math.floor(res.draft_envelope.max_total_paise / 100)));
+    } catch (err: any) {
+      if (err.status === 409) {
+        setCapEditError("Raising the ceiling is a new approval, not an edit.");
+      } else {
+        setCapEditError(err.message || String(err));
+      }
     } finally {
       setBusy(null);
     }
@@ -269,6 +327,7 @@ export default function FrontDoorPage() {
       setBusy(null);
     }
   }
+
 
   /**
    * One authorization is one purchase attempt — `max_purchases` is 1 and the
@@ -354,6 +413,7 @@ export default function FrontDoorPage() {
   }
 
   const draft = intent?.draft_envelope ?? null;
+  const readback = intent?.readback ?? null;
   const envelope = activeEnvelope ?? draft;
   const isActive = activeEnvelope?.status === "active";
 
@@ -541,43 +601,176 @@ export default function FrontDoorPage() {
               <Mono>{draft.envelope_hash.slice(0, 20)}…</Mono>
             </div>
 
-            <div className="grid gap-4 px-4 py-4 sm:grid-cols-2">
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-wider text-muted">
-                  Ceiling
-                </div>
-                <div className="mt-1 text-sm font-bold">
-                  {inr(draft.max_total_paise)}
-                </div>
-              </div>
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-wider text-muted">
-                  Merchant
-                </div>
-                <div className="mt-1 text-sm font-bold">{draft.merchant_id}</div>
-              </div>
-              <div className="sm:col-span-2">
-                <div className="text-[11px] font-semibold uppercase tracking-wider text-muted">
-                  Slots the basket must satisfy
-                </div>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {draft.slots.map((s) => (
-                    <span
-                      key={s.id}
-                      className="rounded-md bg-canvas px-2 py-1 text-[11px] font-medium text-text"
-                    >
-                      {s.label} ×{s.quantity}
-                      {s.required_tags.length > 0 && (
-                        <span className="ml-1 text-muted">
-                          [{s.required_tags.join(", ")}]
-                        </span>
+            <div className="space-y-4 p-4">
+              {/* Re-draft diff */}
+              {previousReadback && readback && previousReadback.catalog_revision === readback.catalog_revision && (
+                (() => {
+                  const prevSlots = new Set(previousReadback.slots.map((s: SlotAdmission) => s.slot_id));
+                  const currSlots = new Set(readback.slots.map((s: SlotAdmission) => s.slot_id));
+                  const addedSlots = readback.slots.filter((s: SlotAdmission) => !prevSlots.has(s.slot_id));
+                  const removedSlots = previousReadback.slots.filter((s: SlotAdmission) => !currSlots.has(s.slot_id));
+                  const capDiff = readback.max_total_paise !== previousReadback.max_total_paise;
+                  const worstDiff = readback.worst_case_total_paise !== previousReadback.worst_case_total_paise;
+                  if (addedSlots.length === 0 && removedSlots.length === 0 && !capDiff && !worstDiff) {
+                    return null;
+                  }
+                  return (
+                    <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs text-text space-y-1">
+                      <div className="font-semibold text-primary">Re-draft changes:</div>
+                      {addedSlots.length > 0 && (
+                        <div className="text-muted">
+                          + Added: {addedSlots.map((s: SlotAdmission) => s.label).join(", ")}
+                        </div>
                       )}
-                    </span>
-                  ))}
+                      {removedSlots.length > 0 && (
+                        <div className="text-muted">
+                          − Dropped: {removedSlots.map((s: SlotAdmission) => s.label).join(", ")}
+                        </div>
+                      )}
+
+                      {capDiff && (
+                        <div className="text-muted">
+                          Ceiling: {inr(previousReadback.max_total_paise)} → {inr(readback.max_total_paise)}
+                        </div>
+                      )}
+                      {worstDiff && (
+                        <div className="text-muted">
+                          Worst-case basket: {inr(previousReadback.worst_case_total_paise)} → {inr(readback.worst_case_total_paise)}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()
+              )}
+
+              {/* (a) The sentence */}
+              {readback?.english && (
+                <div className="rounded-xl border border-border bg-canvas p-4 text-sm leading-relaxed text-text">
+                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
+                    Approved Rule
+                  </div>
+                  <p>{readback.english}</p>
                 </div>
+              )}
+
+              {/* (b) What it admits — one row per slot */}
+              <div className="space-y-2">
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+                  What this rule admits
+                </div>
+                <div className="divide-y divide-border rounded-xl border border-border overflow-hidden">
+                  {readback?.slots.map((slot: SlotAdmission) => {
+                    const isUnsatisfiable = slot.admissible_count === 0;
+                    const hasSpread =
+                      slot.dearest_paise !== null &&
+                      slot.cheapest_paise !== null &&
+                      slot.dearest_paise > slot.cheapest_paise;
+                    return (
+                      <div
+                        key={slot.slot_id}
+                        className={`flex flex-wrap items-center justify-between gap-3 p-3.5 text-xs ${
+                          isUnsatisfiable ? "bg-danger/10 text-danger" : "bg-surface text-text"
+                        }`}
+                      >
+                        <div className="min-w-[140px]">
+                          <span className="text-sm font-bold">{slot.label}</span>
+                          <span className="ml-2 text-muted">×{slot.quantity}</span>
+                          <div className="mt-0.5 text-[11px] text-muted font-mono">
+                            {slot.required_tags.join(" + ")}
+                          </div>
+                        </div>
+
+                        <div className="flex-1 min-w-[220px]">
+                          {isUnsatisfiable ? (
+                            <span className="font-medium text-danger">
+                              nothing in the catalog satisfies this — the order can never be fulfilled
+                            </span>
+                          ) : (
+                            <div className="flex flex-wrap items-center gap-2.5">
+                              <span className="rounded bg-canvas px-2 py-0.5 text-[11px] text-muted">
+                                {slot.admissible_count} {slot.admissible_count === 1 ? "item" : "items"}
+                              </span>
+                              <span className="font-semibold text-text">
+                                {hasSpread
+                                  ? `${inr(slot.cheapest_paise!)} – ${inr(slot.dearest_paise!)}`
+                                  : slot.cheapest_paise !== null
+                                  ? inr(slot.cheapest_paise)
+                                  : "—"}
+                              </span>
+                              {hasSpread && slot.dearest_name && (
+                                <span className="text-[11px] text-muted">
+                                  ← dearest: <span className="font-medium text-text">{slot.dearest_name}</span>
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        <div>
+                          {!isActive && draft.slots.length > 1 && (
+                            <button
+                              onClick={() => dropSlot(slot.slot_id)}
+                              disabled={busy !== null}
+                              className="rounded px-2.5 py-1 text-xs font-semibold text-danger hover:bg-danger/10 transition disabled:opacity-40"
+                            >
+                              {busy === `drop_${slot.slot_id}` ? "Removing…" : "Remove"}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* (c) The worst case, as a sentence */}
+              {readback && (
+                <div className="rounded-xl border border-border bg-canvas p-3.5 text-xs text-text">
+                  <div className="font-medium leading-relaxed">
+                    {readback.cap_binds
+                      ? `The most expensive basket this rule allows is ${inr(readback.worst_case_total_paise)}, above your ${inr(readback.max_total_paise)} cap. The cap will refuse it.`
+                      : `The most expensive basket this rule allows is ${inr(readback.worst_case_total_paise)}. Your ${inr(readback.max_total_paise)} cap is not what is protecting you here — the rule is.`}
+                  </div>
+                </div>
+              )}
+
+              {/* (d) Editable cap */}
+              <div className="rounded-xl border border-border bg-surface p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+                      Spending Ceiling
+                    </div>
+                    <p className="mt-0.5 text-xs text-muted">
+                      You may tighten the ceiling before activating. Widening requires starting over.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="relative">
+                      <span className="absolute left-3 top-2 text-sm text-muted">₹</span>
+                      <input
+                        value={editCapRupees}
+                        onChange={(e) => setEditCapRupees(e.target.value)}
+                        disabled={isActive || busy !== null}
+                        className="w-28 rounded-lg border border-border py-1.5 pl-7 pr-3 text-sm font-semibold outline-none focus:border-primary disabled:opacity-60"
+                      />
+                    </div>
+                    {!isActive && (
+                      <button
+                        onClick={updateCap}
+                        disabled={busy !== null || Number.parseInt(editCapRupees, 10) * 100 === draft.max_total_paise}
+                        className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-primary-hover disabled:opacity-40"
+                      >
+                        {busy === "update_cap" ? "Updating…" : "Apply ceiling"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {capEditError && <StepError message={capEditError} />}
               </div>
             </div>
 
+            {/* (e) Copy under the activate button */}
             <div className="flex flex-wrap items-center gap-3 border-t border-border bg-canvas px-4 py-3">
               <button
                 onClick={activate}
@@ -592,8 +785,8 @@ export default function FrontDoorPage() {
               </button>
               <p className="text-[11px] leading-relaxed text-muted">
                 {isActive
-                  ? "Now, and only now, may an agent propose against it."
-                  : "Until a human presses this, nothing can be authorised against this envelope. There is no API call that performs this activation."}
+                  ? "Activated. Every purchase is checked against this rule exactly as written."
+                  : "From here the model gets no further say. Every purchase is checked against this rule exactly as written."}
               </p>
               {error && errorStep === 2 && (
                 <div className="w-full">
@@ -603,6 +796,7 @@ export default function FrontDoorPage() {
             </div>
           </div>
         )}
+
       </Card>
 
       {/* ---------------------------------------------------------------- */}

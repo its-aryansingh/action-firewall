@@ -323,6 +323,9 @@ export default function AIPlaygroundPage() {
     setError(null);
     setBusy(true);
     setCurrentStage(1);
+    setActiveEnvelope(null);
+    setAttemptResp(null);
+    setIntentResp(null);
     const budgetPaise = (Number.parseInt(budgetRupees, 10) || 7840) * 100;
     const reqId = `req_${Math.random().toString(36).slice(2, 10)}`;
     const sessId = `sess_${Math.random().toString(36).slice(2, 10)}`;
@@ -719,9 +722,14 @@ export default function AIPlaygroundPage() {
                         name="scenario"
                         value={s.id}
                         disabled={disabled}
-                        checked={scenario === s.id}
-                        onChange={() => setScenario(s.id as AutopilotScenario)}
-                        className="mt-0.5 text-primary focus:ring-0"
+                        onChange={() => {
+                          setScenario(s.id as AutopilotScenario);
+                          setCurrentStage(0);
+                          setActiveEnvelope(null);
+                          setAttemptResp(null);
+                          setIntentResp(null);
+                          setError(null);
+                        }}
                       />
                       <div className="flex-1">
                         <div className="flex items-center justify-between">
@@ -864,7 +872,7 @@ export default function AIPlaygroundPage() {
                     <span className="h-2 w-2 rounded-full bg-success" />
                     Envelope activated! Ready for single atomic execution.
                   </div>
-                  {currentStage === 3 && (
+                  {!attemptResp && (
                     <button
                       onClick={handleExecuteAttempt}
                       disabled={busy}
@@ -878,7 +886,7 @@ export default function AIPlaygroundPage() {
             </div>
 
             {/* Stage 4 */}
-            <div className={`p-5 rounded-2xl border transition-all ${currentStage >= 4 ? "bg-surface border-border shadow-sm" : "bg-canvas/40 border-border/60 opacity-60"}`}>
+            <div className={`p-5 rounded-2xl border transition-all ${attemptResp || currentStage >= 4 ? "bg-surface border-border shadow-sm" : "bg-canvas/40 border-border/60 opacity-60"}`}>
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <span className="flex h-6 w-6 rounded-full bg-primary/10 text-primary text-xs font-bold items-center justify-center">4</span>
@@ -914,10 +922,22 @@ export default function AIPlaygroundPage() {
                       )}
                     </div>
                   )}
-                  {attemptResp.outcome === "POLICY_DELTA_REQUIRED" && (
+                  {(attemptResp.outcome === "POLICY_DELTA_REQUIRED" || attemptResp.code === "CUSTOMER_APPROVAL_NEEDED" || attemptResp.code === "POLICY_DELTA_REQUIRED") && (
                     <div className="p-4 rounded-xl bg-warning/[0.06] border border-warning/30 text-text space-y-2">
                       <div className="font-bold text-sm text-warning flex items-center gap-1.5">Customer Approval Needed (Policy Delta)</div>
                       <p className="text-xs text-muted leading-relaxed">{attemptResp.human_message || "Item or merchant changed outside envelope bounds."}</p>
+                    </div>
+                  )}
+                  {attemptResp.outcome === "STOPPED_BEFORE_RAZORPAY" && (
+                    <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-900 space-y-2">
+                      <div className="font-bold text-sm text-red-700 flex items-center gap-1.5">Stopped Before Razorpay</div>
+                      <p className="text-xs text-red-800 leading-relaxed">{attemptResp.human_message || "Action blocked by safety policy before actuator call."}</p>
+                    </div>
+                  )}
+                  {attemptResp.outcome === "UNKNOWN" && (
+                    <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 space-y-2">
+                      <div className="font-bold text-sm text-amber-700 flex items-center gap-1.5">Action Outcome Unknown (Reconciliation Required)</div>
+                      <p className="text-xs text-amber-800 leading-relaxed">{attemptResp.human_message || "Provider call was ambiguous. Held safely without blind retries."}</p>
                     </div>
                   )}
                 </div>

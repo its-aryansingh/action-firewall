@@ -347,14 +347,48 @@ export type CommerceAttemptResponse = {
   razorpay_action_called: boolean;
 };
 
+export type SlotAdmission = {
+  slot_id: string;
+  label: string;
+  required_tags: string[];
+  quantity: number;
+  admissible_count: number;
+  cheapest_paise: number | null;
+  dearest_paise: number | null;
+  dearest_sku: string | null;
+  dearest_name: string | null;
+};
+
+export type EnvelopeReadback = {
+  english: string;
+  slots: SlotAdmission[];
+  worst_case_total_paise: number;
+  max_total_paise: number;
+  cap_binds: boolean;
+  unsatisfiable_slot_ids: string[];
+  catalog_revision: string;
+};
+
+export type EnvelopeAmendBody = {
+  expected_envelope_hash: string;
+  max_total_paise?: number;
+  expires_at?: number;
+  drop_slot_ids?: string[];
+  add_blocked_tags?: string[];
+  add_blocked_categories?: string[];
+};
+
 export type IntentCreateResponse = {
+  intent_id?: string;
   agent_request_id: string;
   draft_envelope: PurchaseEnvelope;
   missing_fields: string[];
+  readback: EnvelopeReadback | null;
   evidence_mode: string;
   message: string;
   provider_action_called: boolean;
 };
+
 
 export type PolicySummary = {
   money_in: {
@@ -462,6 +496,11 @@ export const api = {
       body: JSON.stringify({ session_id, expected_cart_hash, idempotency_key }),
     }).then(j<ChatResponse>),
 
+  resetSession: (session_id: string) =>
+    fetch(`${API}/chat/${encodeURIComponent(session_id)}/reset`, {
+      method: "POST",
+    }).then(j<{ ok: boolean }>),
+
   activeMandate: () =>
     fetch(`${API}/mandates/active`, { cache: "no-store" }).then(j<Mandate>),
 
@@ -527,6 +566,7 @@ export const api = {
           expired: boolean;
           redeemed: boolean;
           envelope: PurchaseEnvelope | null;
+          readback?: EnvelopeReadback | null;
         }>
       ),
 
@@ -578,6 +618,33 @@ export const api = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ expected_envelope_hash }),
       }).then(j<PurchaseEnvelope>),
+
+    amendEnvelope: (
+      id: string,
+      body: EnvelopeAmendBody,
+    ) =>
+      fetch(`${API}/agent-commerce/v1/envelopes/${encodeURIComponent(id)}/amend`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }).then(async (r) => {
+        const text = await r.text();
+        if (!r.ok) {
+          try {
+            const errJson = JSON.parse(text);
+            const err = new Error(errJson.human_message || `${r.status} ${text}`) as any;
+            err.status = r.status;
+            err.decision = errJson;
+            err.deltas = errJson.deltas || [];
+            throw err;
+          } catch (e: any) {
+            if (e.status) throw e;
+            throw new Error(`${r.status} ${text}`);
+          }
+        }
+        return JSON.parse(text) as IntentCreateResponse;
+      }),
+
 
     submitAttempt: (req: {
       envelope_id: string;

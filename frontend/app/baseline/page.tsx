@@ -63,7 +63,7 @@ function Linkified({ text }: { text: string }) {
 }
 
 export default function BaselineChatPage() {
-  const [sessionId] = useState(
+  const [sessionId, setSessionId] = useState(
     () => "sess_" + Math.random().toString(36).slice(2, 10),
   );
   const [msgs, setMsgs] = useState<Msg[]>([]);
@@ -74,6 +74,28 @@ export default function BaselineChatPage() {
   const [exposure, setExposure] = useState(0);
   const [attemptId, setAttemptId] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+
+  async function resetCurrentSession() {
+    setBusy(true);
+    try {
+      await api.resetSession(sessionId);
+    } catch {
+      // ignore
+    }
+    const nextId = "sess_" + Math.random().toString(36).slice(2, 10);
+    setSessionId(nextId);
+    setRes(null);
+    setAttemptId(null);
+    setMsgs((current) => [
+      ...current,
+      {
+        role: "agent",
+        text: "Session reset. Ready for a new shopping request.",
+      },
+    ]);
+    setBusy(false);
+    await refresh();
+  }
 
   const refresh = async () => {
     try {
@@ -185,7 +207,17 @@ export default function BaselineChatPage() {
 
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
         <section className="card flex h-[70vh] flex-col">
-          <div className="label">AI Buyer — proposal only</div>
+          <div className="flex items-center justify-between">
+            <div className="label">AI Buyer — proposal only</div>
+            <button
+              onClick={resetCurrentSession}
+              disabled={busy}
+              className="text-xs text-muted hover:text-text font-medium px-2.5 py-1 rounded-lg border border-border hover:bg-canvas transition"
+              title="Clear cart and start a fresh session"
+            >
+              Reset session
+            </button>
+          </div>
 
         <div className="mt-4 flex-1 space-y-4 overflow-y-auto pr-2">
           {msgs.length === 0 && (
@@ -235,27 +267,42 @@ export default function BaselineChatPage() {
                 </div>
               )}
 
-              {message.tools?.map((tool, index) => (
-                <div
-                  key={tool.name + "-" + index}
-                  className="mt-1 max-w-[85%] rounded-lg border border-border bg-canvas px-3 py-1.5 font-mono text-[11px] text-text"
-                >
-                  <span className={tool.blocked ? "text-block" : "text-allow"}>
-                    {tool.blocked ? "DENIED" : "ACTION ISSUED"}
-                  </span>{" "}
-                  mcp:{tool.name}
-                  {tool.result?.short_url ? (
-                    <a
-                      href={String(tool.result.short_url)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="ml-2 text-brand hover:underline"
+              {message.tools?.map((tool, index) => {
+                const isUnknown = message.actionStatus === "unknown" || tool.result?.status === "unknown";
+                return (
+                  <div
+                    key={tool.name + "-" + index}
+                    className="mt-1 max-w-[85%] rounded-lg border border-border bg-canvas px-3 py-1.5 font-mono text-[11px] text-text"
+                  >
+                    <span
+                      className={
+                        isUnknown
+                          ? "text-amber-500 font-bold"
+                          : tool.blocked
+                          ? "text-block font-bold"
+                          : "text-allow font-bold"
+                      }
                     >
-                      open test link
-                    </a>
-                  ) : null}
-                </div>
-              ))}
+                      {isUnknown
+                        ? "PENDING VERIFICATION (UNKNOWN)"
+                        : tool.blocked
+                        ? "DENIED"
+                        : "ACTION ISSUED"}
+                    </span>{" "}
+                    mcp:{tool.name}
+                    {tool.result?.short_url ? (
+                      <a
+                        href={String(tool.result.short_url)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="ml-2 text-brand hover:underline"
+                      >
+                        open test link
+                      </a>
+                    ) : null}
+                  </div>
+                );
+              })}
 
               {message.traceUrl && (
                 <a
@@ -271,6 +318,25 @@ export default function BaselineChatPage() {
           ))}
           <div ref={endRef} />
         </div>
+
+        {res?.action_status === "unknown" && (
+          <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-center justify-between gap-3">
+            <div>
+              <p className="font-semibold text-amber-950">Action held for reconciliation</p>
+              <p className="text-amber-800 text-[11px] mt-0.5">
+                The payment provider returned an ambiguous or pending status. Exposure remains reserved and no duplicate charge was sent.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={resetCurrentSession}
+              disabled={busy}
+              className="shrink-0 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-medium text-xs shadow-sm transition"
+            >
+              Start fresh checkout
+            </button>
+          </div>
+        )}
 
         <form
           className="mt-4 flex gap-2"

@@ -218,11 +218,11 @@ export function MerchantShell({ children }: MerchantShellProps) {
                   <span className="h-1.5 w-1.5 rounded-full bg-[#138A5B] animate-pulse" />
                   Ready for AI Buyers
                 </span>
-                <span className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium ${providerBadge(metrics?.evidence_mode).className}`}>
+                <span className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium ${providerBadge(merchant?.payment_provider || metrics?.evidence_mode).className}`}>
                   <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
                   </svg>
-                  {providerBadge(metrics?.evidence_mode).label}
+                  {providerBadge(merchant?.payment_provider || metrics?.evidence_mode).label}
                 </span>
               </div>
             </div>

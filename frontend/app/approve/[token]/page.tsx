@@ -119,30 +119,98 @@ export default function HumanApprovalPage({ params }: ApprovePageProps) {
           </div>
         </div>
 
-        {/* Bounded Shopping Slots */}
+        {/* (a) Human-Readable Approved Rule */}
+        {data.readback?.english && (
+          <div className="p-4 rounded-xl bg-canvas border border-border text-sm leading-relaxed text-text">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-muted mb-1">
+              Approved Rule
+            </div>
+            <p>{data.readback.english}</p>
+          </div>
+        )}
+
+        {/* (b) Bounded Shopping Slots */}
         <div>
-          <h3 className="text-xs font-bold uppercase tracking-wider text-muted mb-2">
-            Permitted Purchase Slots
-          </h3>
-          <div className="space-y-2">
-            {(envelope?.slots ?? []).map((slot, i) => (
-              <div
-                key={slot.id || i}
-                className="p-3 rounded-xl border border-border bg-canvas/50 flex items-center justify-between text-xs"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="flex h-5 w-5 rounded-full bg-primary/10 text-[#0C6CF2] text-[10px] font-bold items-center justify-center">
-                    {i + 1}
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-muted">
+              Permitted Purchase Slots
+            </h3>
+            {data.readback?.slots && (
+              <span className="text-[11px] text-muted">Live catalog admission</span>
+            )}
+          </div>
+          <div className="divide-y divide-border rounded-xl border border-border overflow-hidden">
+            {data.readback?.slots ? (
+              data.readback.slots.map((slot: any) => {
+                const isUnsatisfiable = slot.admissible_count === 0;
+                const hasSpread =
+                  slot.dearest_paise !== null &&
+                  slot.cheapest_paise !== null &&
+                  slot.dearest_paise > slot.cheapest_paise;
+                return (
+                  <div
+                    key={slot.slot_id}
+                    className={`p-3.5 text-xs flex flex-wrap items-center justify-between gap-3 ${
+                      isUnsatisfiable ? "bg-danger/10 text-danger" : "bg-surface text-text"
+                    }`}
+                  >
+                    <div>
+                      <span className="font-bold text-sm">{slot.label}</span>
+                      <span className="ml-2 text-muted">×{slot.quantity}</span>
+                      <div className="text-[11px] text-muted font-mono mt-0.5">
+                        {slot.required_tags.join(" + ")}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      {isUnsatisfiable ? (
+                        <span className="font-semibold text-danger">Unsatisfiable (0 items)</span>
+                      ) : (
+                        <div>
+                          <span className="font-semibold">
+                            {hasSpread
+                              ? `${inr(slot.cheapest_paise)} – ${inr(slot.dearest_paise)}`
+                              : inr(slot.cheapest_paise || 0)}
+                          </span>
+                          {hasSpread && slot.dearest_name && (
+                            <div className="text-[10px] text-muted">
+                              dearest: {slot.dearest_name}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              (envelope?.slots ?? []).map((slot, i) => (
+                <div
+                  key={slot.id || i}
+                  className="p-3 rounded-xl border border-border bg-canvas/50 flex items-center justify-between text-xs"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-5 w-5 rounded-full bg-primary/10 text-[#0C6CF2] text-[10px] font-bold items-center justify-center">
+                      {i + 1}
+                    </span>
+                    <span className="font-semibold text-text">{slot.label}</span>
+                  </div>
+                  <span className="text-[11px] font-mono text-muted">
+                    Tags: {slot.required_tags.join(", ")}
                   </span>
-                  <span className="font-semibold text-text">{slot.label}</span>
                 </div>
-                <span className="text-[11px] font-mono text-muted">
-                  Tags: {slot.required_tags.join(", ")}
-                </span>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
+
+        {/* (c) Worst-case basket sentence */}
+        {data.readback && (
+          <div className="p-3.5 rounded-xl bg-canvas border border-border text-xs leading-relaxed text-text font-medium">
+            {data.readback.cap_binds
+              ? `The most expensive basket this rule allows is ${inr(data.readback.worst_case_total_paise)}, above your ${inr(data.readback.max_total_paise)} cap. The cap will refuse it.`
+              : `The most expensive basket this rule allows is ${inr(data.readback.worst_case_total_paise)}. Your ${inr(data.readback.max_total_paise)} cap is not what is protecting you here — the rule is.`}
+          </div>
+        )}
 
         {/* Dual Control Invariant Strip */}
         <div className="p-3.5 rounded-xl bg-primary/10/50 border border-primary/20 text-xs text-primary space-y-1">
