@@ -9,6 +9,37 @@ interface MerchantShellProps {
   children: React.ReactNode;
 }
 
+/**
+ * What rail is actually dispatching, said plainly.
+ *
+ * The previous version compared `evidence_mode` against `"test_mode"` — a value
+ * the backend never emits — so the badge read "Simulated Razorpay MCP" in every
+ * configuration, including one creating real Razorpay payment links. Two bugs
+ * stacked: the metric was derived from DEMO_MODE rather than from the provider,
+ * and the comparison could never be true. A badge that cannot be wrong-looking
+ * is not reassuring; it is just not reporting anything.
+ *
+ * Unknown values fall through to the raw string rather than a comforting
+ * default, because guessing here is how the original bug read to a viewer.
+ */
+function providerBadge(mode: string | undefined): { label: string; className: string } {
+  const LIVE = "bg-amber-50 text-[#9A5B00] border border-amber-200";
+  const SIM = "bg-blue-50 text-[#2B6EF3] border border-blue-200";
+  const UNKNOWN = "bg-slate-50 text-slate-500 border border-slate-200";
+  switch (mode) {
+    case "simulated":
+      return { label: "Simulated Razorpay MCP", className: SIM };
+    case "razorpay_mcp":
+      return { label: "Live Razorpay MCP", className: LIVE };
+    case "razorpay_rest":
+      return { label: "Live Razorpay REST", className: LIVE };
+    case undefined:
+      return { label: "Payment rail…", className: UNKNOWN };
+    default:
+      return { label: `Payment rail: ${mode}`, className: UNKNOWN };
+  }
+}
+
 export function MerchantShell({ children }: MerchantShellProps) {
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -187,11 +218,11 @@ export function MerchantShell({ children }: MerchantShellProps) {
                   <span className="h-1.5 w-1.5 rounded-full bg-[#138A5B] animate-pulse" />
                   Ready for AI Buyers
                 </span>
-                <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-blue-50 text-[#2B6EF3] border border-blue-200">
-                  <svg className="h-3 w-3 text-[#2B6EF3]" fill="currentColor" viewBox="0 0 24 24">
+                <span className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium ${providerBadge(metrics?.evidence_mode).className}`}>
+                  <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
                   </svg>
-                  {metrics?.evidence_mode === "test_mode" ? "Connected to Razorpay Test Mode" : "Simulated Razorpay MCP"}
+                  {providerBadge(metrics?.evidence_mode).label}
                 </span>
               </div>
             </div>

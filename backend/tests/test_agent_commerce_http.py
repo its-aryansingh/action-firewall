@@ -4,6 +4,7 @@ from __future__ import annotations
 import pytest
 from starlette.testclient import TestClient
 
+from app.mcp_client import get_active_provider_mode
 from app.main import app
 from app.models import MandateCreate
 from app import store
@@ -261,7 +262,11 @@ def test_commerce_metrics_endpoint():
     assert "agent_gmv_issued_paise" in metrics
     assert "settled_agent_gmv_paise" in metrics
     assert "evidence_mode" in metrics
-    assert metrics["evidence_mode"] in ("simulated", "razorpay_test")
+    # The set of providers that can actually be dispatching. "razorpay_test"
+    # was never one of them — it was a label invented by the metrics layer,
+    # which is why the frontend compared against "test_mode" and never matched.
+    assert metrics["evidence_mode"] in ("simulated", "razorpay_mcp", "razorpay_rest")
+    assert metrics["evidence_mode"] == get_active_provider_mode()
 
 
 def test_http_attempt_with_quote_binding():

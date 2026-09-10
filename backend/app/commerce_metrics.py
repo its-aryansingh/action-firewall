@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .config import get_settings
 from .merchant import DEFAULT_MERCHANT_ID
-from . import store
+from . import mcp_client, store
 
 
 class FunnelStep(BaseModel):
@@ -311,7 +311,17 @@ def get_comprehensive_metrics(
     """Calculate full merchant dashboard and funnel metrics from authoritative database rows."""
     seed_stable_demo_orders(merchant_id)
     settings = get_settings()
-    ev_mode = "simulated" if settings.demo_mode else "razorpay_test"
+    # Which provider is ACTUALLY dispatching, not what demo_mode implies.
+    #
+    # This read `"simulated" if settings.demo_mode else "razorpay_test"`, and
+    # those are unrelated facts: DEMO_MODE=true with PAYMENT_PROVIDER=razorpay_rest
+    # is a perfectly ordinary configuration, and it made the header badge say
+    # "Simulated Razorpay MCP" while the backend was creating real Razorpay
+    # payment links. A surface that misreports which rail it is on is worse than
+    # one that says nothing, because a viewer trusts it. commerce_mcp.py already
+    # sourced its own evidence_mode from get_active_provider_mode(); the two
+    # surfaces simply disagreed. They no longer can.
+    ev_mode = mcp_client.get_active_provider_mode()
 
     with store._conn() as cx:
         # Sum issued GMV (all orders with links issued or recovered)

@@ -211,3 +211,23 @@ def test_meat_tags_did_not_disturb_an_existing_singleton_tag():
     for tag in ("eggs", "nuts"):
         owners = [p for p in catalog.load_catalog() if tag in p.get("tags", [])]
         assert len(owners) == 1, f"tag {tag!r} is no longer unique: {owners}"
+
+
+# ---------------------------------------------------------------------------
+# The header badge must not misreport which payment rail is live
+# ---------------------------------------------------------------------------
+def test_evidence_mode_reports_the_provider_not_the_demo_flag(monkeypatch):
+    """DEMO_MODE and PAYMENT_PROVIDER are unrelated settings, and running
+    DEMO_MODE=true with PAYMENT_PROVIDER=razorpay_rest is ordinary. The metrics
+    layer used to derive evidence_mode from demo_mode, so in that configuration
+    the header badge read "Simulated Razorpay MCP" while the backend was
+    creating real Razorpay payment links. A surface that misreports its own rail
+    is worse than one that stays silent, because a viewer believes it."""
+    from app import commerce_metrics, mcp_client
+
+    for provider in ("simulated", "razorpay_mcp", "razorpay_rest"):
+        monkeypatch.setattr(mcp_client, "get_active_provider_mode", lambda p=provider: p)
+        metrics = commerce_metrics.get_comprehensive_metrics()
+        assert metrics.evidence_mode == provider, (
+            f"evidence_mode reported {metrics.evidence_mode!r} while {provider!r} was dispatching"
+        )
