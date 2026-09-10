@@ -155,10 +155,11 @@ export default function AIPlaygroundPage() {
   } | null>(null);
   const [firewallResult, setFirewallResult] = useState<{
     stage: string;
-    status: "quote" | "recovering" | "issued";
+    status: "quote" | "recovering" | "issued" | "failed";
     message: string;
     link: string | null;
     saved_amount: string;
+    scope?: string;
   } | null>(null);
 
   // Single Checkout Workflow states
@@ -183,106 +184,121 @@ export default function AIPlaygroundPage() {
     setRefundNotice(null);
   }
 
-  // --- TWO-LANE RACE EXECUTION (Gate B5) ---
+  // --- TWO-LANE RACE ---
+  //
+  // The right-hand lane is a real call: it drafts an envelope, has it activated,
+  // and submits an attempt under the stock_loss scenario. Every figure it shows
+  // comes back from that call.
+  //
+  // It used to send buyer_agent_id "buyer_mcp", which the identity guard
+  // refuses with a 403 — and the catch block then displayed a SUCCESSFUL
+  // recovery with a fabricated Razorpay link anyway, so the lane looked right
+  // whether or not the backend did anything. A demo that reports success when
+  // the call failed is worse than one that breaks, so a failure now says so.
+  //
+  // The left-hand lane is not a second backend: it is what an exact-cart
+  // checkout does when the cart hash is invalidated by a stock change. It is
+  // labelled as a comparison, and its rupee figure is the same real cart total
+  // the right-hand lane recovered, so the two sides are never quoting different
+  // baskets at each other.
   async function runTwoLaneRace() {
     setRaceRunning(true);
     setRaceCompleted(false);
     setError(null);
 
-    // Initial Quote stage in both lanes
     setBaselineResult({
-      stage: "Quoting exact cart",
+      stage: "Quoting the exact cart",
       status: "quote",
-      message: "Initial exact quote: ₹7,840.00",
-      loss_amount: "₹0",
+      message: "Shopper confirms an exact basket at checkout.",
+      loss_amount: "—",
     });
     setFirewallResult({
-      stage: "Drafting envelope",
+      stage: "Drafting the envelope",
       status: "quote",
-      message: "Customer pre-approves: ₹8,000 cap · 10% substitution window",
+      message: "Customer approves the job once, before the agent shops.",
       link: null,
-      saved_amount: "₹0",
-    });
-
-    await new Promise((r) => setTimeout(r, 600));
-
-    // Stock loss stage in both lanes
-    setBaselineResult({
-      stage: "Catalog drift detected",
-      status: "drift",
-      message: "Oat milk 1L is OUT OF STOCK. Cart hash invalidated.",
-      loss_amount: "₹0",
-    });
-    setFirewallResult({
-      stage: "Stock loss recovery",
-      status: "recovering",
-      message: "Oat milk out of stock → Soy milk 1L (+₹12, inside 10% envelope rule)",
-      link: null,
-      saved_amount: "₹0",
+      saved_amount: "—",
     });
 
     try {
-      // Real backend call for Action Firewall side
       const reqId = `race_${Date.now()}`;
       const sessId = `sess_race_${Date.now()}`;
+
       const draftRes = await api.agentCommerce.createIntent({
         agent_request_id: reqId,
         natural_language_intent: goal,
         budget_paise: 800000,
-        buyer_agent_id: "buyer_mcp",
+        buyer_agent_id: "buyer_replay",
         shopper_session_id: sessId,
       });
 
-      // Activate envelope via human approval path
+      const capPaise = draftRes.draft_envelope.max_total_paise;
+      setFirewallResult({
+        stage: "Awaiting human activation",
+        status: "quote",
+        message: "Drafted. Nothing can be authorised until a person activates it.",
+        link: null,
+        saved_amount: "—",
+        scope: `${inr(capPaise)} ceiling · ${draftRes.draft_envelope.slots.length} slots`,
+      });
+
       await api.agentCommerce.activateEnvelope(
         draftRes.draft_envelope.id,
-        draftRes.draft_envelope.envelope_hash
+        draftRes.draft_envelope.envelope_hash,
       );
 
-      // Execute with stock_loss scenario
+      setBaselineResult({
+        stage: "Catalog drift detected",
+        status: "drift",
+        message: "An item goes out of stock. The confirmed cart hash no longer matches.",
+        loss_amount: "—",
+      });
+
       const attemptRes = await api.agentCommerce.submitAttempt({
         envelope_id: draftRes.draft_envelope.id,
         purchase_attempt_id: `att_${Date.now()}`,
         scenario: "stock_loss",
-        buyer_agent_id: "buyer_mcp",
+        buyer_agent_id: "buyer_replay",
       });
 
-      await new Promise((r) => setTimeout(r, 600));
+      const totalPaise = attemptRes.quote_total_paise;
+      const completed =
+        attemptRes.outcome === "ACTION_ISSUED" ||
+        attemptRes.outcome === "RECOVERED_INSIDE_ENVELOPE";
 
-      // Lane 1 outcome: Abandoned
       setBaselineResult({
-        stage: "Order Abandoned",
+        stage: "Order abandoned",
         status: "abandoned",
-        message: "✖ Cart invalid. Customer dropped back into checkout. Order abandoned.",
-        loss_amount: "₹7,840 LOST",
+        message:
+          "The exact cart is stale, so the shopper is sent back to re-confirm. Most do not return.",
+        loss_amount: completed ? `${inr(totalPaise)} lost` : "—",
       });
 
-      // Lane 2 outcome: Recovered & Issued
       setFirewallResult({
-        stage: "Payment Link Issued",
-        status: "issued",
-        message: "✔ Order recovered within approved bounds. One-time payment link issued.",
+        stage: completed ? "Recovered and issued" : `Stopped — ${attemptRes.code}`,
+        status: completed ? "issued" : "failed",
+        message: attemptRes.human_message,
         link: attemptRes.payment_link ?? null,
-        saved_amount: "₹7,840 SAVED",
+        saved_amount: completed ? `${inr(totalPaise)} completed` : "nothing issued",
+        scope: `${inr(capPaise)} ceiling · repaired in-envelope: ${
+          attemptRes.recovery_applied ? "yes" : "no"
+        }`,
       });
 
       setRaceCompleted(true);
     } catch (err: any) {
-      console.warn("Race execution error fallback to simulated outcome", err);
-      setBaselineResult({
-        stage: "Order Abandoned",
-        status: "abandoned",
-        message: "✖ Cart invalid. Re-quote required. Order abandoned.",
-        loss_amount: "₹7,840 LOST",
-      });
+      // No fabricated outcome here on purpose.
+      const detail = err?.message || String(err);
+      setError(`Race failed: ${detail}`);
+      setBaselineResult(null);
       setFirewallResult({
-        stage: "Payment Link Issued",
-        status: "issued",
-        message: "✔ Oat milk → Soy milk (+₹12). Issued under pre-approved customer envelope.",
+        stage: "Call failed",
+        status: "failed",
+        message: detail,
         link: null,
-        saved_amount: "₹7,840 SAVED",
+        saved_amount: "—",
       });
-      setRaceCompleted(true);
+      setRaceCompleted(false);
     } finally {
       setRaceRunning(false);
     }
@@ -444,7 +460,7 @@ export default function AIPlaygroundPage() {
               </label>
               <div className="text-sm font-semibold text-text">{goal}</div>
               <p className="mt-1 text-xs text-muted">
-                Initial Quote: ₹7,840.00 · Condition: Oat milk out of stock during agent execution
+                Condition: an item goes out of stock during agent execution. Every figure below comes from the run.
               </p>
             </div>
 
@@ -465,13 +481,13 @@ export default function AIPlaygroundPage() {
 
                   <div className="mt-5 space-y-4 text-xs">
                     <div className="flex items-center justify-between border-b border-border/60 pb-2">
-                      <span className="text-muted">Initial Quote:</span>
-                      <span className="font-mono font-bold text-text">₹7,840.00</span>
+                      <span className="text-muted">Cart at authorization:</span>
+                      <span className="font-mono font-bold text-text">{firewallResult?.saved_amount ?? "—"}</span>
                     </div>
 
                     <div className="rounded-xl border border-border bg-surface p-3 space-y-1">
                       <span className="text-[10px] font-bold uppercase text-muted">Inventory Fact</span>
-                      <p className="text-text">Oat milk 1L goes OUT OF STOCK</p>
+                      <p className="text-text">{baselineResult?.message ?? "An item goes out of stock mid-checkout."}</p>
                     </div>
 
                     <div className="space-y-2">
@@ -493,7 +509,7 @@ export default function AIPlaygroundPage() {
 
                 <div className="mt-6 border-t border-danger/20 pt-4 text-center">
                   <div className="font-mono text-2xl font-extrabold text-danger">
-                    {baselineResult ? baselineResult.loss_amount : "₹7,840 LOST"}
+                    {baselineResult ? baselineResult.loss_amount : "—"}
                   </div>
                   <span className="text-[11px] text-muted">Provider actuator never completed</span>
                 </div>
@@ -515,18 +531,18 @@ export default function AIPlaygroundPage() {
                   <div className="mt-5 space-y-4 text-xs">
                     <div className="flex items-center justify-between border-b border-border/60 pb-2">
                       <span className="text-muted">Customer Scope Bound:</span>
-                      <span className="font-mono font-bold text-text">₹8,000.00 cap · 10% rule</span>
+                      <span className="font-mono font-bold text-text">{firewallResult?.scope ?? "set once, by the customer"}</span>
                     </div>
 
                     <div className="rounded-xl border border-border bg-surface p-3 space-y-1">
                       <span className="text-[10px] font-bold uppercase text-muted">Inventory Fact</span>
-                      <p className="text-text">Oat milk 1L goes OUT OF STOCK</p>
+                      <p className="text-text">{baselineResult?.message ?? "An item goes out of stock mid-checkout."}</p>
                     </div>
 
                     <div className="space-y-2">
                       <div className="flex items-center gap-2 text-success font-medium">
                         <span>✔</span>
-                        <span>Eligible substitution ranked: Soy milk 1L (+₹12)</span>
+                        <span>{firewallResult?.message ?? "The store substitutes inside what was already approved."}</span>
                       </div>
                       <div className="flex items-center gap-2 text-success font-medium">
                         <span>✔</span>
@@ -542,7 +558,7 @@ export default function AIPlaygroundPage() {
 
                 <div className="mt-6 border-t border-success/20 pt-4 text-center">
                   <div className="font-mono text-2xl font-extrabold text-success">
-                    {firewallResult ? firewallResult.saved_amount : "₹7,840 SAVED"}
+                    {firewallResult ? firewallResult.saved_amount : "—"}
                   </div>
                   <div className="mt-1">
                     {firewallResult?.link ? (
@@ -552,10 +568,10 @@ export default function AIPlaygroundPage() {
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-1 font-mono text-xs font-semibold text-primary hover:underline"
                       >
-                        <span>plink_... ↗ Razorpay Checkout</span>
+                        <span>Open the issued link ↗</span>
                       </a>
                     ) : (
-                      <span className="font-mono text-xs text-muted">Razorpay Payment Link Issued</span>
+                      <span className="font-mono text-xs text-muted">No link — nothing was issued</span>
                     )}
                   </div>
                 </div>
@@ -760,7 +776,7 @@ export default function AIPlaygroundPage() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted">Estimated Total:</span>
-                    <span className="font-bold text-primary">~₹7,840.00 INR</span>
+                    <span className="font-bold text-primary">{firewallResult?.saved_amount ?? "set by the run"}</span>
                   </div>
                 </div>
               ) : (

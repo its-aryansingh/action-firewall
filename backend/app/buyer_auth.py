@@ -99,10 +99,12 @@ class MerchantPrincipal:
         return False
 
 
-# Generated dynamically at startup or loaded from environment — never a hard-coded 'live' literal in source
-DEMO_BUYER_KEY = os.getenv("DEMO_BUYER_KEY") or f"af_test_buyer_demo_{uuid.uuid4().hex[:16]}"
-MERCHANT_ADMIN_KEY = os.getenv("MERCHANT_ADMIN_KEY") or f"af_merchant_admin_{uuid.uuid4().hex[:16]}"
-DEMO_GEMINI_KEY = os.getenv("DEMO_GEMINI_KEY") or f"af_test_buyer_gemini_{uuid.uuid4().hex[:16]}"
+DEFAULT_DEMO_BUYER_KEY = "af_test_buyer_replay_key"
+DEFAULT_DEMO_GEMINI_KEY = "af_test_buyer_gemini_key"
+
+DEMO_BUYER_KEY = os.getenv("DEMO_BUYER_KEY") or DEFAULT_DEMO_BUYER_KEY
+MERCHANT_ADMIN_KEY = os.getenv("MERCHANT_ADMIN_KEY") or "af_merchant_admin_secret_key"
+DEMO_GEMINI_KEY = os.getenv("DEMO_GEMINI_KEY") or DEFAULT_DEMO_GEMINI_KEY
 
 
 def _hash_key(key: str) -> str:
@@ -199,6 +201,12 @@ def reset_buyer_keys() -> None:
         merchant_id=DEFAULT_MERCHANT_ID,
         authenticated=True,
         key_hash=_demo_hash,
+    )
+    _KNOWN_BUYER_KEYS[_gemini_hash] = AgentPrincipal(
+        buyer_agent_id="buyer_gemini",
+        merchant_id=DEFAULT_MERCHANT_ID,
+        authenticated=True,
+        key_hash=_gemini_hash,
     )
 
 

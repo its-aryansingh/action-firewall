@@ -388,6 +388,12 @@ async function j<T>(r: Response): Promise<T> {
   }
 }
 
+const DEMO_BUYER_KEYS: Record<string, string> = {
+  buyer_replay: "af_test_buyer_replay_key",
+  buyer_gemini: "af_test_buyer_gemini_key",
+  buyer_gemini_flash: "af_test_buyer_gemini_key",
+};
+
 export const api = {
   health: () => fetch(`${API}/health`, { cache: "no-store" }).then(j<Health>),
 
@@ -552,8 +558,13 @@ export const api = {
       shopper_session_id?: string;
       merchant_id?: string;
     }) => {
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (req.buyer_agent_id) headers["X-Buyer-Agent-Id"] = req.buyer_agent_id;
+      const buyerId = req.buyer_agent_id || "buyer_replay";
+      const key = DEMO_BUYER_KEYS[buyerId] || DEMO_BUYER_KEYS.buyer_replay;
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${key}`,
+        "X-Buyer-Agent-Id": buyerId,
+      };
       return fetch(`${API}/agent-commerce/v1/intents`, {
         method: "POST",
         headers,
@@ -575,8 +586,13 @@ export const api = {
       buyer_agent_id?: string;
       shopper_session_id?: string;
     }) => {
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (req.buyer_agent_id) headers["X-Buyer-Agent-Id"] = req.buyer_agent_id;
+      const buyerId = req.buyer_agent_id || "buyer_replay";
+      const key = DEMO_BUYER_KEYS[buyerId] || DEMO_BUYER_KEYS.buyer_replay;
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${key}`,
+        "X-Buyer-Agent-Id": buyerId,
+      };
       return fetch(`${API}/agent-commerce/v1/attempts`, {
         method: "POST",
         headers,
