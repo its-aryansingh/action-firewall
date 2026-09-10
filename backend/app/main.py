@@ -37,6 +37,7 @@ from .models import (
     VoiceTranscription,
 )
 from .consent import build_consent_record
+from .dispute import build_dispute_pack, verify_dispute_pack
 from .receipts import build_receipt, verify_receipt
 
 @asynccontextmanager
@@ -477,6 +478,35 @@ def mandate_usage(mandate_id: str) -> dict:
 @app.get("/audit")
 def audit(session_id: str | None = None, limit: int = 100) -> list[dict]:
     return store.audit_trail(session_id, limit)
+
+
+@app.get("/evidence/dispute-pack/{purchase_attempt_id}")
+def dispute_pack(
+    purchase_attempt_id: str,
+    _: str = Depends(verify_merchant_admin),
+) -> dict:
+    """Everything one authorisation attempt consumed, in one file.
+
+    Merchant-admin only, unlike the verifiers. The VERIFIER is public because an
+    integrity check nobody outside can run proves nothing; the PACK is one
+    customer's basket, prices and approval, and publishing that would trade a
+    dispute problem for a privacy one.
+    """
+    pack = build_dispute_pack(purchase_attempt_id)
+    if pack is None:
+        raise HTTPException(status_code=404, detail="UNKNOWN_PURCHASE_ATTEMPT")
+    return pack
+
+
+@app.post("/evidence/dispute-pack/verify")
+def dispute_pack_verify(pack: dict) -> dict:
+    """Check a pack. Same code path as scripts/verify_dispute_pack.py.
+
+    Two implementations of one verifier drift, and the drift is discovered by
+    whoever trusted the wrong one. Unauthenticated on purpose: anyone handed a
+    pack must be able to check it without the merchant's cooperation.
+    """
+    return verify_dispute_pack(pack)
 
 
 @app.get("/evidence/consent/{envelope_id}")

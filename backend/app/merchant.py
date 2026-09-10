@@ -18,7 +18,7 @@ from .config import get_settings
 from .models import DEFAULT_FULFILLMENT_PROFILE_ID
 
 
-def compute_catalog_revision() -> str:
+def compute_catalog_revision(rows: list[dict] | None = None) -> str:
     """Content-derived catalog revision.
 
     A frozen constant can never differ between quote time and checkout time, which
@@ -26,7 +26,11 @@ def compute_catalog_revision() -> str:
     means any edit to data/catalog.json changes the revision and stale quotes are
     correctly refused.
     """
-    return "cat_" + digest(catalog.load_catalog())[:16]
+    # `rows` lets a verifier recompute the revision of a catalog SNAPSHOT carried
+    # in an evidence pack, without that snapshot having to be installed first.
+    # Without it, the revision could only ever be checked against whatever the
+    # verifying machine happens to have on disk, which checks nothing.
+    return "cat_" + digest(catalog.load_catalog() if rows is None else rows)[:16]
 
 
 CATALOG_REVISION = compute_catalog_revision()

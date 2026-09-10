@@ -22,10 +22,12 @@ from .models import (
     AuthorizationOutcome,
     AuthorizationRequest,
     DecisionCode,
+    EnvelopeDecision,
     Mandate,
     MandateCreate,
     MandateDecision,
     MandateUpdate,
+    MerchantQuote,
     EnvelopeStatus,
     PurchaseEnvelope,
     EnvelopeSlot,
@@ -214,6 +216,34 @@ WHEN EXISTS (SELECT 1 FROM audit_log WHERE id = NEW.id)
 BEGIN
     SELECT RAISE(ABORT, 'audit_log is append-only');
 END;
+
+CREATE TABLE IF NOT EXISTS decision_records (
+    id TEXT PRIMARY KEY,
+    purchase_attempt_id TEXT NOT NULL,
+    envelope_id TEXT NOT NULL,
+    envelope_version INTEGER NOT NULL,
+    envelope_hash TEXT NOT NULL,
+    -- The envelope AS IT WAS when the decision was taken. get_envelope() returns
+    -- today's row, and a consumed envelope has a bumped version and a new hash,
+    -- so building evidence from it would produce a pack whose consent record
+    -- and whose grant disagree about which rule was approved.
+    envelope_json TEXT NOT NULL DEFAULT '{}',
+    grant_id TEXT,
+    outcome TEXT NOT NULL,
+    decision_json TEXT NOT NULL,
+    quote_json TEXT NOT NULL,
+    quote_hash TEXT NOT NULL,
+    catalog_revision TEXT NOT NULL,
+    -- Stock is a point-in-time reading and the ONE input a third party cannot
+    -- reproduce. Recording it is what makes the decision re-derivable at all;
+    -- labelling it attested rather than proven is what keeps the artifact
+    -- honest. Read at decision time, not at export: by export the shelf has
+    -- moved and the number would describe a different world.
+    stock_at_decision_json TEXT NOT NULL,
+    decided_at REAL NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_decision_attempt
+    ON decision_records(purchase_attempt_id);
 
 CREATE TABLE IF NOT EXISTS authority_ceilings (
     user_id TEXT PRIMARY KEY,
@@ -411,6 +441,31 @@ def _migrate(cx: sqlite3.Connection) -> None:
         )
 
     _migrate_audit_chain(cx)
+    decision_cols = {r["name"] for r in cx.execute("PRAGMA table_info(decision_records)")}
+    if decision_cols and "envelope_json" not in decision_cols:
+        cx.execute(
+            "ALTER TABLE decision_records ADD COLUMN envelope_json TEXT NOT NULL DEFAULT '{}'"
+        )
+    cx.executescript(
+        """CREATE TABLE IF NOT EXISTS decision_records (
+               id TEXT PRIMARY KEY,
+               purchase_attempt_id TEXT NOT NULL,
+               envelope_id TEXT NOT NULL,
+               envelope_version INTEGER NOT NULL,
+               envelope_hash TEXT NOT NULL,
+               envelope_json TEXT NOT NULL DEFAULT '{}',
+               grant_id TEXT,
+               outcome TEXT NOT NULL,
+               decision_json TEXT NOT NULL,
+               quote_json TEXT NOT NULL,
+               quote_hash TEXT NOT NULL,
+               catalog_revision TEXT NOT NULL,
+               stock_at_decision_json TEXT NOT NULL,
+               decided_at REAL NOT NULL
+           );
+           CREATE UNIQUE INDEX IF NOT EXISTS idx_decision_attempt
+               ON decision_records(purchase_attempt_id);"""
+    )
 
     cx.execute("UPDATE spend_ledger SET updated_at=created_at WHERE updated_at IS NULL")
     cx.execute("DROP INDEX IF EXISTS idx_ledger_idem")
@@ -694,6 +749,85 @@ def list_envelopes(user_id: str = "user_demo") -> list[PurchaseEnvelope]:
             (user_id,),
         ).fetchall()
     return [_row_to_envelope(row) for row in rows]
+
+
+# ---------------------------------------------------------------------------
+# Decision records — why an attempt ended the way it did
+# ---------------------------------------------------------------------------
+# spend_ledger stores what was AUTHORISED: hashes, amounts, the action. It never
+# stored WHY. Without the decision, the quote it was taken against, and the stock
+# reading it saw, an evidence pack can show a charge is bound to an approved rule
+# but cannot show that allowing it was correct — and a refusal leaves nothing
+# behind at all, which is the case a merchant most needs to evidence.
+#
+# Written AFTER the grant commits, deliberately. Writing first would risk a
+# record describing an authorisation that was rolled back — evidence for
+# something that never happened. Writing after means the worst case is a grant
+# with no decision record: missing evidence rather than false evidence, which is
+# the direction to fail in.
+
+
+def record_decision(
+    *,
+    purchase_attempt_id: str,
+    envelope: PurchaseEnvelope,
+    decision: EnvelopeDecision,
+    quote: MerchantQuote,
+    outcome: str,
+    stock_at_decision: dict[str, int],
+    catalog_revision: str,
+    grant_id: str | None = None,
+    decided_at: float | None = None,
+) -> None:
+    """Record one authorisation outcome. Idempotent per purchase attempt.
+
+    A replayed attempt returns the first grant rather than minting a second, so
+    it must not write a second decision record either — the UNIQUE index makes
+    that a no-op rather than a duplicate someone has to reconcile later.
+    """
+    if outcome not in ("issued", "refused", "unknown"):
+        raise ValueError(f"unknown decision outcome {outcome!r}")
+    with _conn() as cx:
+        cx.execute(
+            """INSERT OR IGNORE INTO decision_records (
+                   id, purchase_attempt_id, envelope_id, envelope_version,
+                   envelope_hash, envelope_json, grant_id, outcome, decision_json,
+                   quote_json, quote_hash, catalog_revision, stock_at_decision_json,
+                   decided_at
+               ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                f"dec_{uuid.uuid4().hex[:12]}",
+                purchase_attempt_id,
+                envelope.id,
+                envelope.version,
+                envelope.envelope_hash,
+                canonical_json(envelope.model_dump(mode="json")),
+                grant_id,
+                outcome,
+                canonical_json(decision.model_dump(mode="json")),
+                canonical_json(quote.model_dump(mode="json")),
+                quote.quote_hash,
+                catalog_revision,
+                canonical_json(stock_at_decision),
+                time.time() if decided_at is None else decided_at,
+            ),
+        )
+
+
+def get_decision_record(purchase_attempt_id: str) -> dict | None:
+    with _conn() as cx:
+        row = cx.execute(
+            "SELECT * FROM decision_records WHERE purchase_attempt_id=?",
+            (purchase_attempt_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    record = dict(row)
+    record["decision"] = json.loads(record.pop("decision_json"))
+    record["envelope"] = json.loads(record.pop("envelope_json") or "{}")
+    record["quote"] = json.loads(record.pop("quote_json"))
+    record["stock_at_decision"] = json.loads(record.pop("stock_at_decision_json"))
+    return record
 
 
 def _consent_evidence(activated: PurchaseEnvelope) -> dict[str, str]:

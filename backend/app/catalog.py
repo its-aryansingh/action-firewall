@@ -15,10 +15,39 @@ from .config import get_settings
 CATALOG_PATH = Path(__file__).resolve().parents[2] / "data" / "catalog.json"
 
 
+# A verifier re-deriving a past decision must see the catalog THAT decision saw,
+# not today's. This is the same kind of seam as _STOCK_OVERRIDE below, and it
+# exists for the same reason: the alternative is a verification script reaching
+# into module internals, and a verifier a reviewer cannot trust is not a
+# verifier. Nothing in the request path ever sets it.
+_CATALOG_OVERRIDE: list[dict[str, Any]] | None = None
+
+
+def use_snapshot(rows: list[dict[str, Any]]) -> None:
+    """Serve a recorded catalog instead of the file on disk."""
+    global _CATALOG_OVERRIDE
+    _CATALOG_OVERRIDE = list(rows)
+    _load_catalog_file.cache_clear()
+    by_sku.cache_clear()
+
+
+def clear_snapshot() -> None:
+    global _CATALOG_OVERRIDE
+    _CATALOG_OVERRIDE = None
+    _load_catalog_file.cache_clear()
+    by_sku.cache_clear()
+
+
 @lru_cache
-def load_catalog() -> list[dict[str, Any]]:
+def _load_catalog_file() -> list[dict[str, Any]]:
     with open(CATALOG_PATH, encoding="utf-8") as f:
         return json.load(f)
+
+
+def load_catalog() -> list[dict[str, Any]]:
+    if _CATALOG_OVERRIDE is not None:
+        return _CATALOG_OVERRIDE
+    return _load_catalog_file()
 
 
 @lru_cache

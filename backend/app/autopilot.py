@@ -1,11 +1,12 @@
 """Safe Autopilot orchestration above the existing exact-action runtime."""
 from __future__ import annotations
 
-from . import store
+from . import catalog, store
 from .actions import canonicalize_action, provider_reference_id
 from .authorization import cart_hash
 from .config import get_settings
 from .envelope import build_quote, draft_envelope, verify_quote
+from .merchant import CATALOG_REVISION
 from .mcp_client import (
     ActionInProgress,
     ActionOutcomeUnknown,
@@ -171,6 +172,34 @@ def execute(req: AutopilotExecuteRequest) -> AutopilotExecuteResponse:
         )
 
     envelope_decision = verify_quote(envelope, quote)
+    # Read HERE, not at export. verify_quote has just consulted these exact
+    # numbers; by the time anyone asks for evidence the shelf has moved, and a
+    # figure captured then would describe a different world from the one the
+    # decision was taken in.
+    stock_at_decision = {
+        line.sku: catalog.available_stock(line.sku) for line in quote.cart.lines
+    }
+
+    def _record(outcome_name: str, grant_id: str | None = None, decision=None) -> None:
+        """Leave behind why this attempt ended as it did.
+
+        Called on every terminal path including refusals — the case a merchant
+        most needs to evidence and the one an authorisation ledger never keeps,
+        because nothing was authorised. Writes AFTER any grant commits, so the
+        worst failure is a grant with no decision record: missing evidence
+        rather than evidence for something that never happened.
+        """
+        store.record_decision(
+            purchase_attempt_id=attempt_id,
+            envelope=envelope,
+            decision=decision if decision is not None else envelope_decision,
+            quote=quote,
+            outcome=outcome_name,
+            stock_at_decision=stock_at_decision,
+            catalog_revision=CATALOG_REVISION,
+            grant_id=grant_id,
+        )
+
     if not envelope_decision.allowed:
         store.log_event(
             "ENVELOPE_QUOTE_BLOCKED",
@@ -185,6 +214,7 @@ def execute(req: AutopilotExecuteRequest) -> AutopilotExecuteResponse:
                 "deltas": [delta.model_dump(mode="json") for delta in envelope_decision.deltas],
             },
         )
+        _record("refused")
         return AutopilotExecuteResponse(
             envelope=envelope,
             quote=quote,
@@ -276,6 +306,7 @@ def execute(req: AutopilotExecuteRequest) -> AutopilotExecuteResponse:
                 "human_message": outcome.decision.human_message,
             }
         )
+        _record("refused", grant_id=outcome.grant.id if outcome.grant else None, decision=denied)
         return AutopilotExecuteResponse(
             envelope=store.get_envelope(envelope.id) or envelope,
             quote=quote,
@@ -288,6 +319,7 @@ def execute(req: AutopilotExecuteRequest) -> AutopilotExecuteResponse:
         )
 
     if outcome.replayed:
+        _record("issued", grant_id=outcome.grant.id)
         payload = unwrap(outcome.grant.result or {})
         link = payload.get("short_url") if isinstance(payload, dict) else None
         # Only a short_url the provider actually returned may be shown as a payment
@@ -325,6 +357,7 @@ def execute(req: AutopilotExecuteRequest) -> AutopilotExecuteResponse:
         if link is None and isinstance(payload, dict) and payload.get("id", "").startswith("plink_"):
             link = None
         current = store.get_action_grant(outcome.grant.id)
+        _record("issued", grant_id=outcome.grant.id)
         return AutopilotExecuteResponse(
             envelope=store.get_envelope(envelope.id) or envelope,
             quote=quote,
@@ -338,6 +371,7 @@ def execute(req: AutopilotExecuteRequest) -> AutopilotExecuteResponse:
         )
     except ActionOutcomeUnknown as exc:
         current = store.get_action_grant(exc.grant_id)
+        _record("unknown", grant_id=exc.grant_id)
         return AutopilotExecuteResponse(
             envelope=store.get_envelope(envelope.id) or envelope,
             quote=quote,
@@ -379,6 +413,7 @@ def execute(req: AutopilotExecuteRequest) -> AutopilotExecuteResponse:
                 "human_message": "The exact grant changed before dispatch; no action was sent.",
             }
         )
+        _record("refused", grant_id=outcome.grant.id, decision=denied)
         return AutopilotExecuteResponse(
             envelope=store.get_envelope(envelope.id) or envelope,
             quote=quote,
