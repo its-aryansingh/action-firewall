@@ -19,7 +19,9 @@ export default {
         warning: "#B7791F",
         danger: "#C23B3B",
       },
-      fontFamily: { sans: ["Inter", "system-ui", "sans-serif"] },
+      // The CSS variable comes from next/font in app/layout.tsx. Without it,
+      // "Inter" here was only ever a wish — the browser had no font to load.
+      fontFamily: { sans: ["var(--font-inter)", "Inter", "system-ui", "sans-serif"] },
     },
   },
   plugins: [],

@@ -83,12 +83,12 @@ const STEP_TITLES = [
 function StepHeader({ n, title, hint }: { n: number; title: string; hint: string }) {
   return (
     <div className="flex items-start gap-3">
-      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white">
+      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-white">
         {n}
       </span>
       <div>
-        <h2 className="text-base font-bold text-slate-900">{title}</h2>
-        <p className="mt-0.5 text-xs leading-relaxed text-slate-500">{hint}</p>
+        <h2 className="text-base font-bold text-text">{title}</h2>
+        <p className="mt-0.5 text-xs leading-relaxed text-muted">{hint}</p>
       </div>
     </div>
   );
@@ -103,8 +103,8 @@ function Card({
 }) {
   return (
     <section
-      className={`rounded-2xl border border-slate-200 p-6 shadow-sm ${
-        tone === "muted" ? "bg-slate-50" : "bg-white"
+      className={`rounded-2xl border border-border p-6 shadow-sm ${
+        tone === "muted" ? "bg-canvas" : "bg-surface"
       }`}
     >
       {children}
@@ -114,7 +114,7 @@ function Card({
 
 function Empty({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/60 p-4 text-xs text-slate-500">
+    <div className="rounded-xl border border-dashed border-border bg-canvas p-4 text-xs text-muted">
       {children}
     </div>
   );
@@ -122,10 +122,10 @@ function Empty({ children }: { children: React.ReactNode }) {
 
 function Failed({ what, detail }: { what: string; detail: string }) {
   return (
-    <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-xs text-red-800">
+    <div className="rounded-xl border border-danger/30 bg-danger/10 p-4 text-xs text-danger">
       <div className="font-semibold">{what}</div>
       <div className="mt-1 font-mono text-[11px] leading-relaxed">{detail}</div>
-      <div className="mt-2 text-red-700">
+      <div className="mt-2 text-danger">
         Nothing is substituted here on purpose — a plausible-looking default would
         be a worse outcome than an honest failure.
       </div>
@@ -135,7 +135,7 @@ function Failed({ what, detail }: { what: string; detail: string }) {
 
 function Mono({ children }: { children: React.ReactNode }) {
   return (
-    <span className="font-mono text-[11px] text-slate-600">{children}</span>
+    <span className="font-mono text-[11px] text-muted">{children}</span>
   );
 }
 
@@ -326,40 +326,39 @@ export default function FrontDoorPage() {
   const isActive = activeEnvelope?.status === "active";
 
   return (
-    <div className="mx-auto max-w-4xl space-y-8 pb-20 pt-2 text-slate-900">
+    <div className="mx-auto max-w-4xl space-y-8 pb-20 pt-2 text-text">
       {/* ---------------------------------------------------------------- */}
       {/* Masthead                                                          */}
       {/* ---------------------------------------------------------------- */}
       <header>
         <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-600" />
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-success/10 px-3 py-1 text-xs font-semibold text-success ring-1 ring-inset ring-success/20">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-success" />
             {health ? "Backend live" : loadError ? "Backend unreachable" : "Connecting…"}
           </span>
           {health && (
-            <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+            <span className="inline-flex items-center rounded-full bg-canvas px-3 py-1 text-xs font-medium text-text">
               provider: {health.payment_provider}
             </span>
           )}
           {health && (
-            <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+            <span className="inline-flex items-center rounded-full bg-canvas px-3 py-1 text-xs font-medium text-text">
               {health.catalog_size} SKUs
             </span>
           )}
         </div>
 
-        <h1 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">
-          A store an AI buyer can be trusted with.
+        <h1 className="mt-3 text-3xl font-extrabold tracking-tight text-text sm:text-4xl">
+          A store that can safely say yes.
         </h1>
-        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
+        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted">
           The customer approves one job, once. After that the store repairs small
-          surprises on its own and refuses anything outside what was approved —
-          before a payment rail is ever called. The four steps below are the whole
-          product; run them in order.
+          surprises by itself, and refuses anything outside what was approved —
+          before a payment rail is ever called.
         </p>
-        <p className="mt-3 max-w-2xl text-xs leading-relaxed text-slate-500">
-          Every figure on this page is fetched from the running backend. Nothing is
-          seeded. If a call fails you will see the failure, not a stand-in.
+        <p className="mt-2 max-w-2xl text-xs leading-relaxed text-muted">
+          The four steps below are the whole product. Every figure is fetched live;
+          nothing is seeded, and a failed call shows as a failure rather than a stand-in.
         </p>
       </header>
 
@@ -371,7 +370,7 @@ export default function FrontDoorPage() {
       )}
 
       {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-xs text-red-800">
+        <div className="rounded-xl border border-danger/30 bg-danger/10 p-4 text-xs text-danger">
           {error}
         </div>
       )}
@@ -386,35 +385,35 @@ export default function FrontDoorPage() {
           hint="An agent can already discover what a store sells. It cannot normally discover what a store will refuse — so it learns the rules by breaking them. This store publishes them first."
         />
 
-        {loading && <div className="mt-5 text-xs text-slate-400">Loading…</div>}
+        {loading && <div className="mt-5 text-xs text-muted">Loading…</div>}
 
         {policy && (
           <div className="mt-5 grid gap-5 sm:grid-cols-2">
-            <div className="rounded-xl border border-slate-200 p-4">
-              <div className="font-mono text-[11px] font-bold uppercase tracking-wider text-emerald-700">
+            <div className="rounded-xl border border-border p-4">
+              <div className="font-mono text-[11px] font-bold uppercase tracking-wider text-success">
                 Money in
               </div>
               <h3 className="mt-2 text-sm font-bold">AI buyers may order …</h3>
-              <ul className="mt-3 space-y-1.5 text-sm text-slate-700">
+              <ul className="mt-3 space-y-1.5 text-sm text-text">
                 <li>up to <strong>{inr(policy.money_in.max_order_paise)}</strong> per order</li>
                 <li>from <strong>{policy.money_in.merchant_name}</strong> only</li>
                 <li>
                   never: <strong>{policy.money_in.blocked_tags.join(", ")}</strong>
                 </li>
               </ul>
-              <p className="mt-3 border-t border-slate-100 pt-3 text-[11px] leading-relaxed text-slate-500">
+              <p className="mt-3 border-t border-border pt-3 text-[11px] leading-relaxed text-muted">
                 The last line is the one a category allowlist cannot express. Eggs
                 sit inside <em>dairy</em>, which this buyer allows — the tag is what
                 a vegetarian kitchen must never receive.
               </p>
             </div>
 
-            <div className="rounded-xl border border-slate-200 p-4">
-              <div className="font-mono text-[11px] font-bold uppercase tracking-wider text-blue-700">
+            <div className="rounded-xl border border-border p-4">
+              <div className="font-mono text-[11px] font-bold uppercase tracking-wider text-primary">
                 Money out
               </div>
               <h3 className="mt-2 text-sm font-bold">Agents may refund …</h3>
-              <ul className="mt-3 space-y-1.5 text-sm text-slate-700">
+              <ul className="mt-3 space-y-1.5 text-sm text-text">
                 <li>up to <strong>{inr(policy.money_out.max_refund_paise)}</strong> unattended</li>
                 <li>within <strong>{policy.money_out.window_days} days</strong> of the order</li>
                 <li>up to <strong>{inr(policy.money_out.daily_cap_paise)}</strong> a day</li>
@@ -422,7 +421,7 @@ export default function FrontDoorPage() {
                   never: <strong>{policy.money_out.escalate_reasons.join(", ")}</strong>
                 </li>
               </ul>
-              <p className="mt-3 border-t border-slate-100 pt-3 text-[11px] leading-relaxed text-slate-500">
+              <p className="mt-3 border-t border-border pt-3 text-[11px] leading-relaxed text-muted">
                 Money moves both ways in a real store. The same authority check runs
                 outbound, so a support agent cannot refund its way past policy.
               </p>
@@ -431,12 +430,12 @@ export default function FrontDoorPage() {
         )}
 
         {policy && (
-          <div className="mt-5 rounded-xl bg-slate-50 p-4">
-            <div className="text-xs font-semibold text-slate-800">
+          <div className="mt-5 rounded-xl bg-canvas p-4">
+            <div className="text-xs font-semibold text-text">
               Published, unauthenticated, at{" "}
               <Mono>/agent-commerce/v1/acceptance-policy</Mono>
             </div>
-            <p className="mt-1.5 text-[11px] leading-relaxed text-slate-600">
+            <p className="mt-1.5 text-[11px] leading-relaxed text-muted">
               Generated from the same objects the verifier reads, so it cannot drift
               from what is actually enforced. Replayed against this repository&apos;s
               own corpus, half of 800 constructed violations would never have been
@@ -467,18 +466,18 @@ export default function FrontDoorPage() {
             value={goal}
             onChange={(e) => setGoal(e.target.value)}
             placeholder="what the customer wants done"
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900"
+            className="rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-primary"
           />
           <input
             value={budgetRupees}
             onChange={(e) => setBudgetRupees(e.target.value)}
             inputMode="numeric"
-            className="w-28 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900"
+            className="w-28 rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-primary"
           />
           <button
             onClick={draftEnvelope}
             disabled={busy !== null}
-            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:opacity-40"
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-hover disabled:opacity-40"
           >
             {busy === "draft" ? "Drafting…" : "Draft the envelope"}
           </button>
@@ -494,11 +493,11 @@ export default function FrontDoorPage() {
         )}
 
         {draft && (
-          <div className="mt-5 rounded-xl border border-slate-200">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
+          <div className="mt-5 rounded-xl border border-border">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
               <div className="text-sm font-semibold">
                 Draft envelope
-                <span className="ml-2 rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                <span className="ml-2 rounded-md bg-canvas px-2 py-0.5 text-[11px] font-medium text-muted">
                   {envelope?.status ?? "draft"} · v{envelope?.version ?? 1}
                 </span>
               </div>
@@ -507,7 +506,7 @@ export default function FrontDoorPage() {
 
             <div className="grid gap-4 px-4 py-4 sm:grid-cols-2">
               <div>
-                <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-muted">
                   Ceiling
                 </div>
                 <div className="mt-1 text-sm font-bold">
@@ -515,24 +514,24 @@ export default function FrontDoorPage() {
                 </div>
               </div>
               <div>
-                <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-muted">
                   Merchant
                 </div>
                 <div className="mt-1 text-sm font-bold">{draft.merchant_id}</div>
               </div>
               <div className="sm:col-span-2">
-                <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-muted">
                   Slots the basket must satisfy
                 </div>
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {draft.slots.map((s) => (
                     <span
                       key={s.id}
-                      className="rounded-md bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-700"
+                      className="rounded-md bg-canvas px-2 py-1 text-[11px] font-medium text-text"
                     >
                       {s.label} ×{s.quantity}
                       {s.required_tags.length > 0 && (
-                        <span className="ml-1 text-slate-400">
+                        <span className="ml-1 text-muted">
                           [{s.required_tags.join(", ")}]
                         </span>
                       )}
@@ -542,11 +541,11 @@ export default function FrontDoorPage() {
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 bg-slate-50 px-4 py-3">
+            <div className="flex flex-wrap items-center gap-3 border-t border-border bg-canvas px-4 py-3">
               <button
                 onClick={activate}
                 disabled={busy !== null || isActive}
-                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-40"
+                className="rounded-lg bg-success px-4 py-2 text-sm font-semibold text-white transition hover:bg-success/90 disabled:opacity-40"
               >
                 {isActive
                   ? "Activated by the customer"
@@ -554,7 +553,7 @@ export default function FrontDoorPage() {
                   ? "Activating…"
                   : "Activate as the customer"}
               </button>
-              <p className="text-[11px] leading-relaxed text-slate-600">
+              <p className="text-[11px] leading-relaxed text-muted">
                 {isActive
                   ? "Now, and only now, may an agent propose against it."
                   : "Until a human presses this, nothing can be authorised against this envelope. There is no API call that performs this activation."}
@@ -581,8 +580,8 @@ export default function FrontDoorPage() {
               onClick={() => setScenario(s.id)}
               className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
                 scenario === s.id
-                  ? "bg-slate-900 text-white"
-                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  ? "bg-primary text-white"
+                  : "bg-canvas text-text hover:bg-border"
               }`}
             >
               {s.label}
@@ -590,7 +589,7 @@ export default function FrontDoorPage() {
           ))}
         </div>
 
-        <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
+        <p className="mt-3 text-[11px] leading-relaxed text-muted">
           {SCENARIOS.find((s) => s.id === scenario)?.teaches}
         </p>
 
@@ -598,7 +597,7 @@ export default function FrontDoorPage() {
           <button
             onClick={runAttempt}
             disabled={busy !== null || !isActive || attempt !== null}
-            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:opacity-40"
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-hover disabled:opacity-40"
           >
             {busy === "attempt" ? "Running…" : "Run the agent's attempt"}
           </button>
@@ -607,21 +606,21 @@ export default function FrontDoorPage() {
             <button
               onClick={freshEnvelope}
               disabled={busy !== null}
-              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-50 disabled:opacity-40"
+              className="rounded-lg border border-border bg-surface px-4 py-2 text-sm font-semibold text-text transition hover:bg-canvas disabled:opacity-40"
             >
               {busy === "fresh" ? "Starting…" : "Fresh envelope, try another scenario"}
             </button>
           )}
 
           {!isActive && !attempt && (
-            <span className="text-[11px] text-slate-500">
+            <span className="text-[11px] text-muted">
               Activate the envelope in step 2 first — that is the point.
             </span>
           )}
         </div>
 
         {attempt && (
-          <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-900 ring-1 ring-inset ring-amber-200">
+          <p className="mt-3 rounded-lg bg-warning/10 px-3 py-2 text-[11px] leading-relaxed text-warning ring-1 ring-inset ring-warning/30">
             <strong>This envelope is now spent.</strong> One authorization covers
             one purchase attempt, so running a second scenario against it would
             correctly refuse with <Mono>BLOCK_ENVELOPE_CONSUMED</Mono> — the
@@ -641,29 +640,29 @@ export default function FrontDoorPage() {
             <div
               className={`rounded-xl border p-4 ${
                 outcomeTone(attempt.outcome) === "emerald"
-                  ? "border-emerald-200 bg-emerald-50"
+                  ? "border-success/30 bg-success/10"
                   : outcomeTone(attempt.outcome) === "blue"
-                  ? "border-blue-200 bg-blue-50"
+                  ? "border-primary/30 bg-primary/10"
                   : outcomeTone(attempt.outcome) === "amber"
-                  ? "border-amber-200 bg-amber-50"
-                  : "border-red-200 bg-red-50"
+                  ? "border-warning/30 bg-warning/10"
+                  : "border-danger/30 bg-danger/10"
               }`}
             >
               <div className="flex flex-wrap items-center gap-2">
-                <span className="rounded-md bg-white/70 px-2 py-1 font-mono text-[11px] font-bold">
+                <span className="rounded-md bg-surface/70 px-2 py-1 font-mono text-[11px] font-bold">
                   {attempt.outcome}
                 </span>
-                <span className="font-mono text-[11px] text-slate-600">
+                <span className="font-mono text-[11px] text-muted">
                   {attempt.code}
                 </span>
                 <span className="ml-auto text-xs font-bold">
                   {inr(attempt.quote_total_paise)}
                 </span>
               </div>
-              <p className="mt-2 text-sm leading-relaxed text-slate-800">
+              <p className="mt-2 text-sm leading-relaxed text-text">
                 {attempt.human_message}
               </p>
-              <div className="mt-3 flex flex-wrap gap-3 border-t border-black/5 pt-3 text-[11px] text-slate-700">
+              <div className="mt-3 flex flex-wrap gap-3 border-t border-border pt-3 text-[11px] text-text">
                 <span>
                   Razorpay action called:{" "}
                   <strong>{attempt.razorpay_action_called ? "yes" : "no"}</strong>
@@ -681,25 +680,25 @@ export default function FrontDoorPage() {
               {attempt.stages.map((st) => (
                 <div
                   key={st.stage}
-                  className="rounded-xl border border-slate-200 bg-white p-3"
+                  className="rounded-xl border border-border bg-surface p-3"
                 >
                   <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-slate-900">
+                    <span className="text-[11px] font-bold text-text">
                       {st.name}
                     </span>
                     <span
                       className={`h-2 w-2 rounded-full ${
                         st.status === "completed"
-                          ? "bg-emerald-500"
+                          ? "bg-success/100"
                           : st.status === "blocked"
-                          ? "bg-red-500"
+                          ? "bg-danger/100"
                           : st.status === "unknown"
-                          ? "bg-amber-500"
-                          : "bg-slate-300"
+                          ? "bg-warning/100"
+                          : "bg-border"
                       }`}
                     />
                   </div>
-                  <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
+                  <p className="mt-1.5 text-[11px] leading-relaxed text-muted">
                     {st.detail}
                   </p>
                 </div>
@@ -709,12 +708,12 @@ export default function FrontDoorPage() {
             {/* The deltas — the part that makes a refusal actionable */}
             {attempt.deltas.length > 0 ? (
               <div>
-                <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-muted">
                   Policy deltas — why, in fields, not prose
                 </div>
-                <div className="overflow-x-auto rounded-xl border border-slate-200">
+                <div className="overflow-x-auto rounded-xl border border-border">
                   <table className="w-full text-left text-xs">
-                    <thead className="border-b border-slate-200 bg-slate-50 font-semibold text-slate-600">
+                    <thead className="border-b border-border bg-canvas font-semibold text-muted">
                       <tr>
                         <th className="px-3 py-2">Field</th>
                         <th className="px-3 py-2">Approved</th>
@@ -722,26 +721,26 @@ export default function FrontDoorPage() {
                         <th className="px-3 py-2">What the caller may do</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100 bg-white">
+                    <tbody className="divide-y divide-border bg-surface">
                       {attempt.deltas.map((d, i) => (
                         <tr key={`${d.field}-${i}`}>
-                          <td className="px-3 py-2 font-medium text-slate-900">
+                          <td className="px-3 py-2 font-medium text-text">
                             {d.field}
                           </td>
-                          <td className="px-3 py-2 font-mono text-slate-600">
+                          <td className="px-3 py-2 font-mono text-muted">
                             {d.expected}
                           </td>
-                          <td className="px-3 py-2 font-mono text-slate-900">
+                          <td className="px-3 py-2 font-mono text-text">
                             {d.actual}
                           </td>
                           <td className="px-3 py-2">
                             <span
                               className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${
                                 d.recovery === "repair"
-                                  ? "bg-blue-100 text-blue-800"
+                                  ? "bg-primary/10 text-primary"
                                   : d.recovery === "fresh_approval"
-                                  ? "bg-amber-100 text-amber-800"
-                                  : "bg-red-100 text-red-800"
+                                  ? "bg-warning/10 text-warning"
+                                  : "bg-danger/10 text-danger"
                               }`}
                             >
                               {d.recovery}
@@ -752,7 +751,7 @@ export default function FrontDoorPage() {
                     </tbody>
                   </table>
                 </div>
-                <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                <p className="mt-2 text-[11px] leading-relaxed text-muted">
                   <strong>repair</strong> means the store may fix it and continue.{" "}
                   <strong>fresh_approval</strong> means only the customer can widen
                   this — the store must not. <strong>stop</strong> means no
@@ -788,28 +787,28 @@ export default function FrontDoorPage() {
         {attempt && (
           <div className="mt-5 space-y-4">
             {attempt.receipt ? (
-              <div className="rounded-xl border border-slate-200">
-                <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold">
+              <div className="rounded-xl border border-border">
+                <div className="border-b border-border px-4 py-3 text-sm font-semibold">
                   Action receipt
-                  <span className="ml-2 rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                  <span className="ml-2 rounded-md bg-canvas px-2 py-0.5 text-[11px] font-medium text-muted">
                     {attempt.receipt.state}
                   </span>
                 </div>
                 <dl className="grid gap-x-6 gap-y-2 px-4 py-4 text-[11px] sm:grid-cols-2">
                   <div>
-                    <dt className="font-semibold text-slate-500">grant</dt>
+                    <dt className="font-semibold text-muted">grant</dt>
                     <dd><Mono>{attempt.receipt.grant_id}</Mono></dd>
                   </div>
                   <div>
-                    <dt className="font-semibold text-slate-500">action</dt>
+                    <dt className="font-semibold text-muted">action</dt>
                     <dd><Mono>{attempt.receipt.action_name}</Mono></dd>
                   </div>
                   <div>
-                    <dt className="font-semibold text-slate-500">cart hash</dt>
+                    <dt className="font-semibold text-muted">cart hash</dt>
                     <dd><Mono>{attempt.receipt.cart_hash?.slice(0, 24)}…</Mono></dd>
                   </div>
                   <div>
-                    <dt className="font-semibold text-slate-500">envelope hash</dt>
+                    <dt className="font-semibold text-muted">envelope hash</dt>
                     <dd>
                       <Mono>
                         {attempt.receipt.envelope_hash
@@ -819,7 +818,7 @@ export default function FrontDoorPage() {
                     </dd>
                   </div>
                 </dl>
-                <p className="border-t border-slate-100 px-4 py-3 text-[11px] leading-relaxed text-slate-500">
+                <p className="border-t border-border px-4 py-3 text-[11px] leading-relaxed text-muted">
                   The grant is bound to this cart, this amount and one attempt. It
                   cannot be replayed against a different proposal, which is what
                   makes the receipt worth anything.
@@ -834,12 +833,12 @@ export default function FrontDoorPage() {
             )}
 
             {attempt.payment_link && (
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-                <div className="text-xs font-semibold text-emerald-900">
+              <div className="rounded-xl border border-success/30 bg-success/10 p-4">
+                <div className="text-xs font-semibold text-success">
                   Payment link issued
                 </div>
                 <Mono>{attempt.payment_link}</Mono>
-                <p className="mt-2 text-[11px] leading-relaxed text-emerald-800">
+                <p className="mt-2 text-[11px] leading-relaxed text-success">
                   Issued against the simulated provider in this deployment. Creating
                   a link is not a settlement, and this page does not claim one.
                 </p>
@@ -860,7 +859,7 @@ export default function FrontDoorPage() {
         />
 
         {refundPolicy && (
-          <p className="mt-4 text-[11px] leading-relaxed text-slate-500">
+          <p className="mt-4 text-[11px] leading-relaxed text-muted">
             Bound to policy <Mono>{refundPolicy.policy_hash.slice(0, 16)}…</Mono> —
             up to {inr(refundPolicy.max_refund_paise)} unattended, within{" "}
             {refundPolicy.window_days} days, {inr(refundPolicy.daily_cap_paise)} a
@@ -874,24 +873,24 @@ export default function FrontDoorPage() {
             value={refundRupees}
             onChange={(e) => setRefundRupees(e.target.value)}
             inputMode="numeric"
-            className="w-28 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900"
+            className="w-28 rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-primary"
           />
           <input
             value={refundReason}
             onChange={(e) => setRefundReason(e.target.value)}
             placeholder="reason given by the customer"
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900"
+            className="rounded-lg border border-border px-3 py-2 text-sm outline-none focus:border-primary"
           />
           <button
             onClick={evaluateRefund}
             disabled={busy !== null}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-40"
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-hover disabled:opacity-40"
           >
             {busy === "refund" ? "Checking…" : "Ask the firewall"}
           </button>
         </div>
 
-        <p className="mt-2 text-[11px] text-slate-500">
+        <p className="mt-2 text-[11px] text-muted">
           Try {inr(40000)} for an allow, then something above the ceiling, then the
           word <em>fraud</em> as the reason.
         </p>
@@ -900,22 +899,22 @@ export default function FrontDoorPage() {
           <div
             className={`mt-4 rounded-xl border p-4 ${
               refundResult.allowed
-                ? "border-emerald-200 bg-emerald-50"
+                ? "border-success/30 bg-success/10"
                 : refundResult.code?.includes("REPAIR")
-                ? "border-blue-200 bg-blue-50"
+                ? "border-primary/30 bg-primary/10"
                 : refundResult.code?.includes("ESCALATE")
-                ? "border-amber-200 bg-amber-50"
-                : "border-red-200 bg-red-50"
+                ? "border-warning/30 bg-warning/10"
+                : "border-danger/30 bg-danger/10"
             }`}
           >
-            <span className="rounded-md bg-white/70 px-2 py-1 font-mono text-[11px] font-bold">
+            <span className="rounded-md bg-surface/70 px-2 py-1 font-mono text-[11px] font-bold">
               {refundResult.code}
             </span>
-            <p className="mt-2 text-sm text-slate-800">
+            <p className="mt-2 text-sm text-text">
               {refundResult.human_message}
             </p>
             {refundResult.repaired_proposal && (
-              <p className="mt-2 text-[11px] text-slate-700">
+              <p className="mt-2 text-[11px] text-text">
                 Narrowed to{" "}
                 <strong>{inr(refundResult.repaired_proposal.amount_paise)}</strong>{" "}
                 — a repair may only ever reduce authority, never widen it.
@@ -929,10 +928,10 @@ export default function FrontDoorPage() {
       {/* Everything else, deliberately below the fold                      */}
       {/* ---------------------------------------------------------------- */}
       <Card tone="muted">
-        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-text">
           The evidence behind the four steps
         </h3>
-        <p className="mt-1 text-xs text-slate-500">
+        <p className="mt-1 text-xs text-muted">
           None of this is needed to understand the product. It is here because a
           reviewer should be able to check the claims rather than take them.
         </p>
@@ -950,10 +949,10 @@ export default function FrontDoorPage() {
             <Link
               key={href}
               href={href}
-              className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-3 text-slate-800 transition hover:border-slate-300"
+              className="flex items-center justify-between rounded-xl border border-border bg-surface p-3 text-text transition hover:border-border"
             >
               <span>{label}</span>
-              <span className="text-slate-400">&rarr;</span>
+              <span className="text-muted">&rarr;</span>
             </Link>
           ))}
         </div>

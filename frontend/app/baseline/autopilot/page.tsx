@@ -149,7 +149,7 @@ function SafeAutopilotContent() {
         </p>
       </section>
 
-      <section className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+      <section className="bg-surface border border-border rounded-2xl p-6 shadow-sm">
         {step === "intent" && (
           <IntentComposer
             goal={goal}
@@ -213,7 +213,7 @@ function SafeAutopilotContent() {
 
 export default function SafeAutopilotPage() {
   return (
-    <Suspense fallback={<div className="p-8 text-center text-slate-500">Loading Safe Autopilot Baseline...</div>}>
+    <Suspense fallback={<div className="p-8 text-center text-muted">Loading Safe Autopilot Baseline...</div>}>
       <SafeAutopilotContent />
     </Suspense>
   );
