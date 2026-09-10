@@ -107,6 +107,56 @@ jobs:
             echo "::error::a Razorpay key literal is committed"; exit 1
           fi
 
+  # A deployable repository is a claim like any other, and it rots the same way:
+  # someone adds an import, or moves a file the Dockerfile copies, and nobody
+  # finds out until a judge clicks the link. These are the exact two builds
+  # Railway runs, so a broken deploy fails here first.
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Build context is the repository root: the image copies data/catalog.json,
+      # which lives outside backend/.
+      - name: Backend image
+        run: docker build -f backend/Dockerfile -t action-firewall-backend:ci .
+
+      - name: Backend image answers its health check
+        run: |
+          docker run -d --name af -e PORT=8000 -p 8000:8000 action-firewall-backend:ci
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8000/health > /tmp/health.json; then break; fi
+            sleep 2
+          done
+          cat /tmp/health.json
+          # The deployed demo must never report a live provider. This is the same
+          # promise DEPLOY.md tells a reviewer to verify with curl.
+          grep -q '"payment_provider": *"simulated"' /tmp/health.json \
+            || { echo "::error::deployed image does not report the simulated provider"; \
+                 docker logs af; exit 1; }
+          docker rm -f af
+
+      # Context is frontend/ alone — the frontend needs nothing from the repo
+      # root, which is what lets its Railway service scope to that directory.
+      # NEXT_PUBLIC_API_BASE is required at BUILD time; the Dockerfile fails
+      # rather than bake in a localhost API base, so this arg is not optional.
+      - name: Frontend image
+        run: |
+          docker build -f frontend/Dockerfile \
+            --build-arg NEXT_PUBLIC_API_BASE=https://ci.invalid \
+            -t action-firewall-frontend:ci frontend
+
+      - name: Frontend image serves the control plane
+        run: |
+          docker run -d --name fe -e PORT=3000 -p 3000:3000 action-firewall-frontend:ci
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:3000/ > /dev/null; then break; fi
+            sleep 2
+          done
+          curl -sf http://127.0.0.1:3000/ > /dev/null \
+            || { echo "::error::frontend image did not serve /"; docker logs fe; exit 1; }
+          docker rm -f fe
+
   frontend:
     runs-on: ubuntu-latest
     defaults:
@@ -114,9 +164,11 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v4
+      # Matches frontend/Dockerfile, so a version-sensitive build failure shows
+      # up in CI rather than only in the deployed image.
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci

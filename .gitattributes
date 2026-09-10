@@ -1,0 +1,28 @@
+# Deliberately narrow. There is no `* text=auto` here, because adding one would
+# renormalise every file in the repository and bury a real change in a diff
+# nobody can read.
+#
+# These entries exist for one reason: this repository is developed on Windows
+# with core.autocrlf enabled, and a checkout there rewrites LF to CRLF. That is
+# harmless for Python and Markdown, and fatal for the files below — a Dockerfile
+# whose `RUN cmd \` continuations end in CRLF leaks a carriage return into the
+# shell, and the build fails with an error that names none of this. Pinning eol=lf
+# means a Windows checkout produces files that still build on Linux.
+Dockerfile      text eol=lf
+*.Dockerfile    text eol=lf
+.dockerignore   text eol=lf
+*.sh            text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+*.json          text eol=lf
+
+# Binary: never touch line endings, never try to diff as text.
+*.pptx  binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.pdf   binary
+*.ico   binary
+*.woff  binary
+*.woff2 binary

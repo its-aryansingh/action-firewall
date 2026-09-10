@@ -24,11 +24,20 @@ COPY backend ./backend
 COPY data ./data
 
 # The database is ephemeral by design: this is a demo, and a container restart
-# should return a clean, reproducible state rather than accumulate history.
+# should return a clean, reproducible state rather than accumulate history. No
+# Railway volume is mounted for exactly this reason — every judge who opens the
+# deployed URL gets the same starting state as the one before them.
 ENV DB_PATH=/tmp/action_firewall.db
+
+# Browser origin allowed by CORS. Railway sets this per service; the default
+# keeps a local `docker run` usable against a local frontend.
+ENV FRONTEND_ORIGIN=http://localhost:3000
 
 WORKDIR /srv/backend
 EXPOSE 8000
 
-# Render and Fly both inject $PORT.
+# Railway, Render and Fly all inject $PORT, and Railway additionally requires
+# the process to bind 0.0.0.0 — binding localhost is the usual cause of its
+# "Application failed to respond" page. The fallback keeps `docker run -p 8000:8000`
+# working with no environment at all.
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

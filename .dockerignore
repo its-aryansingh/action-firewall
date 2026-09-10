@@ -1,0 +1,50 @@
+# Build context for backend/Dockerfile, which builds from the repository root
+# because the app reads data/catalog.json from there.
+#
+# The first block is not an optimisation. A Docker build context is uploaded
+# whole, and anything in it can be COPYd into a layer that ships. Keeping .env
+# and *.db out of the context means a credential cannot reach a deployed image
+# even by mistake — which is the same promise CLAUDE.md makes about the repo and
+# ci.yml enforces about the tree.
+.env
+.env.*
+*.db
+*.sqlite
+*.sqlite3
+**/.env
+**/.env.*
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+
+# Version control and CI
+.git
+.gitignore
+.github
+
+# Frontend — the frontend image builds from frontend/ with its own context
+frontend
+
+# Python and test artefacts
+__pycache__
+**/__pycache__
+*.py[cod]
+.pytest_cache
+.hypothesis
+.mypy_cache
+.ruff_cache
+.venv
+venv
+
+# Node
+node_modules
+**/node_modules
+
+# Local planning and working notes: large, private, and irrelevant to a running
+# container. The repo's .gitignore already keeps most of these untracked.
+*.md
+!README.md
+docs
+claude
+.claude
+Claude outputs

@@ -249,6 +249,15 @@ python scripts/benchmark_concurrency.py --threads 16 --trials 20
 python scripts/publication_value.py
 ```
 
+### 4. Or deploy it
+
+Both halves ship as containers — `backend/Dockerfile` and `frontend/Dockerfile`,
+with `railway.json` and `frontend/railway.json` pinning the build for each. The
+deployed instance runs the real authorization engine against the **simulated**
+provider: no Razorpay key is baked into either image, `.dockerignore` keeps
+`.env` and `*.db` out of the build context, and `/health` reports the active
+provider so the claim is checkable from outside. See [DEPLOY.md](DEPLOY.md).
+
 ---
 
 ## Technical Reference & Artifacts

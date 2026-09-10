@@ -1,0 +1,13 @@
+# Build context for frontend/Dockerfile. The frontend is self-contained, so its
+# context is this directory rather than the repository root — which is what lets
+# the Railway service set its root directory to /frontend.
+.env
+.env.*
+node_modules
+.next
+out
+.vercel
+npm-debug.log*
+.DS_Store
+Dockerfile
+.dockerignore
