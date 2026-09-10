@@ -107,19 +107,23 @@ class RazorpayMCPClient:
         cart_hash: str,
     ) -> dict:
         canonical = _canonical_or_block(name, args, grant_id)
+        if get_active_provider_mode() == "razorpay_rest":
+            rest_client = RazorpayRESTClient()
+            return rest_client.call_tool(name, args, grant_id, context, cart_hash)
+
         if not self.session_id:
             try:
                 self.initialize()
             except Exception as exc:
-                # If Remote MCP auth fails before claiming grant, trigger fallback to REST once
-                is_auth_error = False
-                if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (401, 403):
-                    is_auth_error = True
-                elif any(phrase in str(exc) for phrase in ("Authentication failed", "401", "403")):
-                    is_auth_error = True
+                # If Remote MCP auth fails, rate-limits (429), or is unreachable, fallback to REST
+                is_fallback_error = False
+                if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (401, 403, 429, 500, 502, 503, 504):
+                    is_fallback_error = True
+                elif any(phrase in str(exc) for phrase in ("Authentication failed", "401", "403", "429", "Too Many Requests", "ConnectError", "timeout")):
+                    is_fallback_error = True
 
-                if is_auth_error:
-                    trigger_provider_fallback(f"Remote MCP auth failed ({exc}); falling back to razorpay_rest")
+                if is_fallback_error:
+                    trigger_provider_fallback(f"Remote MCP unavailable ({exc}); falling back to razorpay_rest")
                     rest_client = RazorpayRESTClient()
                     return rest_client.call_tool(name, args, grant_id, context, cart_hash)
 
@@ -144,8 +148,14 @@ class RazorpayMCPClient:
         through the grant boundary: there is nothing to authorize. It is the
         only source we accept for a settlement claim.
         """
+        if get_active_provider_mode() == "razorpay_rest":
+            return RazorpayRESTClient().fetch_action_status(provider_ref)
         if not self.session_id:
-            self.initialize()
+            try:
+                self.initialize()
+            except Exception as exc:
+                trigger_provider_fallback(f"Remote MCP unavailable ({exc}); falling back to razorpay_rest")
+                return RazorpayRESTClient().fetch_action_status(provider_ref)
         raw = self._raw_call("fetch_payment_link", {"payment_link_id": provider_ref})
         payload = unwrap(raw)
         return payload if isinstance(payload, dict) else {"status": "unknown"}
