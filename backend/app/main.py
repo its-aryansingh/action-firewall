@@ -77,7 +77,7 @@ _frontend_origin = _settings.frontend_origin.rstrip("/")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[_frontend_origin] if _frontend_origin else [],
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$|^https://.*\.up\.railway\.app$|^https://.*\.railway\.app$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -129,7 +129,11 @@ async def enforce_route_isolation(request: Request, call_next):
 
 # Configure Northbound FastMCP Streamable HTTP Transport
 _allowed_origins = [_frontend_origin] if _frontend_origin else []
-_allowed_origins.extend(["http://localhost:3000", "http://127.0.0.1:3000"])
+_allowed_origins.extend([
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://resplendent-kindness-production-4c97.up.railway.app",
+])
 commerce_mcp.mcp_server.settings.streamable_http_path = "/"
 commerce_mcp.mcp_server.settings.transport_security = TransportSecuritySettings(
     enable_dns_rebinding_protection=True,

@@ -1,4 +1,17 @@
-export const API = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
+function getApiBase(): string {
+  const envBase = process.env.NEXT_PUBLIC_API_BASE;
+  if (typeof window !== "undefined") {
+    const isLocal =
+      window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1";
+    if (!isLocal && (!envBase || envBase.includes("localhost") || envBase.includes("127.0.0.1"))) {
+      return "https://action-firewall-production.up.railway.app";
+    }
+  }
+  return envBase || "https://action-firewall-production.up.railway.app";
+}
+
+export const API = getApiBase();
 
 export type CartLine = {
   sku: string; name: string; category: string;
