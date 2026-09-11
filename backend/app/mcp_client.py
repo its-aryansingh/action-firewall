@@ -189,7 +189,40 @@ _SIMULATED_LINKS: dict[str, dict] = {}
 
 
 def simulated_link_record(payment_link_id: str) -> dict | None:
-    return _SIMULATED_LINKS.get(payment_link_id)
+    if payment_link_id in _SIMULATED_LINKS:
+        return _SIMULATED_LINKS[payment_link_id]
+    try:
+        from . import store
+        with store._conn() as cx:
+            row = cx.execute(
+                "SELECT id, amount_paise, currency, args_json, result_json, created_at, razorpay_ref, purchase_attempt_id FROM spend_ledger WHERE razorpay_ref = ? OR id = ?",
+                (payment_link_id, payment_link_id),
+            ).fetchone()
+            if row:
+                args = json.loads(row["args_json"]) if row["args_json"] else {}
+                notes = args.get("notes", {})
+                res_obj = json.loads(row["result_json"]) if row["result_json"] else {}
+                res_unwrapped = unwrap(res_obj) if isinstance(res_obj, dict) else {}
+                order_id = (
+                    (res_unwrapped.get("order_id") if isinstance(res_unwrapped, dict) else None)
+                    or notes.get("razorpay_order_id")
+                )
+                rec = {
+                    "id": row["razorpay_ref"] or payment_link_id,
+                    "amount": row["amount_paise"] or args.get("amount", 0),
+                    "currency": row["currency"] or args.get("currency", "INR"),
+                    "description": args.get("description", "Agent Purchase"),
+                    "reference_id": args.get("reference_id") or row["purchase_attempt_id"],
+                    "notes": notes,
+                    "grant_id": row["id"],
+                    "order_id": order_id,
+                    "created_at": row["created_at"],
+                }
+                _SIMULATED_LINKS[payment_link_id] = rec
+                return rec
+    except Exception:
+        pass
+    return None
 
 
 def simulated_payment_link_url(payment_link_id: str) -> str:
@@ -501,6 +534,43 @@ class RazorpayRESTClient:
                     )
                     if name == "create_payment_link":
                         payment_link_id = f"plink_sim_{uuid.uuid4().hex[:12]}"
+                        order_id = None
+                        try:
+                            order_payload = {
+                                "amount": canonical.args["amount"],
+                                "currency": canonical.args.get("currency", "INR"),
+                                "receipt": f"rcpt_{grant.id[:12]}",
+                                "notes": {
+                                    "grant_id": grant.id,
+                                    "simulated_link_id": payment_link_id,
+                                },
+                            }
+                            with httpx.Client(timeout=10.0) as ord_client:
+                                ord_resp = ord_client.post(
+                                    f"{self.base_url}/orders",
+                                    json=order_payload,
+                                    auth=(self.key_id, self.key_secret),
+                                )
+                                if ord_resp.status_code in (200, 201):
+                                    order_id = ord_resp.json().get("id")
+                        except Exception:
+                            pass
+
+                        notes = dict(canonical.args.get("notes", {}))
+                        if order_id:
+                            notes["razorpay_order_id"] = order_id
+
+                        _SIMULATED_LINKS[payment_link_id] = {
+                            "id": payment_link_id,
+                            "amount": canonical.args["amount"],
+                            "currency": canonical.args.get("currency", "INR"),
+                            "description": canonical.args.get("description", "Agent Purchase"),
+                            "reference_id": canonical.args.get("reference_id"),
+                            "notes": notes,
+                            "grant_id": grant.id,
+                            "order_id": order_id,
+                            "created_at": time.time(),
+                        }
                         result = {
                             "content": [
                                 {
@@ -509,10 +579,11 @@ class RazorpayRESTClient:
                                         {
                                             "id": payment_link_id,
                                             "amount": canonical.args["amount"],
-                                            "currency": "INR",
+                                            "currency": canonical.args.get("currency", "INR"),
                                             "status": "created",
                                             "short_url": simulated_payment_link_url(payment_link_id),
                                             "description": canonical.args.get("description", "Agent Purchase"),
+                                            "order_id": order_id,
                                         }
                                     ),
                                 }

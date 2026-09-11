@@ -300,8 +300,44 @@ def simulated_payment_link(payment_link_id: str) -> HTMLResponse:
     if record is None:
         raise HTTPException(status_code=404, detail="Unknown simulated payment link")
 
+    s = get_settings()
     rupees = f"{record['amount'] / 100:,.2f}"
     attempt = str(record.get("notes", {}).get("purchase_attempt_id", "—"))
+    order_id = record.get("order_id") or record.get("notes", {}).get("razorpay_order_id")
+    order_row = f"<dt>Razorpay Order</dt><dd>{_html_escape(str(order_id))}</dd>" if order_id else ""
+    rzp_button_html = ""
+    if s.razorpay_key_id:
+        order_arg = f'"order_id": "{order_id}",' if order_id else ""
+        rzp_button_html = f"""
+  <div style="margin:20px 0 10px;">
+    <button id="rzp-pay-btn" style="width:100%;padding:13px 18px;background:#0C8CE9;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 2px 6px rgba(12,140,233,.3);">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+      Pay ₹{rupees} with Razorpay Test Mode
+    </button>
+  </div>
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  <script>
+    document.getElementById('rzp-pay-btn').onclick = function(e){{
+      var options = {{
+        "key": "{s.razorpay_key_id}",
+        "amount": "{record['amount']}",
+        "currency": "{record.get('currency', 'INR')}",
+        "name": "FreshBasket",
+        "description": "{_html_escape(record['description'])}",
+        {order_arg}
+        "theme": {{"color": "#0C8CE9"}},
+        "handler": function (response){{
+          alert("Razorpay Test Payment successful!\\nPayment ID: " + response.razorpay_payment_id);
+          window.location.reload();
+        }}
+      }};
+      var rzp = new Razorpay(options);
+      rzp.open();
+      e.preventDefault();
+    }}
+  </script>
+"""
+
     body = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -331,8 +367,10 @@ def simulated_payment_link(payment_link_id: str) -> HTMLResponse:
  <div class="muted">This is what would have been created at Razorpay.
   No provider was called, no money can move, and this page is served by the
   same deployment that authorised the action.</div>
+ {rzp_button_html}
  <dl>
   <dt>Payment link</dt><dd>{_html_escape(record['id'])}</dd>
+  {order_row}
   <dt>Reference</dt><dd>{_html_escape(str(record.get('reference_id') or '—'))}</dd>
   <dt>Attempt</dt><dd>{_html_escape(attempt)}</dd>
   <dt>Grant</dt><dd>{_html_escape(str(record.get('grant_id') or '—'))}</dd>
