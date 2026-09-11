@@ -20,6 +20,8 @@ def isolated_service_modes(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ENVELOPE_DRAFTING_MODE", "replay")
     monkeypatch.setenv("FAULT_INJECTION_ENABLED", "true")
     monkeypatch.setenv("OPENAI_API_KEY", "")
+    monkeypatch.setenv("GEMINI_API_KEY", "")
+    monkeypatch.setenv("GOOGLE_API_KEY", "")
     monkeypatch.setenv("RAZORPAY_KEY_ID", "")
     monkeypatch.setenv("RAZORPAY_KEY_SECRET", "")
     monkeypatch.setenv("RAZORPAY_MCP_TOKEN", "")

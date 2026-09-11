@@ -232,6 +232,8 @@ def _mentioned_skus(message: str) -> list[str]:
     low = message.lower()
     counts = _name_word_df()
     hits: list[str] = []
+    if re.search(r"\bpasta\b", low) and "pasta dinner" not in low:
+        hits.append("SKU-PAS-002")
     for product in sorted(catalog.load_catalog(), key=lambda item: -len(item["name"])):
         words = [
             word
@@ -368,13 +370,7 @@ def _resolve_term(term: str) -> tuple[str | None, tuple[str, ...]]:
             if len(exact) == 1:
                 return exact[0], ()
         candidates: tuple[str, ...] = ()
-        if word == "pasta":
-            by = catalog.by_sku()
-            candidates = tuple(
-                s for s in tags.get("pasta", ())
-                if "staple" in by.get(s, {}).get("tags", []) or s.startswith("SKU-PAS")
-            )
-        elif len(tag_spans.get(word, ())) == 1:
+        if len(tag_spans.get(word, ())) == 1:
             candidates = tags.get(word, ())
         elif spans.get(word):
             candidates = spans[word]

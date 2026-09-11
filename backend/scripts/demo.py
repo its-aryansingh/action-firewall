@@ -28,6 +28,8 @@ os.environ["ENVELOPE_DRAFTING_MODE"] = "replay"
 os.environ["FAULT_INJECTION_ENABLED"] = "true"
 for secret_name in (
     "OPENAI_API_KEY",
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY",
     "PINECONE_API_KEY",
     "RAZORPAY_KEY_ID",
     "RAZORPAY_KEY_SECRET",
