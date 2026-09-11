@@ -164,10 +164,11 @@ def _llm_plan(
                 '{"reply": "string", "cart_ops": [{"op": "add"|"remove", "sku": "string", "qty": 1}], "intent": "discover"|"checkout"}'
             )
             models_to_try = [
+                "gemini-3.8-flash",
+                "gemini-3.6-flash",
                 "gemini-3.7-flash",
                 "gemini-3.5-flash",
                 "gemini-flash-latest",
-                "gemini-3.8-flash",
             ]
             for model_name in models_to_try:
                 try:

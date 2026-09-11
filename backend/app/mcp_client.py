@@ -488,8 +488,12 @@ class RazorpayRESTClient:
                 data = resp.json()
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code in (400, 401, 403, 422, 429):
-                settings = get_settings()
-                if exc.response.status_code == 429 and settings.demo_mode:
+                is_quota = (
+                    exc.response.status_code == 429
+                    or "limit of 30" in exc.response.text.lower()
+                    or "quota" in exc.response.text.lower()
+                )
+                if is_quota and settings.demo_mode:
                     trigger_provider_fallback(
                         "Razorpay Test Mode 30-link quota exceeded; falling back to simulated provider",
                         target="simulated",

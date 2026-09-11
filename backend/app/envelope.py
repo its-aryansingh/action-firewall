@@ -165,8 +165,13 @@ def _llm_slots(goal: str) -> list[EnvelopeSlot] | None:
                 "authorization. Return JSON: {\"understood\": bool, \"slots\":[{\"id\":str,"
                 "\"label\":str,\"required_tags\":[str],\"quantity\":int}]}."
             )
-            prompt = json.dumps({"goal": goal, "tag_vocabulary": tag_vocabulary}, separators=(",", ":"))
-            models_to_try = ["gemini-3.7-flash", "gemini-3.5-flash", "gemini-flash-latest", "gemini-3.8-flash"]
+            models_to_try = [
+                "gemini-3.8-flash",
+                "gemini-3.6-flash",
+                "gemini-3.7-flash",
+                "gemini-3.5-flash",
+                "gemini-flash-latest",
+            ]
             for model_name in models_to_try:
                 try:
                     cfg_kwargs = {
