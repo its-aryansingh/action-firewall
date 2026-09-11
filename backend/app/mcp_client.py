@@ -488,6 +488,7 @@ class RazorpayRESTClient:
                 data = resp.json()
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code in (400, 401, 403, 422, 429):
+                settings = get_settings()
                 is_quota = (
                     exc.response.status_code == 429
                     or "limit of 30" in exc.response.text.lower()
