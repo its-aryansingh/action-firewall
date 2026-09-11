@@ -107,26 +107,36 @@ class GeminiBuyer:
                 "5. Return strictly valid JSON conforming to the schema."
             )
 
+            sku_list_str = "\n".join([f"- {it['sku']}: {it['name']} (₹{it['price_paise']/100:.2f})" for it in catalog_facts])
             prompt = (
                 f"Merchant: {store_facts.get('display_name')} (ID: {store_facts.get('merchant_id')})\n"
                 f"Customer Goal: {goal}\n"
-                f"Budget Cap: ₹{budget_paise / 100:.2f}\n"
-                f"Available Catalog Facts:\n{json.dumps(catalog_facts, indent=2)}\n\n"
-                "Analyze the goal, pick the best matching SKUs, and produce the structured draft output."
+                f"Budget Cap: ₹{budget_paise / 100:.2f}\n\n"
+                f"Available SKUs (YOU MUST ONLY SELECT FROM THIS LIST):\n{sku_list_str}\n\n"
+                f"Detailed Catalog Facts:\n{json.dumps(catalog_facts, indent=2)}\n\n"
+                "Analyze the goal, pick the matching SKUs from the available list, and produce the structured draft output."
             )
 
-            cfg = types.GenerateContentConfig(
-                thinking_config=types.ThinkingConfig(thinking_level="medium"),
-                response_mime_type="application/json",
-                response_schema=GeminiDraftOutput,
-            )
-
-            # Attempt 1, with single retry on schema failure
+            # Attempt across available Gemini models
             raw_output = None
-            models_to_try = ["gemini-3.8-flash", "gemini-3.6-flash"]
+            models_to_try = [
+                "gemini-3.8-flash",
+                "gemini-3.7-flash",
+                "gemini-3.5-flash",
+                "gemini-flash-latest",
+            ]
             used_model = "gemini-3.8-flash"
             for model_name in models_to_try:
                 try:
+                    cfg_kwargs = {
+                        "system_instruction": system_instruction,
+                        "response_mime_type": "application/json",
+                        "response_schema": GeminiDraftOutput,
+                    }
+                    if "3.8" in model_name or "3.7" in model_name:
+                        cfg_kwargs["thinking_config"] = types.ThinkingConfig(thinking_level="medium")
+                    cfg = types.GenerateContentConfig(**cfg_kwargs)
+
                     response = client.models.generate_content(
                         model=model_name,
                         contents=prompt,
