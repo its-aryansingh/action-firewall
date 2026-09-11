@@ -494,8 +494,47 @@ class RazorpayRESTClient:
                         "Razorpay Test Mode 30-link quota exceeded; falling back to simulated provider",
                         target="simulated",
                     )
-                    sim_client = SimulatedMCPClient()
-                    return sim_client.call_tool(name, args, grant_id, context, cart_hash)
+                    if name == "create_payment_link":
+                        payment_link_id = f"plink_sim_{uuid.uuid4().hex[:12]}"
+                        result = {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(
+                                        {
+                                            "id": payment_link_id,
+                                            "amount": canonical.args["amount"],
+                                            "currency": "INR",
+                                            "status": "created",
+                                            "short_url": simulated_payment_link_url(payment_link_id),
+                                            "description": canonical.args.get("description", "Agent Purchase"),
+                                        }
+                                    ),
+                                }
+                            ]
+                        }
+                        return _persist_issued_or_unknown(grant.id, token, result)
+                    elif name == "refund":
+                        refund_id = f"rfnd_{uuid.uuid4().hex[:14]}"
+                        result = {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(
+                                        {
+                                            "id": refund_id,
+                                            "payment_id": canonical.args["payment_id"],
+                                            "amount": canonical.args["amount"],
+                                            "currency": "INR",
+                                            "status": "processed",
+                                            "speed_processed": canonical.args.get("speed", "normal"),
+                                            "receipt": canonical.args.get("receipt", ""),
+                                        }
+                                    ),
+                                }
+                            ]
+                        }
+                        return _persist_issued_or_unknown(grant.id, token, result)
 
                 store.cancel_action_grant(grant.id, f"PROVIDER_HTTP_{exc.response.status_code}")
                 try:

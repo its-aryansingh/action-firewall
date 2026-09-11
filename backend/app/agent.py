@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -125,37 +126,75 @@ def _llm_plan(
     history: list[dict],
 ) -> PlannerOutput | None:
     settings = get_settings()
+    context = {
+        "retrieved_catalog": [
+            {
+                "sku": product["sku"],
+                "name": product["name"],
+                "category": product["category"],
+                "price_rupees": product["price_paise"] / 100,
+                "tags": product.get("tags", []),
+            }
+            for product in retrieved
+        ],
+        "current_cart": [
+            {
+                "sku": line.sku,
+                "name": line.name,
+                "qty": line.qty,
+                "line_total_rupees": line.line_total_paise / 100,
+            }
+            for line in cart.lines
+        ],
+        "cart_total_rupees": cart.total_paise / 100,
+    }
+
+    # 1. Prefer Gemini if API key is configured
+    gemini_key = settings.gemini_api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if gemini_key:
+        try:
+            from google import genai
+            from google.genai import types
+
+            client = genai.Client(api_key=gemini_key)
+            prompt = (
+                f"CONTEXT:\n{json.dumps(context, indent=2)}\n\n"
+                f"SHOPPER: {message}\n\n"
+                "Return strictly valid JSON conforming to this schema:\n"
+                '{"reply": "string", "cart_ops": [{"op": "add"|"remove", "sku": "string", "qty": 1}], "intent": "discover"|"checkout"}'
+            )
+            models_to_try = [
+                "gemini-3.7-flash",
+                "gemini-3.5-flash",
+                "gemini-flash-latest",
+                "gemini-3.8-flash",
+            ]
+            for model_name in models_to_try:
+                try:
+                    cfg = types.GenerateContentConfig(
+                        system_instruction=SYSTEM_PROMPT,
+                        response_mime_type="application/json",
+                    )
+                    resp = client.models.generate_content(
+                        model=model_name,
+                        contents=prompt,
+                        config=cfg,
+                    )
+                    if resp.text:
+                        return PlannerOutput.model_validate_json(resp.text)
+                except Exception:
+                    continue
+        except Exception as exc:
+            print(f"[agent] Gemini chat planning failed, trying OpenAI or fallback: {exc}")
+
+    # 2. Fall back to OpenAI if configured
     if not settings.openai_api_key:
         return None
     try:
         from openai import OpenAI
 
         kwargs = {"api_key": settings.openai_api_key}
-        if settings.openai_base_url:
-            kwargs["base_url"] = settings.openai_base_url
         client = OpenAI(**kwargs)
-        context = {
-            "retrieved_catalog": [
-                {
-                    "sku": product["sku"],
-                    "name": product["name"],
-                    "category": product["category"],
-                    "price_rupees": product["price_paise"] / 100,
-                    "tags": product.get("tags", []),
-                }
-                for product in retrieved
-            ],
-            "current_cart": [
-                {
-                    "sku": line.sku,
-                    "name": line.name,
-                    "qty": line.qty,
-                    "line_total_rupees": line.line_total_paise / 100,
-                }
-                for line in cart.lines
-            ],
-            "cart_total_rupees": cart.total_paise / 100,
-        }
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         messages += history[-6:]
         messages.append(
@@ -329,7 +368,13 @@ def _resolve_term(term: str) -> tuple[str | None, tuple[str, ...]]:
             if len(exact) == 1:
                 return exact[0], ()
         candidates: tuple[str, ...] = ()
-        if len(tag_spans.get(word, ())) == 1:
+        if word == "pasta":
+            by = catalog.by_sku()
+            candidates = tuple(
+                s for s in tags.get("pasta", ())
+                if "staple" in by.get(s, {}).get("tags", []) or s.startswith("SKU-PAS")
+            )
+        elif len(tag_spans.get(word, ())) == 1:
             candidates = tags.get(word, ())
         elif spans.get(word):
             candidates = spans[word]

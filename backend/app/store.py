@@ -392,9 +392,17 @@ UNBOUND_SESSION = "unbound"
 
 def init_db() -> None:
     with _conn() as cx:
-        # WAL lets readers run while one writer holds the lock, which is what
-        # makes BEGIN IMMEDIATE cheap enough to take on every reservation.
         cx.execute("PRAGMA journal_mode=WAL")
+        tables = {r["name"] for r in cx.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "audit_log" in tables:
+            audit_cols = {r["name"] for r in cx.execute("PRAGMA table_info(audit_log)")}
+            for col, ddl in (
+                ("seq", "ALTER TABLE audit_log ADD COLUMN seq INTEGER"),
+                ("prev_hash", "ALTER TABLE audit_log ADD COLUMN prev_hash TEXT"),
+                ("entry_hash", "ALTER TABLE audit_log ADD COLUMN entry_hash TEXT"),
+            ):
+                if col not in audit_cols:
+                    cx.execute(ddl)
         cx.executescript(SCHEMA)
         _migrate(cx)
 
@@ -612,6 +620,17 @@ def _migrate(cx: sqlite3.Connection) -> None:
             cx.execute(ddl)
 
     cx.execute("CREATE INDEX IF NOT EXISTS idx_ledger_razorpay_ref ON spend_ledger(razorpay_ref)")
+
+    audit_cols = {r["name"] for r in cx.execute("PRAGMA table_info(audit_log)")}
+    audit_additions = [
+        ("seq", "ALTER TABLE audit_log ADD COLUMN seq INTEGER"),
+        ("prev_hash", "ALTER TABLE audit_log ADD COLUMN prev_hash TEXT"),
+        ("entry_hash", "ALTER TABLE audit_log ADD COLUMN entry_hash TEXT"),
+    ]
+    for col, ddl in audit_additions:
+        if col not in audit_cols:
+            cx.execute(ddl)
+    cx.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_seq ON audit_log(seq) WHERE seq IS NOT NULL")
     cx.execute(
         """CREATE TABLE IF NOT EXISTS webhook_events (
                event_id TEXT PRIMARY KEY,
